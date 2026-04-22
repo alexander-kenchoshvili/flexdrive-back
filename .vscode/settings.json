@@ -1,0 +1,14 @@
+{
+  "files.encoding": "utf8",
+  "files.autoGuessEncoding": false,
+  "terminal.integrated.profiles.windows": {
+    "PowerShell 7": {
+      "path": "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
+    }
+  },
+  "terminal.integrated.defaultProfile.windows": "PowerShell 7",
+  "terminal.integrated.env.windows": {
+    "PYTHONUTF8": "1",
+    "PYTHONIOENCODING": "utf-8"
+  }
+}

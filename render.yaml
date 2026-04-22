@@ -1,0 +1,24 @@
+databases:
+  - name: shopback-staging-db
+    databaseName: shopback_staging
+    user: shopback_staging_user
+
+services:
+  - type: web
+    name: shopback-staging
+    runtime: python
+    plan: free
+    buildCommand: bash build.sh
+    startCommand: bash start.sh
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: shopback-staging-db
+          property: connectionString
