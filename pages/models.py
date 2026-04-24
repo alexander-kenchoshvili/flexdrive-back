@@ -51,7 +51,7 @@ class Page(models.Model):
 
 
 class FooterSettings(models.Model):
-    brand_name = models.CharField(max_length=255, default="AutoMate")
+    brand_name = models.CharField(max_length=255, default="FlexDrive")
     brand_description = models.TextField(blank=True, null=True)
     trust_item_1 = models.CharField(max_length=255, blank=True, null=True)
     trust_item_2 = models.CharField(max_length=255, blank=True, null=True)
@@ -79,7 +79,7 @@ class FooterSettings(models.Model):
 
 
 class SiteSettings(models.Model):
-    site_name = models.CharField(max_length=255, default="AutoMate")
+    site_name = models.CharField(max_length=255, default="FlexDrive")
     default_seo_title = models.CharField(max_length=255, blank=True, null=True)
     default_seo_description = models.TextField(blank=True, null=True)
     default_seo_image = models.ImageField(upload_to="seo/", blank=True, null=True)

@@ -64,7 +64,7 @@ class ContactInquiryCreateAPIView(APIView):
         subject = f"ახალი საკონტაქტო მოთხოვნა: {inquiry.topic_label}"
         body = "\n".join(
             [
-                "მივიღეთ ახალი საკონტაქტო მოთხოვნა AutoMate-იდან.",
+                "მივიღეთ ახალი საკონტაქტო მოთხოვნა FlexDrive-იდან.",
                 "",
                 f"თემა: {inquiry.topic_label}",
                 f"სახელი: {inquiry.full_name}",

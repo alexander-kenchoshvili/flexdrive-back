@@ -300,7 +300,7 @@ class FooterSettingsSerializer(serializers.ModelSerializer):
 
     def get_brand(self, obj):
         return {
-            "name": obj.brand_name or "AutoMate",
+            "name": obj.brand_name or "FlexDrive",
             "description": obj.brand_description or "",
         }
 

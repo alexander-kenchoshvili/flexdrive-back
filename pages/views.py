@@ -311,7 +311,7 @@ class MenuListAPIView(generics.ListAPIView):
 class SiteSettingsAPIView(APIView):
     @cache_api_response(CACHE_GROUP_PAGES_SITE_SETTINGS, "CACHE_TTL_SITE_SETTINGS")
     def get(self, request):
-        site_settings = SiteSettings.objects.first() or SiteSettings(site_name="AutoMate")
+        site_settings = SiteSettings.objects.first() or SiteSettings(site_name="FlexDrive")
         serializer = SiteSettingsSerializer(site_settings, context={"request": request})
         return Response(serializer.data)
 
@@ -424,7 +424,7 @@ class FooterAPIView(APIView):
     @cache_api_response(CACHE_GROUP_PAGES_FOOTER, "CACHE_TTL_FOOTER")
     def get(self, request):
         footer_settings = FooterSettings.objects.first() or FooterSettings(
-            brand_name="AutoMate",
+            brand_name="FlexDrive",
             brand_description="",
             copyright_text="",
         )

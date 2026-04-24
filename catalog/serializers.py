@@ -13,7 +13,7 @@ def _resolve_category_seo_payload(request, category):
     canonical = category.seo_canonical_url or f"/catalog/category/{category.slug}"
     title = (category.seo_title or "").strip() or f"{category.name} კატეგორია"
     description = (category.seo_description or "").strip() or (
-        f"დაათვალიერე {category.name} კატეგორიის პროდუქტები AutoMate-ში."
+        f"დაათვალიერე {category.name} კატეგორიის ხარისხიანი ავტონაწილები FlexDrive-ზე."
     )
 
     return {
