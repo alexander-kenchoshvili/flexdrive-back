@@ -350,6 +350,7 @@ class CatalogAPITests(APITestCase):
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]["slug"], "interior")
         self.assertEqual(response.data[0]["product_count"], 12)
+        self.assertIn("image", response.data[0])
 
 
 class SeedCatalogCommandTests(TestCase):
@@ -433,6 +434,59 @@ class ProductImageNormalizationTests(TestCase):
         self.assertTrue(image.image_desktop.name.endswith(".webp"))
 
         with Image.open(image.image_desktop) as desktop:
+            self.assertEqual(desktop.format, "WEBP")
+
+
+class CategoryImageNormalizationTests(TestCase):
+    def setUp(self):
+        Category.objects.all().delete()
+
+    def test_original_upload_generates_standardized_webp_variants(self):
+        category = Category.objects.create(
+            name="Brake System",
+            slug="brake-system",
+            sort_order=1,
+            image_original=_generate_test_image(
+                "brake-system.jpg",
+                color=(25, 35, 45),
+                size=(1600, 900),
+            ),
+            image_alt_text="Brake parts",
+        )
+
+        category.refresh_from_db()
+
+        self.assertTrue(category.image_original.name.endswith(".jpg"))
+        self.assertTrue(category.image_desktop.name.endswith(".webp"))
+        self.assertTrue(category.image_tablet.name.endswith(".webp"))
+        self.assertTrue(category.image_mobile.name.endswith(".webp"))
+
+        with Image.open(category.image_desktop) as desktop:
+            self.assertEqual(desktop.size, (1440, 1440))
+            self.assertEqual(desktop.format, "WEBP")
+
+        with Image.open(category.image_tablet) as tablet:
+            self.assertEqual(tablet.size, (1080, 1080))
+            self.assertEqual(tablet.format, "WEBP")
+
+        with Image.open(category.image_mobile) as mobile:
+            self.assertEqual(mobile.size, (720, 720))
+            self.assertEqual(mobile.format, "WEBP")
+
+    def test_legacy_manual_variant_upload_still_converts_to_webp(self):
+        category = Category.objects.create(
+            name="Filters",
+            slug="filters",
+            sort_order=1,
+            image_desktop=_generate_test_image("filters-desktop.jpg"),
+        )
+
+        category.refresh_from_db()
+
+        self.assertFalse(bool(category.image_original))
+        self.assertTrue(category.image_desktop.name.endswith(".webp"))
+
+        with Image.open(category.image_desktop) as desktop:
             self.assertEqual(desktop.format, "WEBP")
 
 

@@ -21,6 +21,12 @@ def product_image_upload_to(instance, filename):
     return f"catalog/products/{product_id}/images/{uuid.uuid4().hex}{ext}"
 
 
+def category_image_upload_to(instance, filename):
+    ext = os.path.splitext(filename)[1].lower() or ".jpg"
+    category_id = instance.pk or instance.slug or "unsaved"
+    return f"catalog/categories/{category_id}/images/{uuid.uuid4().hex}{ext}"
+
+
 class TimeStampedModel(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -30,8 +36,35 @@ class TimeStampedModel(models.Model):
 
 
 class Category(TimeStampedModel):
+    STANDARDIZED_VARIANT_SPECS = {
+        "image_desktop": ((1440, 1440), "desktop"),
+        "image_tablet": ((1080, 1080), "tablet"),
+        "image_mobile": ((720, 720), "mobile"),
+    }
+
     name = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255, unique=True)
+    image_original = models.ImageField(
+        upload_to=category_image_upload_to,
+        blank=True,
+        null=True,
+    )
+    image_desktop = models.ImageField(
+        upload_to=category_image_upload_to,
+        blank=True,
+        null=True,
+    )
+    image_tablet = models.ImageField(
+        upload_to=category_image_upload_to,
+        blank=True,
+        null=True,
+    )
+    image_mobile = models.ImageField(
+        upload_to=category_image_upload_to,
+        blank=True,
+        null=True,
+    )
+    image_alt_text = models.CharField(max_length=255, blank=True)
     seo_title = models.CharField(max_length=255, blank=True, null=True)
     seo_description = models.TextField(blank=True, null=True)
     seo_image = models.ImageField(upload_to="seo/", blank=True, null=True)
@@ -56,6 +89,105 @@ class Category(TimeStampedModel):
     def clean(self):
         if self.pk and self.parent_id == self.pk:
             raise ValidationError({"parent": "Category cannot be parent of itself."})
+
+    def save(self, *args, **kwargs):
+        tracked_fields = {
+            "image_original",
+            "image_desktop",
+            "image_tablet",
+            "image_mobile",
+        }
+        update_fields = kwargs.get("update_fields")
+        update_field_set = set(update_fields) if update_fields is not None else None
+        original_changed = False
+
+        if self.pk and (update_field_set is None or "image_original" in update_field_set):
+            previous_original_name = (
+                type(self)
+                .objects.filter(pk=self.pk)
+                .values_list("image_original", flat=True)
+                .first()
+            )
+            original_changed = str(previous_original_name or "") != str(
+                self.image_original.name or ""
+            )
+        elif self.image_original:
+            original_changed = True
+
+        variants_missing = any(
+            not getattr(self, field_name)
+            for field_name in self.STANDARDIZED_VARIANT_SPECS
+        )
+
+        super().save(*args, **kwargs)
+
+        if update_field_set is not None and tracked_fields.isdisjoint(update_field_set):
+            return
+
+        if self.image_original and (original_changed or variants_missing):
+            generated_fields = self._generate_variants_from_original()
+            if generated_fields:
+                super().save(
+                    update_fields=build_conversion_update_fields(self, generated_fields)
+                )
+            return
+
+        if self.image_original:
+            return
+
+        converted_fields = self._convert_variants_to_webp()
+        if converted_fields:
+            super().save(update_fields=build_conversion_update_fields(self, converted_fields))
+
+    def _generate_variants_from_original(self):
+        generated_fields = []
+        source_name = str(self.image_original.name or "")
+
+        for field_name, (size, suffix) in self.STANDARDIZED_VARIANT_SPECS.items():
+            content = build_contained_webp_content(
+                self.image_original,
+                size=size,
+                background_color=(255, 255, 255),
+                quality=85,
+            )
+            target_field = getattr(self, field_name)
+            if save_generated_webp_to_field(
+                target_field,
+                source_name,
+                content,
+                suffix=suffix,
+            ):
+                generated_fields.append(field_name)
+
+        return generated_fields
+
+    def _convert_variants_to_webp(self):
+        converted_fields = []
+        for field_name in ("image_desktop", "image_tablet", "image_mobile"):
+            image_field = getattr(self, field_name)
+            if convert_image_field_to_webp(image_field, quality=85):
+                converted_fields.append(field_name)
+
+        return converted_fields
+
+    def _fallback_image(self, *field_names):
+        for field_name in field_names:
+            image = getattr(self, field_name)
+            if image:
+                return image
+        return None
+
+    @property
+    def desktop_image(self):
+        return self._fallback_image("image_desktop", "image_tablet", "image_mobile")
+
+    @property
+    def tablet_image(self):
+        return self._fallback_image("image_tablet", "image_desktop", "image_mobile")
+
+    @property
+    def mobile_image(self):
+        return self._fallback_image("image_mobile", "image_tablet", "image_desktop")
 
     def __str__(self):
         return self.name

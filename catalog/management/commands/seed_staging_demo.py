@@ -17,7 +17,7 @@ FEATURED_COMPONENT_NAME = "FeaturedProducts"
 HOME_COMPONENT_ORDER = {
     "HeroSection": 10,
     "FeaturedProducts": 20,
-    "ProblemSolving": 30,
+    "CategoryShortcuts": 30,
     "OrderConfidence": 40,
     "HowItWorks": 50,
     "BlogSection": 60,

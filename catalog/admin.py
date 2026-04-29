@@ -68,7 +68,15 @@ class InStockListFilter(admin.SimpleListFilter):
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    list_display = ("name", "slug", "parent", "sort_order", "is_active", "updated_at")
+    list_display = (
+        "name",
+        "slug",
+        "parent",
+        "sort_order",
+        "is_active",
+        "has_image",
+        "updated_at",
+    )
     list_filter = ("is_active", "parent")
     search_fields = ("name", "slug")
     list_editable = ("sort_order", "is_active")
@@ -76,6 +84,18 @@ class CategoryAdmin(admin.ModelAdmin):
     ordering = ("sort_order", "name")
     fieldsets = (
         ("General", {"fields": ("name", "slug", "parent", "sort_order", "is_active")}),
+        (
+            "Category image",
+            {
+                "fields": (
+                    "image_original",
+                    "image_desktop",
+                    "image_tablet",
+                    "image_mobile",
+                    "image_alt_text",
+                )
+            },
+        ),
         (
             "SEO",
             {
@@ -89,6 +109,10 @@ class CategoryAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+    @admin.display(boolean=True, description="image")
+    def has_image(self, obj):
+        return bool(obj.desktop_image or obj.tablet_image or obj.mobile_image)
 
 
 @admin.register(Product)

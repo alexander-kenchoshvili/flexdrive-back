@@ -54,11 +54,30 @@ def _resolve_product_seo_payload(request, product, primary_image=None):
 
 class CategorySerializer(serializers.ModelSerializer):
     product_count = serializers.IntegerField(read_only=True)
+    image = serializers.SerializerMethodField()
     seo = serializers.SerializerMethodField()
 
     class Meta:
         model = Category
-        fields = ("id", "name", "slug", "parent", "sort_order", "product_count", "seo")
+        fields = (
+            "id",
+            "name",
+            "slug",
+            "parent",
+            "sort_order",
+            "product_count",
+            "image",
+            "seo",
+        )
+
+    def get_image(self, obj):
+        request = self.context["request"]
+        return {
+            "desktop": _absolute_file_url(request, obj.desktop_image),
+            "tablet": _absolute_file_url(request, obj.tablet_image),
+            "mobile": _absolute_file_url(request, obj.mobile_image),
+            "alt_text": (obj.image_alt_text or "").strip() or obj.name,
+        }
 
     def get_seo(self, obj):
         request = self.context["request"]
