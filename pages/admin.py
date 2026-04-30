@@ -207,6 +207,32 @@ class ContentItemInline(admin.TabularInline):
     ordering = ("position", "id")
     show_change_link = True
 
+    base_fields = (
+        "title",
+        "description",
+        "content_type",
+        "position",
+        "singlePageRoute",
+    )
+    category_fields = (
+        "title",
+        "content_type",
+        "catalog_category",
+        "position",
+        "singlePageRoute",
+    )
+    image_fields = (
+        "image_desktop",
+        "image_tablet",
+        "image_mobile",
+    )
+
+    def get_fields(self, request, obj=None):
+        content_name = (getattr(obj, "name", "") or "").lower()
+        if content_name == "value_proposition_cards":
+            return self.base_fields + self.image_fields
+        return self.category_fields
+
 
 @admin.register(Content)
 class ContentAdmin(admin.ModelAdmin):

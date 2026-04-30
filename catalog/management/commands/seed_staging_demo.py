@@ -18,9 +18,10 @@ HOME_COMPONENT_ORDER = {
     "HeroSection": 10,
     "FeaturedProducts": 20,
     "CategoryShortcuts": 30,
-    "OrderConfidence": 40,
-    "HowItWorks": 50,
-    "BlogSection": 60,
+    "ValueProposition": 40,
+    "OrderConfidence": 50,
+    "HowItWorks": 60,
+    "BlogSection": 70,
 }
 
 CATEGORY_SEED_DATA = (

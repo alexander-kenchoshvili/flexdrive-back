@@ -9,6 +9,63 @@ from pages.models import BlogPost, Component, ComponentType, Content, ContentIte
 
 
 class GetCurrentContentAPITests(APITestCase):
+    def test_main_page_includes_seeded_value_proposition_component(self):
+        response = self.client.post(
+            reverse("get-current-content"),
+            {"slug": "main"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        value_component = Component.objects.get(
+            page__slug="main",
+            component_type__name="ValueProposition",
+        )
+        order_confidence_component = Component.objects.get(
+            page__slug="main",
+            component_type__name="OrderConfidence",
+        )
+        component_key = f"ValueProposition_{value_component.id}"
+        component_payload = response.data["secondary"][component_key]
+        items = component_payload["data"]["contentData"]["list"]
+
+        self.assertEqual(value_component.position, 40)
+        self.assertEqual(order_confidence_component.position, 50)
+        self.assertEqual(
+            component_payload["data"]["title"],
+            "ავტონაწილების შერჩევა Flex[[Drive]]-თან ერთად",
+        )
+        self.assertEqual(
+            component_payload["data"]["subtitle"],
+            "შეარჩიე საჭირო ავტონაწილები ონლაინ, დაზოგე დრო ძებნაზე და მიიღე შეკვეთა შენთვის მოსახერხებელი პირობებით.",
+        )
+        self.assertEqual(len(items), 3)
+        self.assertEqual(
+            [item["title"] for item in items],
+            [
+                "დაზოგე დრო ძებნაზე",
+                "ისარგებლე მოქნილი გადახდით",
+                "მიიღე შეკვეთა მისამართზე",
+            ],
+        )
+        self.assertEqual(
+            [item["description"] for item in items],
+            [
+                "შეარჩიე საჭირო ავტონაწილები ონლაინ, სხვადასხვა ადგილზე გადაადგილებისა და ხანგრძლივი ძებნის გარეშე.",
+                "თუ თანხის ერთიანად გადახდა არ გსურს, შეგიძლია ისარგებლო ნაწილ-ნაწილ გადახდის შესაძლებლობით.",
+                "შეკვეთილ ნაწილებს მიიღებ შენთვის მოსახერხებელ მისამართზე, სწრაფად და ორგანიზებულად.",
+            ],
+        )
+        self.assertEqual(
+            [item["content_type"] for item in items],
+            [
+                "value_proposition_card",
+                "value_proposition_card",
+                "value_proposition_card",
+            ],
+        )
+
     def test_main_page_includes_seeded_order_confidence_component(self):
         response = self.client.post(
             reverse("get-current-content"),
@@ -26,7 +83,7 @@ class GetCurrentContentAPITests(APITestCase):
         component_payload = response.data["secondary"][component_key]
         items = component_payload["data"]["contentData"]["list"]
 
-        self.assertEqual(component.position, 40)
+        self.assertEqual(component.position, 50)
         self.assertEqual(
             component_payload["data"]["title"],
             "შეკვეთა Auto[[Mate]]-ზე წინასწარ გასაგებია",
