@@ -117,6 +117,53 @@ class GetCurrentContentAPITests(APITestCase):
         )
         self.assertTrue(all("<svg" in (item["icon_svg"] or "") for item in items))
 
+    def test_main_page_includes_refreshed_how_it_works_component(self):
+        response = self.client.post(
+            reverse("get-current-content"),
+            {"slug": "main"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        component = Component.objects.get(
+            page__slug="main",
+            component_type__name="HowItWorks",
+        )
+        component_key = f"HowItWorks_{component.id}"
+        component_payload = response.data["secondary"][component_key]
+        items = component_payload["data"]["contentData"]["list"]
+
+        self.assertEqual(component.position, 60)
+        self.assertEqual(
+            component_payload["data"]["title"],
+            "აირჩიე გზა შეკვეთამდე Flex[[Drive]]-ზე",
+        )
+        self.assertEqual(
+            component_payload["data"]["subtitle"],
+            "სწრაფი checkout სტუმრისთვის ან სრული კონტროლი ავტორიზებული მომხმარებლისთვის - ორივე გზით შეკვეთა მარტივად სრულდება.",
+        )
+        self.assertEqual(len(items), 14)
+        self.assertEqual(
+            [(item["content_type"], item["title"]) for item in items],
+            [
+                ("guest_tab", "სტუმრად ყიდვა"),
+                ("registered_tab", "ანგარიშით ყიდვა"),
+                ("guest_step", "იპოვე საჭირო ნაწილი"),
+                ("guest_step", "აირჩიე ყიდვის გზა"),
+                ("guest_step", "შეავსე მონაცემები"),
+                ("guest_step", "დაადასტურე შეკვეთა"),
+                ("guest_card", "სტუმრად ყიდვა სწრაფია"),
+                ("registered_step", "შედი ანგარიშში"),
+                ("registered_step", "გამოიყენე Wishlist და ისტორია"),
+                ("registered_step", "დაასრულე Checkout სწრაფად"),
+                ("registered_step", "აკონტროლე შეკვეთა"),
+                ("registered_card", "Wishlist და განმეორებითი არჩევანი"),
+                ("registered_card", "შენახული მისამართები"),
+                ("registered_card", "შეკვეთების ისტორია"),
+            ],
+        )
+
     def test_privacy_policy_page_includes_seeded_component(self):
         response = self.client.post(
             reverse("get-current-content"),
