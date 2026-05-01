@@ -136,3 +136,20 @@ If tests cannot be run because of local environment constraints, state that clea
 ## Session Memory
 
 This file exists so the project context does not need to be re-explained in every Codex session. Treat it as the durable project brief for future work in this backend repository.
+
+## Current Redesign State - 2026-05-01
+
+- Homepage CMS data is being updated to support the FlexDrive redesign while preserving existing ecommerce APIs and admin workflows.
+- `ProblemSolving` was renamed/replaced by `CategoryShortcuts`; the old problem-solving content was cleaned up. Category image upload/processing supports the frontend category card slider.
+- `ValueProposition` was added as a homepage component between `CategoryShortcuts` and `OrderConfidence`.
+  - Migration `pages/migrations/0041_seed_value_proposition_component.py` seeds the component, content `value_proposition_cards`, 3 content items, and homepage ordering.
+  - Admin supports image uploads on each value proposition card.
+- `OrderConfidence` backend content was refreshed:
+  - `pages/migrations/0042_refresh_order_confidence_cards.py` updates card order/copy to process, registration, payment, delivery.
+  - `pages/migrations/0043_shorten_order_confidence_registration_title.py` shortens the second title to `რეგისტრაციის გარეშე`.
+  - Current expected card titles: `შეკვეთა მარტივად იწყება`, `რეგისტრაციის გარეშე`, `გადახდა შენზეა მორგებული`, `მიწოდება წინასწარ გასაგებია`.
+- Staging DB was updated as of 2026-05-01:
+  - `pages` migrations are applied through `0043`.
+  - `OrderConfidence` title was manually set in staging DB to `შეკვეთა Flex[[Drive]]-ზე მარტივად და გარკვევით` to match local CMS content.
+  - If staging UI shows old homepage text, suspect cached `get-current-content` response before changing migrations.
+- Frontend no longer visually uses `OrderConfidence.content_items.icon_svg`; keep the field for compatibility unless a later cleanup is explicitly requested.
