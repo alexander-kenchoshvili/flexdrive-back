@@ -423,11 +423,7 @@ class SitemapEntriesAPIView(APIView):
 class FooterAPIView(APIView):
     @cache_api_response(CACHE_GROUP_PAGES_FOOTER, "CACHE_TTL_FOOTER")
     def get(self, request):
-        footer_settings = FooterSettings.objects.first() or FooterSettings(
-            brand_name="FlexDrive",
-            brand_description="",
-            copyright_text="",
-        )
+        footer_settings = FooterSettings.objects.get(pk=1)
         settings_payload = FooterSettingsSerializer(footer_settings).data
 
         def _group_payload(group_name):

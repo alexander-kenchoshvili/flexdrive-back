@@ -300,8 +300,8 @@ class FooterSettingsSerializer(serializers.ModelSerializer):
 
     def get_brand(self, obj):
         return {
-            "name": obj.brand_name or "FlexDrive",
-            "description": obj.brand_description or "",
+            "name": obj.brand_name,
+            "description": obj.brand_description,
         }
 
     def get_trust_items(self, obj):
