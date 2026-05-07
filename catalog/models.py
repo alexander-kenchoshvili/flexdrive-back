@@ -3,7 +3,7 @@ import uuid
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
 
@@ -193,10 +193,119 @@ class Category(TimeStampedModel):
         return self.name
 
 
+class Brand(TimeStampedModel):
+    name = models.CharField(max_length=120)
+    slug = models.SlugField(max_length=140, unique=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        ordering = ("sort_order", "name")
+        indexes = [
+            models.Index(fields=["is_active", "sort_order"]),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class VehicleMake(TimeStampedModel):
+    name = models.CharField(max_length=120)
+    slug = models.SlugField(max_length=140, unique=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        ordering = ("sort_order", "name")
+        indexes = [
+            models.Index(fields=["is_active", "sort_order"]),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class VehicleModel(TimeStampedModel):
+    make = models.ForeignKey(
+        VehicleMake,
+        related_name="models",
+        on_delete=models.PROTECT,
+    )
+    name = models.CharField(max_length=120)
+    slug = models.SlugField(max_length=140)
+    sort_order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        ordering = ("make__sort_order", "make__name", "sort_order", "name")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["make", "slug"],
+                name="catalog_unique_vehicle_model_slug_per_make",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["make", "is_active", "sort_order"]),
+        ]
+
+    def __str__(self):
+        return f"{self.make.name} {self.name}"
+
+
+class VehicleEngine(TimeStampedModel):
+    model = models.ForeignKey(
+        VehicleModel,
+        related_name="engines",
+        on_delete=models.PROTECT,
+    )
+    name = models.CharField(max_length=140)
+    slug = models.SlugField(max_length=160)
+    sort_order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        ordering = (
+            "model__make__sort_order",
+            "model__make__name",
+            "model__sort_order",
+            "model__name",
+            "sort_order",
+            "name",
+        )
+        constraints = [
+            models.UniqueConstraint(
+                fields=["model", "slug"],
+                name="catalog_unique_vehicle_engine_slug_per_model",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["model", "is_active", "sort_order"]),
+        ]
+
+    def __str__(self):
+        return f"{self.model} {self.name}"
+
+
 class ProductStatus(models.TextChoices):
     DRAFT = "draft", "Draft"
     PUBLISHED = "published", "Published"
     ARCHIVED = "archived", "Archived"
+
+
+class ProductPlacement(models.TextChoices):
+    FRONT = "front", "Front"
+    REAR = "rear", "Rear"
+    UPPER = "upper", "Upper"
+    LOWER = "lower", "Lower"
+    INNER = "inner", "Inner"
+    OUTER = "outer", "Outer"
+
+
+class ProductSide(models.TextChoices):
+    LEFT = "left", "Left"
+    RIGHT = "right", "Right"
+    BOTH = "both", "Both"
+    CENTER = "center", "Center"
 
 
 class Product(TimeStampedModel):
@@ -205,9 +314,17 @@ class Product(TimeStampedModel):
         related_name="products",
         on_delete=models.PROTECT,
     )
+    brand = models.ForeignKey(
+        Brand,
+        related_name="products",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
     name = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255, unique=True)
     sku = models.CharField(max_length=64, unique=True)
+    manufacturer_part_number = models.CharField(max_length=120, blank=True)
     seo_title = models.CharField(max_length=255, blank=True, null=True)
     seo_description = models.TextField(blank=True, null=True)
     seo_image = models.ImageField(upload_to="seo/", blank=True, null=True)
@@ -227,9 +344,20 @@ class Product(TimeStampedModel):
         null=True,
         validators=[MinValueValidator(Decimal("0.00"))],
     )
+    placement = models.CharField(
+        max_length=20,
+        choices=ProductPlacement.choices,
+        blank=True,
+    )
+    side = models.CharField(
+        max_length=20,
+        choices=ProductSide.choices,
+        blank=True,
+    )
     stock_qty = models.PositiveIntegerField(default=0)
     is_new = models.BooleanField(default=False, db_index=True)
     is_featured = models.BooleanField(default=False, db_index=True)
+    is_universal_fitment = models.BooleanField(default=False, db_index=True)
     status = models.CharField(
         max_length=20,
         choices=ProductStatus.choices,
@@ -241,8 +369,11 @@ class Product(TimeStampedModel):
         ordering = ("-created_at", "id")
         indexes = [
             models.Index(fields=["category", "status"]),
+            models.Index(fields=["brand", "status"]),
             models.Index(fields=["status", "created_at"]),
             models.Index(fields=["is_featured", "is_new"]),
+            models.Index(fields=["placement", "side"]),
+            models.Index(fields=["is_universal_fitment", "status"]),
         ]
 
     def clean(self):
@@ -266,6 +397,82 @@ class Product(TimeStampedModel):
 
     def __str__(self):
         return self.name
+
+
+class ProductFitment(TimeStampedModel):
+    product = models.ForeignKey(
+        Product,
+        related_name="fitments",
+        on_delete=models.CASCADE,
+    )
+    vehicle_model = models.ForeignKey(
+        VehicleModel,
+        related_name="product_fitments",
+        on_delete=models.PROTECT,
+    )
+    engine = models.ForeignKey(
+        VehicleEngine,
+        related_name="product_fitments",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+    )
+    year_from = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1900), MaxValueValidator(2100)]
+    )
+    year_to = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1900), MaxValueValidator(2100)]
+    )
+    notes = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = (
+            "vehicle_model__make__name",
+            "vehicle_model__name",
+            "year_from",
+            "year_to",
+            "engine__name",
+        )
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product", "vehicle_model", "engine", "year_from", "year_to"],
+                name="catalog_unique_product_fitment",
+            ),
+            models.UniqueConstraint(
+                fields=["product", "vehicle_model", "year_from", "year_to"],
+                condition=Q(engine__isnull=True),
+                name="catalog_unique_generic_product_fitment",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["product", "vehicle_model"]),
+            models.Index(fields=["vehicle_model", "year_from", "year_to"]),
+            models.Index(fields=["engine", "year_from", "year_to"]),
+        ]
+
+    def clean(self):
+        if self.year_from > self.year_to:
+            raise ValidationError(
+                {"year_to": "year_to must be greater than or equal to year_from."}
+            )
+
+        if (
+            self.engine_id
+            and self.vehicle_model_id
+            and self.engine.model_id != self.vehicle_model_id
+        ):
+            raise ValidationError(
+                {"engine": "Engine must belong to the selected vehicle model."}
+            )
+
+    def __str__(self):
+        year_range = (
+            str(self.year_from)
+            if self.year_from == self.year_to
+            else f"{self.year_from}-{self.year_to}"
+        )
+        engine = f" {self.engine.name}" if self.engine_id else ""
+        return f"{self.product.name}: {self.vehicle_model} {year_range}{engine}"
 
 
 class ProductImage(TimeStampedModel):

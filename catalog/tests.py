@@ -11,7 +11,20 @@ from PIL import Image
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import Category, Product, ProductImage, ProductSpec, ProductStatus
+from .models import (
+    Brand,
+    Category,
+    Product,
+    ProductFitment,
+    ProductImage,
+    ProductPlacement,
+    ProductSide,
+    ProductSpec,
+    ProductStatus,
+    VehicleEngine,
+    VehicleMake,
+    VehicleModel,
+)
 
 
 def _generate_test_image(filename="sample.jpg", color=(255, 0, 0), size=(100, 100)):
@@ -29,24 +42,115 @@ class CatalogAPITests(APITestCase):
 
         self.interior = Category.objects.create(name="Interior", slug="interior", sort_order=1)
         self.exterior = Category.objects.create(name="Exterior", slug="exterior", sort_order=2)
+        self.brand = Brand.objects.create(name="Taiwan Parts", slug="taiwan-parts", sort_order=1)
+        self.other_brand = Brand.objects.create(name="Roadline", slug="roadline", sort_order=2)
+
+        self.toyota = VehicleMake.objects.create(name="Toyota", slug="toyota", sort_order=1)
+        self.honda = VehicleMake.objects.create(name="Honda", slug="honda", sort_order=2)
+        self.empty_make = VehicleMake.objects.create(name="Empty Make", slug="empty-make", sort_order=3)
+        self.inactive_make = VehicleMake.objects.create(
+            name="Inactive Make",
+            slug="inactive-make",
+            sort_order=4,
+            is_active=False,
+        )
+        self.camry = VehicleModel.objects.create(
+            make=self.toyota,
+            name="Camry",
+            slug="camry",
+            sort_order=1,
+        )
+        self.corolla = VehicleModel.objects.create(
+            make=self.toyota,
+            name="Corolla",
+            slug="corolla",
+            sort_order=2,
+        )
+        self.accord = VehicleModel.objects.create(
+            make=self.honda,
+            name="Accord",
+            slug="accord",
+            sort_order=1,
+        )
+        self.hybrid_engine = VehicleEngine.objects.create(
+            model=self.camry,
+            name="2.5 Hybrid",
+            slug="25-hybrid",
+            sort_order=1,
+        )
+        self.gas_engine = VehicleEngine.objects.create(
+            model=self.camry,
+            name="2.5 Gas",
+            slug="25-gas",
+            sort_order=2,
+        )
+        self.inactive_engine = VehicleEngine.objects.create(
+            model=self.camry,
+            name="Inactive Engine",
+            slug="inactive-engine",
+            sort_order=3,
+            is_active=False,
+        )
 
         self.products = []
         for i in range(12):
             product = Product.objects.create(
                 category=self.interior,
+                brand=self.brand if i % 2 == 0 else self.other_brand,
                 name=f"Product {i}",
                 slug=f"product-{i}",
                 sku=f"SKU-{i}",
+                manufacturer_part_number=f"MPN-{i}",
                 short_description="Short description",
                 description="Long description",
                 price=Decimal("10.00") + Decimal(i),
                 old_price=Decimal("20.00") + Decimal(i) if i % 2 == 0 else None,
+                placement=ProductPlacement.FRONT if i % 2 == 0 else ProductPlacement.REAR,
+                side=ProductSide.LEFT if i % 2 == 0 else ProductSide.RIGHT,
                 stock_qty=5 if i % 3 else 0,
                 is_new=i < 5,
                 is_featured=i in (1, 3, 5),
+                is_universal_fitment=i == 3,
                 status=ProductStatus.PUBLISHED,
             )
             self.products.append(product)
+
+        ProductFitment.objects.create(
+            product=self.products[0],
+            vehicle_model=self.camry,
+            year_from=2018,
+            year_to=2020,
+            notes="Generic Camry fitment",
+        )
+        ProductFitment.objects.create(
+            product=self.products[1],
+            vehicle_model=self.camry,
+            engine=self.hybrid_engine,
+            year_from=2018,
+            year_to=2019,
+            notes="Hybrid only",
+        )
+        ProductFitment.objects.create(
+            product=self.products[2],
+            vehicle_model=self.camry,
+            engine=self.gas_engine,
+            year_from=2018,
+            year_to=2018,
+            notes="Gas only",
+        )
+        ProductFitment.objects.create(
+            product=self.products[4],
+            vehicle_model=self.accord,
+            year_from=2017,
+            year_to=2019,
+        )
+        ProductFitment.objects.create(
+            product=self.products[5],
+            vehicle_model=self.camry,
+            engine=self.inactive_engine,
+            year_from=2018,
+            year_to=2018,
+        )
 
         Product.objects.create(
             category=self.exterior,
@@ -96,6 +200,115 @@ class CatalogAPITests(APITestCase):
         for row in response.data["results"]:
             self.assertTrue(row["on_sale"])
 
+    def test_products_filter_by_vehicle_model_year(self):
+        response = self.client.get(
+            reverse("catalog-product-list"),
+            {"make": "toyota", "model": "camry", "year": "2018"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slugs = {row["slug"] for row in response.data["results"]}
+        self.assertEqual(slugs, {"product-0", "product-1", "product-2", "product-3"})
+        compatibility = {row["slug"]: row["compatibility"] for row in response.data["results"]}
+        self.assertEqual(compatibility["product-0"]["match_type"], "vehicle_year")
+        self.assertEqual(compatibility["product-3"]["match_type"], "universal")
+
+    def test_products_filter_by_vehicle_engine_matches_exact_and_generic_fitments(self):
+        response = self.client.get(
+            reverse("catalog-product-list"),
+            {
+                "make": "toyota",
+                "model": "camry",
+                "year": "2018",
+                "engine": "25-hybrid",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slugs = {row["slug"] for row in response.data["results"]}
+        self.assertEqual(slugs, {"product-0", "product-1", "product-3"})
+        compatibility = {row["slug"]: row["compatibility"] for row in response.data["results"]}
+        self.assertEqual(compatibility["product-1"]["match_type"], "engine")
+        self.assertNotIn("product-2", slugs)
+
+    def test_products_filter_by_vehicle_make_only(self):
+        ProductFitment.objects.create(
+            product=self.products[6],
+            vehicle_model=self.corolla,
+            year_from=2015,
+            year_to=2017,
+        )
+
+        response = self.client.get(reverse("catalog-product-list"), {"make": "toyota"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slugs = {row["slug"] for row in response.data["results"]}
+        self.assertEqual(slugs, {"product-0", "product-1", "product-2", "product-3", "product-6"})
+        self.assertNotIn("product-4", slugs)
+        self.assertNotIn("product-5", slugs)
+
+    def test_products_filter_by_vehicle_make_and_model_without_year(self):
+        response = self.client.get(
+            reverse("catalog-product-list"),
+            {"make": "toyota", "model": "camry"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slugs = {row["slug"] for row in response.data["results"]}
+        self.assertEqual(slugs, {"product-0", "product-1", "product-2", "product-3"})
+        self.assertNotIn("product-4", slugs)
+        self.assertNotIn("product-5", slugs)
+
+    def test_products_filter_by_vehicle_make_and_year_without_model(self):
+        response = self.client.get(
+            reverse("catalog-product-list"),
+            {"make": "toyota", "year": "2018"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slugs = {row["slug"] for row in response.data["results"]}
+        self.assertEqual(slugs, {"product-0", "product-1", "product-2", "product-3"})
+
+    def test_products_vehicle_filter_rejects_out_of_order_vehicle_params(self):
+        response = self.client.get(reverse("catalog-product-list"), {"model": "camry"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("make", response.data)
+
+        response = self.client.get(
+            reverse("catalog-product-list"),
+            {"make": "toyota", "model": "camry", "engine": "25-hybrid"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("year", response.data)
+
+    def test_products_filter_by_brand_placement_and_side(self):
+        response = self.client.get(
+            reverse("catalog-product-list"),
+            {
+                "brand": "taiwan-parts",
+                "placement": ProductPlacement.FRONT,
+                "side": ProductSide.LEFT,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreater(response.data["count"], 0)
+        for row in response.data["results"]:
+            self.assertEqual(row["brand"]["slug"], "taiwan-parts")
+            self.assertEqual(row["placement"], ProductPlacement.FRONT)
+            self.assertEqual(row["side"], ProductSide.LEFT)
+        self.assertIn("brands", response.data["facets"])
+        self.assertIn("placements", response.data["facets"])
+        self.assertIn("sides", response.data["facets"])
+
+    def test_products_search_matches_manufacturer_part_number(self):
+        response = self.client.get(reverse("catalog-product-list"), {"q": "MPN-0"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["slug"], "product-0")
+        self.assertEqual(response.data["results"][0]["manufacturer_part_number"], "MPN-0")
+
     def test_product_suggestions_require_minimum_query_length(self):
         response = self.client.get(reverse("catalog-product-suggestions"), {"q": "c"})
 
@@ -105,9 +318,11 @@ class CatalogAPITests(APITestCase):
     def test_product_suggestions_return_dropdown_ready_results(self):
         suggested = Product.objects.create(
             category=self.interior,
+            brand=self.brand,
             name="Fast Charger",
             slug="fast-charger",
             sku="CHARGER-01",
+            manufacturer_part_number="CHG-FAST-01",
             short_description="Quick charge adapter",
             description="Fast charger for cars",
             price=Decimal("49.00"),
@@ -141,6 +356,14 @@ class CatalogAPITests(APITestCase):
         self.assertEqual(response.data[0]["primary_image"]["alt_text"], "Fast Charger image")
         self.assertTrue(response.data[0]["in_stock"])
 
+    def test_product_suggestions_match_manufacturer_part_number(self):
+        response = self.client.get(reverse("catalog-product-suggestions"), {"q": "MPN-0"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["slug"], "product-0")
+        self.assertEqual(response.data[0]["manufacturer_part_number"], "MPN-0")
+
     def test_product_suggestions_limit_results_to_five(self):
         for index in range(6):
             Product.objects.create(
@@ -170,7 +393,20 @@ class CatalogAPITests(APITestCase):
         self.assertEqual(response.data["primary_image"]["alt_text"], "Primary test image")
         self.assertEqual(len(response.data["specs"]), 2)
         self.assertEqual(response.data["specs"][0]["key"], "Material")
+        self.assertEqual(response.data["brand"]["slug"], "taiwan-parts")
+        self.assertEqual(response.data["manufacturer_part_number"], "MPN-0")
+        self.assertEqual(len(response.data["fitments"]), 1)
+        self.assertEqual(response.data["fitments"][0]["make"]["slug"], "toyota")
         self.assertIn("related_products", response.data)
+
+    def test_product_detail_returns_compatibility_for_vehicle_query(self):
+        response = self.client.get(
+            reverse("catalog-product-detail", kwargs={"slug": "product-0"}),
+            {"make": "toyota", "model": "camry", "year": "2018"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["compatibility"]["match_type"], "vehicle_year")
 
     def test_product_detail_returns_empty_related_products_when_no_matches_exist(self):
         solo_category = Category.objects.create(name="Audio", slug="audio", sort_order=3)
@@ -352,6 +588,49 @@ class CatalogAPITests(APITestCase):
         self.assertEqual(response.data[0]["product_count"], 12)
         self.assertIn("image", response.data[0])
 
+    def test_vehicle_make_options_return_only_makes_with_published_fitments(self):
+        response = self.client.get(reverse("catalog-vehicle-make-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slugs = {row["slug"] for row in response.data}
+        self.assertEqual(slugs, {"toyota", "honda"})
+        self.assertNotIn("empty-make", slugs)
+        self.assertNotIn("inactive-make", slugs)
+
+    def test_vehicle_model_options_return_only_models_for_make_with_published_fitments(self):
+        response = self.client.get(
+            reverse("catalog-vehicle-model-list"),
+            {"make": "toyota"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slugs = {row["slug"] for row in response.data}
+        self.assertEqual(slugs, {"camry"})
+        self.assertNotIn("corolla", slugs)
+
+    def test_vehicle_year_options_expand_published_fitment_ranges(self):
+        response = self.client.get(
+            reverse("catalog-vehicle-year-list"),
+            {"make": "toyota", "model": "camry"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [row["year"] for row in response.data],
+            [2018, 2019, 2020],
+        )
+
+    def test_vehicle_engine_options_return_only_active_engines_for_selected_year(self):
+        response = self.client.get(
+            reverse("catalog-vehicle-engine-list"),
+            {"make": "toyota", "model": "camry", "year": "2018"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slugs = {row["slug"] for row in response.data}
+        self.assertEqual(slugs, {"25-hybrid", "25-gas"})
+        self.assertNotIn("inactive-engine", slugs)
+
 
 class SeedCatalogCommandTests(TestCase):
     def test_seed_catalog_creates_products_specs_and_images(self):
@@ -367,6 +646,45 @@ class SeedCatalogCommandTests(TestCase):
                 | Q(image_mobile__isnull=False)
             ).exists()
         )
+
+    def test_seed_catalog_filters_enriches_products_and_filter_options(self):
+        call_command("seed_catalog", count=6, reset=True, seed=123)
+        call_command("seed_catalog_filters", product_limit=6, reset_fitments=True, seed=123)
+
+        self.assertEqual(Product.objects.filter(sku__startswith="FAKE-", brand__isnull=False).count(), 6)
+        self.assertEqual(Product.objects.filter(sku__startswith="FAKE-").exclude(placement="").count(), 6)
+        self.assertEqual(Product.objects.filter(sku__startswith="FAKE-").exclude(side="").count(), 6)
+        self.assertGreaterEqual(Brand.objects.filter(is_active=True).count(), 6)
+        self.assertGreater(VehicleMake.objects.filter(is_active=True).count(), 0)
+        self.assertGreater(VehicleModel.objects.filter(is_active=True).count(), 0)
+        self.assertGreater(VehicleEngine.objects.filter(is_active=True).count(), 0)
+        self.assertGreater(ProductFitment.objects.count(), 0)
+
+        makes_response = self.client.get(reverse("catalog-vehicle-make-list"))
+        self.assertEqual(makes_response.status_code, status.HTTP_200_OK)
+        self.assertGreater(len(makes_response.json()), 0)
+
+        engines_response = self.client.get(
+            reverse("catalog-vehicle-engine-list"),
+            {"make": "toyota", "model": "camry", "year": "2018"},
+        )
+        self.assertEqual(engines_response.status_code, status.HTTP_200_OK)
+        self.assertGreater(len(engines_response.json()), 0)
+
+        products_response = self.client.get(reverse("catalog-product-list"))
+        self.assertEqual(products_response.status_code, status.HTTP_200_OK)
+        facets = products_response.json()["facets"]
+        self.assertGreater(len(facets["brands"]), 0)
+        self.assertGreater(len(facets["placements"]), 0)
+        self.assertGreater(len(facets["sides"]), 0)
+
+        camry_response = self.client.get(
+            reverse("catalog-product-list"),
+            {"make": "toyota", "model": "camry", "year": "2018"},
+        )
+        self.assertEqual(camry_response.status_code, status.HTTP_200_OK)
+        for row in camry_response.json()["results"]:
+            self.assertTrue("Camry" in row["name"] or row["is_universal_fitment"])
 
 
 class ProductImageNormalizationTests(TestCase):

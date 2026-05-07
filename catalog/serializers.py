@@ -1,6 +1,15 @@
 from rest_framework import serializers
 
-from .models import Category, Product, ProductImage, ProductSpec
+from .models import (
+    Category,
+    Product,
+    ProductFitment,
+    ProductImage,
+    ProductSpec,
+    VehicleEngine,
+    VehicleMake,
+    VehicleModel,
+)
 
 
 def _absolute_file_url(request, file_field):
@@ -84,6 +93,26 @@ class CategorySerializer(serializers.ModelSerializer):
         return _resolve_category_seo_payload(request, obj)
 
 
+class VehicleMakeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VehicleMake
+        fields = ("id", "name", "slug", "sort_order")
+
+
+class VehicleModelSerializer(serializers.ModelSerializer):
+    make = VehicleMakeSerializer(read_only=True)
+
+    class Meta:
+        model = VehicleModel
+        fields = ("id", "name", "slug", "sort_order", "make")
+
+
+class VehicleEngineSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VehicleEngine
+        fields = ("id", "name", "slug", "sort_order")
+
+
 class ProductSpecSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductSpec
@@ -106,11 +135,45 @@ class ProductImageSerializer(serializers.ModelSerializer):
         }
 
 
+class ProductFitmentSerializer(serializers.ModelSerializer):
+    make = serializers.SerializerMethodField()
+    model = serializers.SerializerMethodField()
+    engine = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProductFitment
+        fields = (
+            "id",
+            "make",
+            "model",
+            "engine",
+            "year_from",
+            "year_to",
+            "notes",
+        )
+
+    def get_make(self, obj):
+        make = obj.vehicle_model.make
+        return {"id": make.id, "name": make.name, "slug": make.slug}
+
+    def get_model(self, obj):
+        model = obj.vehicle_model
+        return {"id": model.id, "name": model.name, "slug": model.slug}
+
+    def get_engine(self, obj):
+        if not obj.engine_id:
+            return None
+
+        return {"id": obj.engine_id, "name": obj.engine.name, "slug": obj.engine.slug}
+
+
 class ProductListSerializer(serializers.ModelSerializer):
+    brand = serializers.SerializerMethodField()
     category = serializers.SerializerMethodField()
     on_sale = serializers.SerializerMethodField()
     in_stock = serializers.SerializerMethodField()
     primary_image = serializers.SerializerMethodField()
+    compatibility = serializers.SerializerMethodField()
     seo = serializers.SerializerMethodField()
 
     class Meta:
@@ -119,17 +182,30 @@ class ProductListSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "slug",
+            "sku",
+            "manufacturer_part_number",
             "short_description",
             "price",
             "old_price",
             "on_sale",
             "is_new",
             "is_featured",
+            "is_universal_fitment",
             "in_stock",
+            "brand",
             "category",
+            "placement",
+            "side",
             "primary_image",
+            "compatibility",
             "seo",
         )
+
+    def get_brand(self, obj):
+        if not obj.brand_id:
+            return None
+
+        return {"id": obj.brand_id, "name": obj.brand.name, "slug": obj.brand.slug}
 
     def get_category(self, obj):
         return {
@@ -162,6 +238,35 @@ class ProductListSerializer(serializers.ModelSerializer):
             "alt_text": primary.alt_text,
         }
 
+    def get_compatibility(self, obj):
+        if not self.context.get("vehicle_filter"):
+            return None
+
+        if obj.is_universal_fitment:
+            return {
+                "matched": True,
+                "match_type": "universal",
+                "notes": "",
+            }
+
+        matching_fitments = getattr(obj, "matching_fitments", None)
+        if matching_fitments is None:
+            matching_fitments = []
+
+        if not matching_fitments:
+            return {
+                "matched": False,
+                "match_type": "none",
+                "notes": "",
+            }
+
+        match = matching_fitments[0]
+        return {
+            "matched": True,
+            "match_type": "engine" if match.engine_id else "vehicle_year",
+            "notes": match.notes,
+        }
+
     def get_seo(self, obj):
         request = self.context["request"]
         primary = self._resolve_primary_image(obj)
@@ -182,8 +287,11 @@ class ProductSuggestionSerializer(ProductListSerializer):
             "id",
             "name",
             "slug",
+            "sku",
+            "manufacturer_part_number",
             "price",
             "in_stock",
+            "brand",
             "category",
             "primary_image",
         )
@@ -196,6 +304,7 @@ class ProductDetailSerializer(ProductListSerializer):
     status = serializers.CharField()
     images = ProductImageSerializer(many=True, read_only=True)
     specs = ProductSpecSerializer(many=True, read_only=True)
+    fitments = ProductFitmentSerializer(many=True, read_only=True)
     related_products = serializers.SerializerMethodField()
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
@@ -203,11 +312,11 @@ class ProductDetailSerializer(ProductListSerializer):
     class Meta(ProductListSerializer.Meta):
         fields = ProductListSerializer.Meta.fields + (
             "description",
-            "sku",
             "stock_qty",
             "status",
             "images",
             "specs",
+            "fitments",
             "related_products",
             "created_at",
             "updated_at",
@@ -215,9 +324,10 @@ class ProductDetailSerializer(ProductListSerializer):
 
     def get_related_products(self, obj):
         related_products = self.context.get("related_products") or []
+        context = {**self.context, "vehicle_filter": None}
         serializer = ProductListSerializer(
             related_products,
             many=True,
-            context=self.context,
+            context=context,
         )
         return serializer.data
