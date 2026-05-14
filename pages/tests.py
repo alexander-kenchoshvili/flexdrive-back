@@ -188,18 +188,17 @@ class GetCurrentContentAPITests(APITestCase):
         )
         self.assertEqual(
             component_payload["data"]["subtitle"],
-            "ამ გვერდზე აღწერილია რა ინფორმაციას ამუშავებს AutoMate, რატომ გვჭირდება ეს მონაცემები, ვისთან შეიძლება გაზიარება და რა არჩევანი გაქვთ თქვენ.",
+            "ამ გვერდზე მოკლედ არის აღწერილი რა მონაცემებს ამუშავებს FlexDrive, რისთვის ვიყენებთ მათ, ვის შეიძლება გადაეცეს ინფორმაცია და როგორ შეგიძლიათ თქვენი უფლებებით სარგებლობა.",
         )
-        self.assertEqual(component_payload["data"]["contentData"]["listcount"], 6)
+        self.assertEqual(component_payload["data"]["contentData"]["listcount"], 5)
         self.assertEqual(
             [item["title"] for item in items],
             [
-                "რა ინფორმაციას ვაგროვებთ",
-                "როგორ ვიყენებთ ინფორმაციას",
-                "ვის ვუზიარებთ ინფორმაციას",
-                "რამდენ ხანს ვინახავთ მონაცემებს",
-                "თქვენი უფლებები და არჩევანი",
-                "კონტაქტი და პოლიტიკის განახლებები",
+                "რა მონაცემებს ვამუშავებთ",
+                "რისთვის ვიყენებთ მონაცემებს",
+                "ქუქები, ანალიტიკა და მარკეტინგი",
+                "ვის შეიძლება გადაეცეს ინფორმაცია",
+                "შენახვა, უსაფრთხოება და უფლებები",
             ],
         )
         self.assertTrue(all(item["content_type"] == "policy_section" for item in items))
@@ -265,18 +264,16 @@ class GetCurrentContentAPITests(APITestCase):
         self.assertEqual(component_payload["data"]["title"], "მიწოდების პირობები")
         self.assertEqual(
             component_payload["data"]["subtitle"],
-            "ამ გვერდზე აღწერილია როგორ ამუშავებს AutoMate შეკვეთებს მიწოდებისთვის, რა ვადები მოქმედებს თბილისში და რეგიონებში, რა შემთხვევაში შეიძლება შეიცვალოს ვადა და როგორ მიიღოთ მხარდაჭერა შეკვეთის სტატუსთან დაკავშირებით.",
+            "FlexDrive-ზე მიწოდების ვადა დამოკიდებულია შეკვეთის დადასტურებაზე, მისამართზე და კურიერის სამუშაო პროცესზე. თბილისში სტანდარტული ვადაა 1-2 სამუშაო დღე, რეგიონებში - 4-5 სამუშაო დღე.",
         )
-        self.assertEqual(component_payload["data"]["contentData"]["listcount"], 6)
+        self.assertEqual(component_payload["data"]["contentData"]["listcount"], 4)
         self.assertEqual(
             [item["title"] for item in items],
             [
-                "შეკვეთის დამუშავება",
-                "მიწოდება თბილისში",
-                "მიწოდება რეგიონებში",
-                "მისამართი და მიღება",
-                "შესაძლო შეფერხებები",
-                "შეკვეთის სტატუსი და დახმარება",
+                "როდის იწყება მიწოდების ვადა",
+                "მიწოდების ვადები",
+                "მისამართი და ჩაბარება",
+                "შეფერხებები და დახმარება",
             ],
         )
         self.assertTrue(all(item["content_type"] == "delivery_section" for item in items))
