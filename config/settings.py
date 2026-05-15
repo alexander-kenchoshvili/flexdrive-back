@@ -415,6 +415,7 @@ REST_FRAMEWORK = {
         'login': '5/min',
         'register': '10/min',
         'checkout': '10/min',
+        'order_lookup': '10/min',
         'password_reset': '5/min',
         'activation_resend': '5/hour',
     }

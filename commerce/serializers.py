@@ -104,6 +104,23 @@ class CheckoutSerializer(serializers.Serializer):
         return value
 
 
+def normalize_order_lookup_phone(value):
+    digits = "".join(character for character in str(value or "") if character.isdigit())
+    if digits.startswith("995") and len(digits) > 9:
+        return digits[3:]
+    return digits
+
+
+class OrderLookupSerializer(serializers.Serializer):
+    order_number = serializers.CharField(max_length=32, trim_whitespace=True)
+    phone = serializers.CharField(max_length=50, trim_whitespace=True)
+    recaptcha_token = serializers.CharField(write_only=True, trim_whitespace=True)
+
+    def validate(self, attrs):
+        attrs["normalized_phone"] = normalize_order_lookup_phone(attrs["phone"])
+        return attrs
+
+
 class CartItemSerializer(serializers.ModelSerializer):
     product_id = serializers.IntegerField(source="product.id", read_only=True)
     slug = serializers.CharField(source="product.slug", read_only=True)
@@ -376,6 +393,28 @@ class OrderItemSerializer(serializers.ModelSerializer):
         return serialize_image_asset(snapshot, request=request)
 
 
+class OrderLookupItemSerializer(serializers.ModelSerializer):
+    unit_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    line_total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    primary_image = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OrderItem
+        fields = (
+            "product_name",
+            "sku",
+            "unit_price",
+            "quantity",
+            "line_total",
+            "primary_image",
+        )
+
+    def get_primary_image(self, obj):
+        request = self.context.get("request")
+        snapshot = obj.primary_image_snapshot or empty_image_asset()
+        return serialize_image_asset(snapshot, request=request)
+
+
 class OrderListSerializer(serializers.ModelSerializer):
     public_token = serializers.UUIDField(read_only=True)
     total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
@@ -430,3 +469,31 @@ class OrderSummarySerializer(serializers.ModelSerializer):
             "items",
             "created_at",
         )
+
+
+class OrderLookupSummarySerializer(serializers.ModelSerializer):
+    total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    item_count = serializers.SerializerMethodField()
+    total_quantity = serializers.SerializerMethodField()
+    items = OrderLookupItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Order
+        fields = (
+            "order_number",
+            "status",
+            "payment_status",
+            "payment_method",
+            "checkout_source",
+            "total",
+            "created_at",
+            "item_count",
+            "total_quantity",
+            "items",
+        )
+
+    def get_item_count(self, obj):
+        return len(obj.items.all())
+
+    def get_total_quantity(self, obj):
+        return sum(item.quantity for item in obj.items.all())

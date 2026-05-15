@@ -207,6 +207,13 @@ class CommerceAPITests(APITestCase):
         )
         return order
 
+    def _order_lookup_payload(self, *, order_number, phone="555123456"):
+        return {
+            "order_number": order_number,
+            "phone": phone,
+            "recaptcha_token": "test-recaptcha-token",
+        }
+
     def _create_multi_quantity_order(self, *, user, suffix, quantity, status=OrderStatus.NEW):
         order = Order.objects.create(
             user=user,
@@ -1213,6 +1220,102 @@ class CommerceAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["items"][0]["primary_image"]["alt_text"], "Vacuum image")
+
+    def test_order_lookup_returns_safe_summary_for_matching_order_number_and_phone(self):
+        order = self._create_order(user=None, suffix=70, status=OrderStatus.SHIPPED)
+
+        response = self.client.post(
+            reverse("commerce-order-lookup"),
+            self._order_lookup_payload(order_number=order.order_number),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["order_number"], order.order_number)
+        self.assertEqual(response.data["status"], OrderStatus.SHIPPED)
+        self.assertEqual(response.data["payment_status"], OrderPaymentStatus.PENDING)
+        self.assertEqual(response.data["payment_method"], OrderPaymentMethod.CASH_ON_DELIVERY)
+        self.assertEqual(response.data["checkout_source"], OrderCheckoutSource.CART)
+        self.assertEqual(response.data["total"], "120.00")
+        self.assertEqual(response.data["item_count"], 1)
+        self.assertEqual(response.data["total_quantity"], 1)
+        self.assertEqual(len(response.data["items"]), 1)
+        self.assertEqual(
+            set(response.data["items"][0].keys()),
+            {"product_name", "sku", "unit_price", "quantity", "line_total", "primary_image"},
+        )
+        self.assertEqual(response.data["items"][0]["primary_image"]["alt_text"], "Vacuum image")
+        for private_key in ("public_token", "email", "phone", "city", "address_line", "note"):
+            self.assertNotIn(private_key, response.data)
+
+    def test_order_lookup_matches_normalized_georgian_phone_number(self):
+        order = self._create_order(user=None, suffix=71, status=OrderStatus.NEW)
+        order.phone = "+995 598-784-500"
+        order.save(update_fields=["phone", "updated_at"])
+
+        response = self.client.post(
+            reverse("commerce-order-lookup"),
+            self._order_lookup_payload(order_number=order.order_number, phone="598784500"),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["order_number"], order.order_number)
+
+    def test_order_lookup_returns_generic_404_for_wrong_phone(self):
+        order = self._create_order(user=None, suffix=72, status=OrderStatus.NEW)
+
+        response = self.client.post(
+            reverse("commerce-order-lookup"),
+            self._order_lookup_payload(order_number=order.order_number, phone="555000000"),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            response.data["detail"],
+            "შეკვეთა ვერ მოიძებნა. გადაამოწმეთ შეკვეთის ნომერი და ტელეფონის ნომერი.",
+        )
+
+    def test_order_lookup_returns_generic_404_for_unknown_order_number(self):
+        response = self.client.post(
+            reverse("commerce-order-lookup"),
+            self._order_lookup_payload(order_number="ORD-20260515-999999"),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            response.data["detail"],
+            "შეკვეთა ვერ მოიძებნა. გადაამოწმეთ შეკვეთის ნომერი და ტელეფონის ნომერი.",
+        )
+
+    def test_order_lookup_rejects_request_when_recaptcha_fails(self):
+        order = self._create_order(user=None, suffix=74, status=OrderStatus.NEW)
+
+        with patch("commerce.views.validate_recaptcha", return_value=False):
+            response = self.client.post(
+                reverse("commerce-order-lookup"),
+                self._order_lookup_payload(order_number=order.order_number),
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["detail"], "უსაფრთხოების შემოწმება ვერ გაიარა.")
+
+    def test_order_lookup_allows_authenticated_user_without_owner_filter(self):
+        order = self._create_order(user=self.other_user, suffix=73, status=OrderStatus.DELIVERED)
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            reverse("commerce-order-lookup"),
+            self._order_lookup_payload(order_number=order.order_number),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["order_number"], order.order_number)
+        self.assertEqual(response.data["status"], OrderStatus.DELIVERED)
 
     def test_authenticated_order_list_returns_only_current_user_orders(self):
         own_new = self._create_order(user=self.user, suffix=1, status=OrderStatus.NEW)

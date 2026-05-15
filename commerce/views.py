@@ -7,7 +7,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import generics
 from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -23,9 +23,12 @@ from .serializers import (
     CheckoutSerializer,
     OrderListSerializer,
     OrderListSummarySerializer,
+    OrderLookupSerializer,
+    OrderLookupSummarySerializer,
     OrderSummarySerializer,
     WishlistItemCreateSerializer,
     WishlistItemSerializer,
+    normalize_order_lookup_phone,
 )
 from .services import (
     BUY_NOW_TOKEN_COOKIE_NAME,
@@ -382,6 +385,38 @@ class OrderSummaryAPIView(APIView):
         order = get_object_or_404(Order.objects.prefetch_related("items"), public_token=public_token)
         serializer = OrderSummarySerializer(order, context={"request": request})
         return Response(serializer.data)
+
+
+class OrderLookupAPIView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = "order_lookup"
+
+    not_found_detail = "შეკვეთა ვერ მოიძებნა. გადაამოწმეთ შეკვეთის ნომერი და ტელეფონის ნომერი."
+
+    def post(self, request):
+        serializer = OrderLookupSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        if not validate_recaptcha(
+            serializer.validated_data["recaptcha_token"],
+            expected_action="order_lookup",
+            remote_ip=request.META.get("REMOTE_ADDR"),
+        ):
+            return Response(
+                {"detail": "უსაფრთხოების შემოწმება ვერ გაიარა."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        order = (
+            Order.objects.prefetch_related("items")
+            .filter(order_number__iexact=serializer.validated_data["order_number"])
+            .first()
+        )
+        if not order or normalize_order_lookup_phone(order.phone) != serializer.validated_data["normalized_phone"]:
+            return Response({"detail": self.not_found_detail}, status=status.HTTP_404_NOT_FOUND)
+
+        summary_serializer = OrderLookupSummarySerializer(order, context={"request": request})
+        return Response(summary_serializer.data)
 
 
 class OwnedOrderListAPIView(generics.ListAPIView):
