@@ -51,6 +51,7 @@ Use the existing Django app boundaries before adding new modules. Prefer extendi
 - Do not change `.env`, secrets, reCAPTCHA keys, JWT signing settings, database credentials, Cloudinary credentials, or deployment secrets.
 - Do not hard-code environment-specific URLs or credentials.
 - Treat migrations carefully. Add migrations only when model changes require them, and keep them focused.
+- Use this repository's virtual environment for Django/backend commands. Run management commands with `.\venv\Scripts\python.exe manage.py ...` from `C:\Users\kench\Desktop\flexdriveback`; do not try system `python` first.
 - Do not delete existing fields or endpoints without checking frontend usage first.
 - Keep validation in serializers/forms where that is the local pattern.
 - Keep business rules server-side even when the frontend also validates them.
@@ -172,6 +173,7 @@ This file exists so the project context does not need to be re-explained in ever
   - `pages/migrations/0061_refresh_flexdrive_privacy_policy_content.py`
   - `pages/migrations/0062_refine_privacy_policy_copy.py`
   - `pages/migrations/0063_refresh_flexdrive_delivery_content.py`
+  - `pages/migrations/0064_remove_contact_support_footer_settings_copy.py`
 - These migrations were applied locally and on staging Neon/Postgres. If staging still displays old copy, suspect API/browser cache before changing migrations.
 - Content direction by page:
   - `/terms`: practical FlexDrive rules for ecommerce use, order confirmation, payment, delivery, returns, B2B, privacy/security. Warranty references were removed because first-phase FlexDrive does not offer a warranty.
@@ -179,13 +181,14 @@ This file exists so the project context does not need to be re-explained in ever
   - `/payment-methods`: reduced to 4 concise sections. Current active method is cash on delivery; card/installment/part-payment copy is future-ready but does not state those methods are already active. Refund/cancel is through the original payment channel for online methods.
   - `/privacy-policy`: reduced to 5 concise sections covering account/profile, cart/wishlist/buy-now, checkout/order, contact inquiries, reCAPTCHA, cookies, analytics/GTM/Google Ads/Meta Pixel, payment providers, delivery partners, retention/security, and user rights.
   - `/delivery`: reduced to 4 concise sections. Delivery timing starts after order confirmation; Tbilisi `1-2 სამუშაო დღე`, regions `4-5 სამუშაო დღე`; old same-day/13:00 logic was removed.
+  - `/contact`: `support_intro` no longer has the redundant description about footer settings. The frontend renders this description only when CMS provides non-empty text.
 - New legal content should set `ContentItem.icon_svg` to `None`. The redesigned frontend uses Heroicons and ignores backend SVGs for these legal pages.
 - Placeholder company/contact data remains until registration and real support details are available. Current placeholders include `support@flexdrive.ge`, `returns@flexdrive.ge`, and `privacy@flexdrive.ge`.
 - Tests updated/run during this pass:
   - `pages.test_payment_methods_page`
   - `pages.tests.GetCurrentContentAPITests.test_privacy_policy_page_includes_seeded_component`
   - `pages.tests.GetCurrentContentAPITests.test_delivery_page_includes_seeded_component`
-- Next likely content/UI target: `/contact`, then footer support/legal/social/contact QA.
+- Next likely content/UI target: footer/contact browser QA if explicitly requested, then payment safety architecture work.
 
 ## Upcoming Payment Safety Work - 2026-05-15
 
