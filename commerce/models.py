@@ -14,6 +14,16 @@ class OrderPaymentMethod(models.TextChoices):
     CARD = "card", "Card"
 
 
+class OrderPaymentStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    AUTHORIZED = "authorized", "Authorized"
+    PAID = "paid", "Paid"
+    FAILED = "failed", "Failed"
+    CANCELLED = "cancelled", "Cancelled"
+    REFUND_PENDING = "refund_pending", "Refund pending"
+    REFUNDED = "refunded", "Refunded"
+
+
 class OrderCheckoutSource(models.TextChoices):
     CART = "cart", "Cart"
     BUY_NOW = "buy_now", "Buy now"
@@ -276,6 +286,12 @@ class Order(TimeStampedModel):
         choices=OrderPaymentMethod.choices,
         default=OrderPaymentMethod.CASH_ON_DELIVERY,
     )
+    payment_status = models.CharField(
+        max_length=32,
+        choices=OrderPaymentStatus.choices,
+        default=OrderPaymentStatus.PENDING,
+        db_index=True,
+    )
     status = models.CharField(
         max_length=20,
         choices=OrderStatus.choices,
@@ -306,6 +322,7 @@ class Order(TimeStampedModel):
         indexes = [
             models.Index(fields=["status", "created_at"]),
             models.Index(fields=["payment_method", "created_at"]),
+            models.Index(fields=["payment_status", "created_at"]),
         ]
 
     def __str__(self):

@@ -9,7 +9,7 @@ from django.contrib.admin.sites import site
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
@@ -27,6 +27,7 @@ from .models import (
     OrderCheckoutSource,
     OrderItem,
     OrderPaymentMethod,
+    OrderPaymentStatus,
     OrderStatus,
     WishlistItem,
 )
@@ -667,6 +668,7 @@ class CommerceAPITests(APITestCase):
         order = Order.objects.get()
         self.assertEqual(order.user, self.user)
         self.assertEqual(order.status, OrderStatus.NEW)
+        self.assertEqual(order.payment_status, OrderPaymentStatus.PENDING)
         self.assertEqual(order.subtotal, Decimal("540.00"))
         self.assertEqual(order.total, Decimal("540.00"))
         self.assertTrue(order.order_number.startswith("ORD-"))
@@ -674,6 +676,7 @@ class CommerceAPITests(APITestCase):
         self.assertEqual(self.product.stock_qty, 3)
         self.assertEqual(self.second_product.stock_qty, 1)
         self.assertEqual(CartItem.objects.count(), 0)
+        self.assertEqual(response.data["payment_status"], OrderPaymentStatus.PENDING)
         self.assertEqual(response.data["items"][0]["product_name"], "Car Vacuum 53")
         self.assertEqual(response.data["items"][0]["primary_image"]["alt_text"], "Vacuum image")
 
@@ -933,10 +936,12 @@ class CommerceAPITests(APITestCase):
         order = Order.objects.get()
         self.assertIsNone(order.user)
         self.assertEqual(order.checkout_source, OrderCheckoutSource.BUY_NOW)
+        self.assertEqual(order.payment_status, OrderPaymentStatus.PENDING)
         self.assertEqual(order.total, Decimal("240.00"))
         self.assertEqual(order.items.get().quantity, 2)
         self.assertEqual(self.product.stock_qty, 3)
         self.assertEqual(BuyNowSession.objects.count(), 0)
+        self.assertEqual(response.data["payment_status"], OrderPaymentStatus.PENDING)
         self.assertIn(BUY_NOW_TOKEN_COOKIE_NAME, response.cookies)
         self.assertEqual(response.cookies[BUY_NOW_TOKEN_COOKIE_NAME].value, "")
 
@@ -1162,6 +1167,7 @@ class CommerceAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["order_number"], checkout_response.data["order_number"])
+        self.assertEqual(response.data["payment_status"], OrderPaymentStatus.PENDING)
         self.assertEqual(len(response.data["items"]), 1)
         self.assertEqual(response.data["items"][0]["primary_image"]["alt_text"], "Vacuum image")
 
@@ -1227,6 +1233,7 @@ class CommerceAPITests(APITestCase):
         self.assertIn(str(own_new.public_token), returned_tokens)
         self.assertIn(str(own_delivered.public_token), returned_tokens)
         self.assertEqual(response.data["results"][0]["item_count"], 1)
+        self.assertEqual(response.data["results"][0]["payment_status"], OrderPaymentStatus.PENDING)
 
     def test_authenticated_order_list_is_paginated(self):
         for suffix in range(1, 12):
@@ -1284,6 +1291,7 @@ class CommerceAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["order_number"], order.order_number)
         self.assertEqual(response.data["status"], OrderStatus.SHIPPED)
+        self.assertEqual(response.data["payment_status"], OrderPaymentStatus.PENDING)
         self.assertEqual(len(response.data["items"]), 1)
         self.assertEqual(response.data["items"][0]["primary_image"]["alt_text"], "Vacuum image")
 
@@ -1650,6 +1658,12 @@ class CommerceLifecycleServiceTests(TestCase):
         self.assertIsNone(order.stock_restored_at)
 
 
+@override_settings(
+    STORAGES={
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    }
+)
 class CommerceAdminTests(TestCase):
     def setUp(self):
         Category.objects.all().delete()
@@ -1709,6 +1723,7 @@ class CommerceAdminTests(TestCase):
     def _build_admin_payload(self, order, **overrides):
         payload = {
             "payment_method": order.payment_method,
+            "payment_status": order.payment_status,
             "status": order.status,
             "first_name": order.first_name,
             "last_name": order.last_name,
@@ -1772,6 +1787,23 @@ class CommerceAdminTests(TestCase):
             "Use the &#x27;Cancel and restore stock&#x27; button to cancel this order.",
         )
         self.assertEqual(order.status, OrderStatus.NEW)
+
+    def test_admin_allows_payment_status_update_without_order_status_change(self):
+        order = self._create_order(status=OrderStatus.NEW)
+
+        response = self.client.post(
+            reverse("admin:commerce_order_change", args=[order.pk]),
+            self._build_admin_payload(
+                order,
+                payment_status=OrderPaymentStatus.PAID,
+                _save="Save",
+            ),
+        )
+
+        order.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(order.status, OrderStatus.NEW)
+        self.assertEqual(order.payment_status, OrderPaymentStatus.PAID)
 
 
 class CommerceAdminFormTests(TestCase):

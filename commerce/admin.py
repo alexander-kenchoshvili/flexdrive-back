@@ -84,11 +84,12 @@ class OrderAdmin(admin.ModelAdmin):
         "phone",
         "email",
         "payment_method",
+        "payment_status",
         "total",
         "status",
         "created_at",
     )
-    list_filter = ("status", "payment_method", "created_at")
+    list_filter = ("status", "payment_status", "payment_method", "created_at")
     search_fields = ("order_number", "first_name", "last_name", "email", "phone")
     readonly_fields = (
         "order_number",
@@ -109,6 +110,7 @@ class OrderAdmin(admin.ModelAdmin):
                     "order_number",
                     "public_token",
                     "payment_method",
+                    "payment_status",
                     "status",
                 )
             },
