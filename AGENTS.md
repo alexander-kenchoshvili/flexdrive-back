@@ -153,3 +153,53 @@ This file exists so the project context does not need to be re-explained in ever
   - `OrderConfidence` title was manually set in staging DB to `შეკვეთა Flex[[Drive]]-ზე მარტივად და გარკვევით` to match local CMS content.
   - If staging UI shows old homepage text, suspect cached `get-current-content` response before changing migrations.
 - Frontend no longer visually uses `OrderConfidence.content_items.icon_svg`; keep the field for compatibility unless a later cleanup is explicitly requested.
+
+## Current Static/Legal Content State - 2026-05-15
+
+- Static/legal/support content is being refreshed for FlexDrive while preserving existing CMS/page/component architecture. Frontend still loads backend components by route; do not replace this with hard-coded frontend copy.
+- Backend migrations added for the current legal content pass:
+  - `pages/migrations/0050_refresh_flexdrive_terms_content.py`
+  - `pages/migrations/0051_refine_terms_account_security_copy.py`
+  - `pages/migrations/0052_fix_terms_customer_contact_grammar.py`
+  - `pages/migrations/0053_refine_terms_installed_part_return_copy.py`
+  - `pages/migrations/0054_remove_terms_b2b_future_feature_bullet.py`
+  - `pages/migrations/0055_remove_terms_warranty_reference.py`
+  - `pages/migrations/0056_refresh_flexdrive_returns_content.py`
+  - `pages/migrations/0057_refine_returns_unagreed_shipping_copy.py`
+  - `pages/migrations/0058_refine_returns_customer_copy.py`
+  - `pages/migrations/0059_refresh_flexdrive_payment_methods_content.py`
+  - `pages/migrations/0060_trim_payment_methods_extra_copy.py`
+  - `pages/migrations/0061_refresh_flexdrive_privacy_policy_content.py`
+  - `pages/migrations/0062_refine_privacy_policy_copy.py`
+  - `pages/migrations/0063_refresh_flexdrive_delivery_content.py`
+- These migrations were applied locally and on staging Neon/Postgres. If staging still displays old copy, suspect API/browser cache before changing migrations.
+- Content direction by page:
+  - `/terms`: practical FlexDrive rules for ecommerce use, order confirmation, payment, delivery, returns, B2B, privacy/security. Warranty references were removed because first-phase FlexDrive does not offer a warranty.
+  - `/returns`: title is `პროდუქტისა და თანხის დაბრუნება`; ordinary return timing is based on product handover/receipt (`ჩაბარებიდან 14`), not purchase date; installed/used parts are assessed individually; wording avoids making returns feel automatic.
+  - `/payment-methods`: reduced to 4 concise sections. Current active method is cash on delivery; card/installment/part-payment copy is future-ready but does not state those methods are already active. Refund/cancel is through the original payment channel for online methods.
+  - `/privacy-policy`: reduced to 5 concise sections covering account/profile, cart/wishlist/buy-now, checkout/order, contact inquiries, reCAPTCHA, cookies, analytics/GTM/Google Ads/Meta Pixel, payment providers, delivery partners, retention/security, and user rights.
+  - `/delivery`: reduced to 4 concise sections. Delivery timing starts after order confirmation; Tbilisi `1-2 სამუშაო დღე`, regions `4-5 სამუშაო დღე`; old same-day/13:00 logic was removed.
+- New legal content should set `ContentItem.icon_svg` to `None`. The redesigned frontend uses Heroicons and ignores backend SVGs for these legal pages.
+- Placeholder company/contact data remains until registration and real support details are available. Current placeholders include `support@flexdrive.ge`, `returns@flexdrive.ge`, and `privacy@flexdrive.ge`.
+- Tests updated/run during this pass:
+  - `pages.test_payment_methods_page`
+  - `pages.tests.GetCurrentContentAPITests.test_privacy_policy_page_includes_seeded_component`
+  - `pages.tests.GetCurrentContentAPITests.test_delivery_page_includes_seeded_component`
+- Next likely content/UI target: `/contact`, then footer support/legal/social/contact QA.
+
+## Upcoming Payment Safety Work - 2026-05-15
+
+- Before real card, installment, or part-payment integrations go live, FlexDrive needs a carefully designed payment safety flow. This is high-priority work and must be implemented deliberately, with every step checked end to end.
+- The goal is to avoid situations where a customer pays online or receives installment approval for a part that cannot be fulfilled because stock, compatibility, or order validation failed after payment.
+- Required planning/implementation areas:
+  - stock reservation during checkout, with expiry and release on failed/abandoned payment;
+  - separate order status and payment status models/state handling;
+  - payment transaction records with provider, provider transaction id, amount, currency, status, timestamps, and raw provider references where appropriate;
+  - admin actions for cancelling orders, marking/refunding payments, and clearly tracking refund/cancel state;
+  - provider abstraction so a manual/mock provider can exist before TBC/BOG/other real providers are connected;
+  - success, failure, cancellation, callback/webhook, refund, and out-of-stock edge cases;
+  - customer-facing copy for successful payment, pending confirmation, failed payment, cancelled order, refund initiated, and refund completed states.
+- Prefer building the internal safety architecture before bank/provider integration. Bank APIs should plug into an already clear order/payment/refund model rather than defining the whole checkout logic.
+- For card payments, prefer authorization/capture if the chosen provider supports it: reserve stock first, authorize payment, then capture only after the order is fulfilment-ready. If immediate capture is required, implement reliable full refund/cancel flows.
+- For installments and part-payment providers, cancellation/refund must go through the same provider channel, not manual cash/bank transfer, unless a documented provider exception requires otherwise.
+- Do not start this work casually while finishing legal/static pages. Treat it as a separate checkout/payment architecture phase after Terms/Returns/Delivery/Payment/Privacy content is stable and before production payment integrations.
