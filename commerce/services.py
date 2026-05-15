@@ -7,6 +7,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Prefetch
+from django.db.models import Sum
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import APIException, ValidationError
@@ -21,9 +22,19 @@ from .models import (
     Order,
     OrderCheckoutSource,
     OrderItem,
+    OrderPaymentMethod,
+    OrderPaymentStatus,
     OrderStatus,
+    PaymentProvider,
+    PaymentTransaction,
+    PaymentTransactionAction,
+    PaymentTransactionStatus,
+    StockReservation,
+    StockReservationItem,
+    StockReservationStatus,
     WishlistItem,
 )
+from .payment_providers import get_provider_method_for_action
 
 CART_TOKEN_COOKIE_NAME = "cart_token"
 WISHLIST_TOKEN_COOKIE_NAME = "wishlist_token"
@@ -71,6 +82,23 @@ CANCELLABLE_ORDER_STATUSES = {
     OrderStatus.CONFIRMED,
     OrderStatus.PROCESSING,
 }
+
+PAYMENT_TRANSACTION_ORDER_STATUS_MAP = {
+    PaymentTransactionStatus.PENDING: OrderPaymentStatus.PENDING,
+    PaymentTransactionStatus.AUTHORIZED: OrderPaymentStatus.AUTHORIZED,
+    PaymentTransactionStatus.PAID: OrderPaymentStatus.PAID,
+    PaymentTransactionStatus.FAILED: OrderPaymentStatus.FAILED,
+    PaymentTransactionStatus.CANCELLED: OrderPaymentStatus.CANCELLED,
+    PaymentTransactionStatus.REFUND_PENDING: OrderPaymentStatus.REFUND_PENDING,
+    PaymentTransactionStatus.REFUNDED: OrderPaymentStatus.REFUNDED,
+}
+
+
+class StockReservationError(Exception):
+    def __init__(self, *, detail, issues=None):
+        super().__init__(detail)
+        self.detail = detail
+        self.issues = issues or []
 
 
 def build_cart_price_change_message(price_change_count):
@@ -843,6 +871,252 @@ def create_order_from_buy_now_session(*, session, user, validated_data):
     return order
 
 
+def get_reserved_stock_quantities(*, product_ids, now=None, exclude_reservation_ids=None):
+    now = now or timezone.now()
+    queryset = StockReservationItem.objects.filter(
+        product_id__in=product_ids,
+        reservation__status=StockReservationStatus.ACTIVE,
+        reservation__expires_at__gt=now,
+    )
+    if exclude_reservation_ids:
+        queryset = queryset.exclude(reservation_id__in=exclude_reservation_ids)
+
+    return {
+        row["product_id"]: row["reserved_quantity"] or 0
+        for row in queryset.values("product_id").annotate(reserved_quantity=Sum("quantity"))
+    }
+
+
+def get_available_stock_quantity(*, product, now=None, exclude_reservation_ids=None):
+    reserved_quantity = get_reserved_stock_quantities(
+        product_ids=[product.pk],
+        now=now,
+        exclude_reservation_ids=exclude_reservation_ids,
+    ).get(product.pk, 0)
+    return max(product.stock_qty - reserved_quantity, 0)
+
+
+@transaction.atomic
+def create_stock_reservation_from_cart(*, cart, user=None, guest_token=None, ttl_seconds=None):
+    owner_kwargs = _get_reservation_owner_kwargs(user=user, guest_token=guest_token)
+    cart_items = list(
+        cart.items.select_related("product", "product__category")
+        .select_for_update()
+        .order_by("id")
+    )
+    if not cart_items:
+        raise ValidationError({"detail": "Cart is empty."})
+
+    existing_reservation_ids = _get_existing_active_reservation_ids(
+        source=OrderCheckoutSource.CART,
+        owner_kwargs=owner_kwargs,
+    )
+    product_ids = [item.product_id for item in cart_items]
+    products = Product.objects.select_for_update().select_related("category").filter(id__in=product_ids)
+    products_by_id = {product.id: product for product in products}
+    reserved_quantities = get_reserved_stock_quantities(
+        product_ids=product_ids,
+        exclude_reservation_ids=existing_reservation_ids,
+    )
+
+    snapshots = []
+    issues = []
+    price_change_count = 0
+
+    for item in cart_items:
+        product = products_by_id.get(item.product_id)
+        issue = _build_reservation_item_issue(
+            product=product,
+            requested_quantity=item.quantity,
+            reserved_quantity=reserved_quantities.get(item.product_id, 0),
+        )
+        if issue:
+            issues.append(issue)
+            continue
+
+        if item.unit_price_snapshot != product.price:
+            price_change_count += 1
+            continue
+
+        snapshots.append(
+            {
+                "product": product,
+                "quantity": item.quantity,
+                "unit_price_snapshot": product.price,
+            }
+        )
+
+    if issues:
+        raise StockReservationError(detail=CHECKOUT_AVAILABILITY_CHANGED_DETAIL, issues=issues)
+
+    if price_change_count:
+        raise CartPriceChanged(price_change_count=price_change_count)
+
+    return _create_stock_reservation(
+        source=OrderCheckoutSource.CART,
+        owner_kwargs=owner_kwargs,
+        snapshots=snapshots,
+        ttl_seconds=ttl_seconds,
+        release_reservation_ids=existing_reservation_ids,
+    )
+
+
+@transaction.atomic
+def create_stock_reservation_from_buy_now_session(*, session, user=None, guest_token=None, ttl_seconds=None):
+    owner_kwargs = _get_reservation_owner_kwargs(
+        user=user if user is not None else session.user,
+        guest_token=guest_token if guest_token is not None else session.guest_token,
+    )
+    locked_session = (
+        BuyNowSession.objects.select_for_update()
+        .select_related("product", "product__category")
+        .get(pk=session.pk)
+    )
+    if _is_buy_now_session_expired(locked_session):
+        raise _build_buy_now_session_expired_error(clear_guest_token=locked_session.user_id is None)
+
+    existing_reservation_ids = _get_existing_active_reservation_ids(
+        source=OrderCheckoutSource.BUY_NOW,
+        owner_kwargs=owner_kwargs,
+    )
+    product = (
+        Product.objects.select_for_update()
+        .select_related("category")
+        .get(pk=locked_session.product_id)
+    )
+    reserved_quantity = get_reserved_stock_quantities(
+        product_ids=[product.pk],
+        exclude_reservation_ids=existing_reservation_ids,
+    ).get(product.pk, 0)
+
+    issue = _build_reservation_item_issue(
+        product=product,
+        requested_quantity=locked_session.quantity,
+        reserved_quantity=reserved_quantity,
+    )
+    if issue:
+        raise StockReservationError(detail=CHECKOUT_AVAILABILITY_CHANGED_DETAIL, issues=[issue])
+
+    if locked_session.unit_price_snapshot != product.price:
+        raise _build_buy_now_conflict_error(
+            [
+                BuyNowIssue(
+                    product_id=product.id,
+                    issue_type="price_changed",
+                    requested_quantity=locked_session.quantity,
+                    available_quantity=product.stock_qty,
+                    price_snapshot=locked_session.unit_price_snapshot,
+                    current_price=product.price,
+                )
+            ]
+        )
+
+    return _create_stock_reservation(
+        source=OrderCheckoutSource.BUY_NOW,
+        owner_kwargs=owner_kwargs,
+        snapshots=[
+            {
+                "product": product,
+                "quantity": locked_session.quantity,
+                "unit_price_snapshot": product.price,
+            }
+        ],
+        ttl_seconds=ttl_seconds,
+        release_reservation_ids=existing_reservation_ids,
+    )
+
+
+@transaction.atomic
+def release_stock_reservation(reservation):
+    locked_reservation = StockReservation.objects.select_for_update().get(pk=reservation.pk)
+    if locked_reservation.status != StockReservationStatus.ACTIVE:
+        return locked_reservation
+
+    locked_reservation.status = StockReservationStatus.RELEASED
+    locked_reservation.released_at = timezone.now()
+    locked_reservation.save(update_fields=["status", "released_at", "updated_at"])
+    return locked_reservation
+
+
+@transaction.atomic
+def complete_stock_reservation(*, reservation, order):
+    locked_reservation = StockReservation.objects.select_for_update().get(pk=reservation.pk)
+    if locked_reservation.status != StockReservationStatus.ACTIVE:
+        raise StockReservationError(detail="Only active reservations can be completed.")
+
+    locked_reservation.status = StockReservationStatus.COMPLETED
+    locked_reservation.completed_order = order
+    locked_reservation.completed_at = timezone.now()
+    locked_reservation.save(
+        update_fields=["status", "completed_order", "completed_at", "updated_at"]
+    )
+    return locked_reservation
+
+
+@transaction.atomic
+def expire_stock_reservations(*, now=None):
+    now = now or timezone.now()
+    return StockReservation.objects.filter(
+        status=StockReservationStatus.ACTIVE,
+        expires_at__lte=now,
+    ).update(status=StockReservationStatus.EXPIRED, released_at=now, updated_at=now)
+
+
+@transaction.atomic
+def create_payment_transaction(
+    *,
+    order=None,
+    reservation=None,
+    amount,
+    provider=PaymentProvider.MOCK,
+    payment_method=OrderPaymentMethod.CARD,
+    action=PaymentTransactionAction.AUTHORIZE,
+    status=PaymentTransactionStatus.PENDING,
+    currency="GEL",
+):
+    if order is None and reservation is None:
+        raise ValueError("Payment transaction must belong to an order or reservation.")
+
+    return PaymentTransaction.objects.create(
+        order=order,
+        reservation=reservation,
+        provider=provider,
+        payment_method=payment_method,
+        action=action,
+        status=status,
+        amount=amount,
+        currency=currency,
+    )
+
+
+def authorize_payment(**kwargs):
+    return _process_payment_transaction(action=PaymentTransactionAction.AUTHORIZE, **kwargs)
+
+
+def capture_payment(**kwargs):
+    return _process_payment_transaction(action=PaymentTransactionAction.CAPTURE, **kwargs)
+
+
+def sale_payment(**kwargs):
+    return _process_payment_transaction(action=PaymentTransactionAction.SALE, **kwargs)
+
+
+def cancel_payment(**kwargs):
+    return _process_payment_transaction(action=PaymentTransactionAction.CANCEL, **kwargs)
+
+
+def refund_payment(**kwargs):
+    return _process_payment_transaction(action=PaymentTransactionAction.REFUND, **kwargs)
+
+
+@transaction.atomic
+def _process_payment_transaction(*, action, **kwargs):
+    payment_transaction = create_payment_transaction(action=action, **kwargs)
+    provider_method = get_provider_method_for_action(payment_transaction.provider, action)
+    provider_response = provider_method(transaction=payment_transaction)
+    return _apply_payment_provider_response(payment_transaction, provider_response)
+
+
 def can_cancel_order(order):
     return (
         order.status in CANCELLABLE_ORDER_STATUSES
@@ -925,6 +1199,142 @@ def cancel_order_and_restore_stock(order):
 
 def build_order_number(order):
     return f"ORD-{timezone.now():%Y%m%d}-{order.pk:06d}"
+
+
+def _get_stock_reservation_ttl_seconds(ttl_seconds=None):
+    if ttl_seconds is not None:
+        return max(int(ttl_seconds), 0)
+    return max(int(settings.STOCK_RESERVATION_TTL_SECONDS), 0)
+
+
+def _get_reservation_owner_kwargs(*, user=None, guest_token=None):
+    if user is not None and getattr(user, "is_authenticated", True):
+        return {"user": user, "guest_token": None}
+    if guest_token is not None:
+        return {"user": None, "guest_token": guest_token}
+    raise ValueError("Stock reservation owner is required.")
+
+
+def _get_existing_active_reservation_ids(*, source, owner_kwargs):
+    return list(
+        StockReservation.objects.select_for_update()
+        .filter(
+            source=source,
+            status=StockReservationStatus.ACTIVE,
+            expires_at__gt=timezone.now(),
+            **owner_kwargs,
+        )
+        .values_list("id", flat=True)
+    )
+
+
+def _create_stock_reservation(*, source, owner_kwargs, snapshots, ttl_seconds=None, release_reservation_ids=None):
+    if not snapshots:
+        raise StockReservationError(detail=CHECKOUT_AVAILABILITY_CHANGED_DETAIL)
+
+    now = timezone.now()
+    if release_reservation_ids:
+        StockReservation.objects.filter(id__in=release_reservation_ids).update(
+            status=StockReservationStatus.RELEASED,
+            released_at=now,
+            updated_at=now,
+        )
+
+    reservation = StockReservation.objects.create(
+        source=source,
+        expires_at=now + timedelta(seconds=_get_stock_reservation_ttl_seconds(ttl_seconds)),
+        **owner_kwargs,
+    )
+    StockReservationItem.objects.bulk_create(
+        [
+            StockReservationItem(
+                reservation=reservation,
+                product=snapshot["product"],
+                quantity=snapshot["quantity"],
+                unit_price_snapshot=snapshot["unit_price_snapshot"],
+            )
+            for snapshot in snapshots
+        ]
+    )
+    return reservation
+
+
+def _build_reservation_item_issue(*, product, requested_quantity, reserved_quantity):
+    if product is None:
+        return {
+            "product_id": None,
+            "issue_type": "unavailable",
+            "requested_quantity": requested_quantity,
+            "available_quantity": 0,
+        }
+
+    availability_issue = get_product_availability_issue(product)
+    if availability_issue == "unavailable":
+        return {
+            "product_id": product.pk,
+            "issue_type": "unavailable",
+            "requested_quantity": requested_quantity,
+            "available_quantity": 0,
+        }
+
+    available_quantity = max(product.stock_qty - reserved_quantity, 0)
+    if requested_quantity <= available_quantity:
+        return None
+
+    return {
+        "product_id": product.pk,
+        "issue_type": "quantity_adjusted" if available_quantity > 0 else "out_of_stock",
+        "requested_quantity": requested_quantity,
+        "available_quantity": available_quantity,
+    }
+
+
+def _apply_payment_provider_response(payment_transaction, provider_response):
+    now = timezone.now()
+    payment_transaction.status = provider_response.status
+    payment_transaction.provider_transaction_id = provider_response.provider_transaction_id
+    payment_transaction.provider_reference = provider_response.provider_reference
+    payment_transaction.error_code = provider_response.error_code
+    payment_transaction.error_message = provider_response.error_message
+
+    update_fields = [
+        "status",
+        "provider_transaction_id",
+        "provider_reference",
+        "error_code",
+        "error_message",
+        "updated_at",
+    ]
+    if provider_response.status == PaymentTransactionStatus.AUTHORIZED:
+        payment_transaction.authorized_at = now
+        update_fields.append("authorized_at")
+    elif provider_response.status == PaymentTransactionStatus.PAID:
+        payment_transaction.captured_at = now
+        update_fields.append("captured_at")
+    elif provider_response.status == PaymentTransactionStatus.CANCELLED:
+        payment_transaction.cancelled_at = now
+        update_fields.append("cancelled_at")
+    elif provider_response.status == PaymentTransactionStatus.REFUNDED:
+        payment_transaction.refunded_at = now
+        update_fields.append("refunded_at")
+
+    payment_transaction.save(update_fields=update_fields)
+    _sync_order_payment_status(payment_transaction)
+    return payment_transaction
+
+
+def _sync_order_payment_status(payment_transaction):
+    if not payment_transaction.order_id:
+        return
+
+    next_status = PAYMENT_TRANSACTION_ORDER_STATUS_MAP.get(payment_transaction.status)
+    if not next_status:
+        return
+
+    Order.objects.filter(pk=payment_transaction.order_id).update(
+        payment_status=next_status,
+        updated_at=timezone.now(),
+    )
 
 
 def _parse_guest_token(raw_token):

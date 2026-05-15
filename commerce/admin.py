@@ -3,7 +3,16 @@ from django.contrib import admin, messages
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import HttpResponseRedirect
 
-from .models import Cart, CartItem, Order, OrderItem, OrderStatus
+from .models import (
+    Cart,
+    CartItem,
+    Order,
+    OrderItem,
+    OrderStatus,
+    PaymentTransaction,
+    StockReservation,
+    StockReservationItem,
+)
 from .services import (
     can_cancel_order,
     can_transition_order_status,
@@ -32,6 +41,23 @@ class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
     fields = ("product_name", "sku", "unit_price", "quantity", "line_total")
+    readonly_fields = fields
+    can_delete = False
+
+
+class PaymentTransactionInline(admin.TabularInline):
+    model = PaymentTransaction
+    extra = 0
+    fields = (
+        "provider",
+        "payment_method",
+        "action",
+        "status",
+        "amount",
+        "currency",
+        "provider_transaction_id",
+        "created_at",
+    )
     readonly_fields = fields
     can_delete = False
 
@@ -100,7 +126,7 @@ class OrderAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
-    inlines = (OrderItemInline,)
+    inlines = (OrderItemInline, PaymentTransactionInline)
 
     fieldsets = (
         (
@@ -176,3 +202,68 @@ class OrderAdmin(admin.ModelAdmin):
             )
 
         return HttpResponseRedirect(".")
+
+
+class StockReservationItemInline(admin.TabularInline):
+    model = StockReservationItem
+    extra = 0
+    fields = ("product", "quantity", "unit_price_snapshot", "created_at")
+    readonly_fields = fields
+    can_delete = False
+
+
+@admin.register(StockReservation)
+class StockReservationAdmin(admin.ModelAdmin):
+    list_display = (
+        "token",
+        "owner_display",
+        "source",
+        "status",
+        "expires_at",
+        "completed_order",
+        "created_at",
+    )
+    list_filter = ("status", "source", "created_at", "expires_at")
+    search_fields = ("token", "guest_token", "user__email", "user__username", "completed_order__order_number")
+    readonly_fields = (
+        "token",
+        "created_at",
+        "updated_at",
+        "completed_at",
+        "released_at",
+    )
+    inlines = (StockReservationItemInline,)
+
+    @admin.display(description="Owner")
+    def owner_display(self, obj):
+        return obj.user or obj.guest_token
+
+
+@admin.register(PaymentTransaction)
+class PaymentTransactionAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "order",
+        "reservation",
+        "provider",
+        "payment_method",
+        "action",
+        "status",
+        "amount",
+        "currency",
+        "created_at",
+    )
+    list_filter = ("provider", "payment_method", "action", "status", "created_at")
+    search_fields = (
+        "order__order_number",
+        "reservation__token",
+        "provider_transaction_id",
+    )
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+        "authorized_at",
+        "captured_at",
+        "cancelled_at",
+        "refunded_at",
+    )

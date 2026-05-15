@@ -29,6 +29,13 @@ from .models import (
     OrderPaymentMethod,
     OrderPaymentStatus,
     OrderStatus,
+    PaymentProvider,
+    PaymentTransaction,
+    PaymentTransactionAction,
+    PaymentTransactionStatus,
+    StockReservation,
+    StockReservationItem,
+    StockReservationStatus,
     WishlistItem,
 )
 from .services import (
@@ -49,7 +56,17 @@ from .services import (
     CHECKOUT_PRODUCT_UNAVAILABLE_DETAIL,
     CHECKOUT_STOCK_MISMATCH_DETAIL,
     WISHLIST_TOKEN_COOKIE_NAME,
+    StockReservationError,
+    authorize_payment,
     cancel_order_and_restore_stock,
+    capture_payment,
+    complete_stock_reservation,
+    create_stock_reservation_from_buy_now_session,
+    create_stock_reservation_from_cart,
+    expire_stock_reservations,
+    get_available_stock_quantity,
+    refund_payment,
+    release_stock_reservation,
     transition_order_status,
 )
 
@@ -65,6 +82,9 @@ def _generate_test_image(filename="sample.jpg", color=(255, 0, 0)):
 class CommerceAPITests(APITestCase):
     def setUp(self):
         WishlistItem.objects.all().delete()
+        PaymentTransaction.objects.all().delete()
+        StockReservationItem.objects.all().delete()
+        StockReservation.objects.all().delete()
         CartItem.objects.all().delete()
         Cart.objects.all().delete()
         OrderItem.objects.all().delete()
@@ -1635,10 +1655,29 @@ class CommerceAPITests(APITestCase):
 
 class CommerceLifecycleServiceTests(TestCase):
     def setUp(self):
+        PaymentTransaction.objects.all().delete()
+        StockReservationItem.objects.all().delete()
+        StockReservation.objects.all().delete()
         Category.objects.all().delete()
         Product.objects.all().delete()
         OrderItem.objects.all().delete()
         Order.objects.all().delete()
+        get_user_model().objects.filter(
+            email__in=["buyer@example.com", "other@example.com"],
+        ).delete()
+
+        self.user = get_user_model().objects.create_user(
+            username="buyer@example.com",
+            email="buyer@example.com",
+            password="Password123!",
+            is_active=True,
+        )
+        self.other_user = get_user_model().objects.create_user(
+            username="other@example.com",
+            email="other@example.com",
+            password="Password123!",
+            is_active=True,
+        )
 
         self.category = Category.objects.create(name="Interior", slug="interior", sort_order=1)
         self.product = Product.objects.create(
@@ -1681,6 +1720,138 @@ class CommerceLifecycleServiceTests(TestCase):
             ),
         )
         return order
+
+    def _create_cart(self, *, user, quantity=1, product=None):
+        cart = Cart.objects.create(user=user)
+        selected_product = product if product is not None else self.product
+        CartItem.objects.create(
+            cart=cart,
+            product=selected_product,
+            unit_price_snapshot=selected_product.price,
+            quantity=quantity,
+        )
+        return cart
+
+    def test_cart_stock_reservation_creates_active_items_without_reducing_stock(self):
+        cart = self._create_cart(user=self.user, quantity=1)
+
+        reservation = create_stock_reservation_from_cart(
+            cart=cart,
+            user=self.user,
+            ttl_seconds=900,
+        )
+
+        self.product.refresh_from_db()
+        reservation_item = reservation.items.get()
+        self.assertEqual(reservation.status, StockReservationStatus.ACTIVE)
+        self.assertEqual(reservation.source, OrderCheckoutSource.CART)
+        self.assertEqual(reservation_item.product, self.product)
+        self.assertEqual(reservation_item.quantity, 1)
+        self.assertEqual(reservation_item.unit_price_snapshot, self.product.price)
+        self.assertEqual(self.product.stock_qty, 2)
+        self.assertEqual(get_available_stock_quantity(product=self.product), 1)
+
+    def test_cart_stock_reservation_blocks_other_owner_when_reserved_stock_is_exhausted(self):
+        first_cart = self._create_cart(user=self.user, quantity=2)
+        second_cart = self._create_cart(user=self.other_user, quantity=1)
+        create_stock_reservation_from_cart(cart=first_cart, user=self.user)
+
+        with self.assertRaises(StockReservationError) as context:
+            create_stock_reservation_from_cart(cart=second_cart, user=self.other_user)
+
+        self.assertEqual(context.exception.detail, CHECKOUT_PRODUCT_UNAVAILABLE_DETAIL)
+        self.assertEqual(context.exception.issues[0]["issue_type"], "out_of_stock")
+        self.assertEqual(context.exception.issues[0]["available_quantity"], 0)
+
+    def test_replacing_same_owner_cart_reservation_releases_previous_reservation(self):
+        cart = self._create_cart(user=self.user, quantity=1)
+        first_reservation = create_stock_reservation_from_cart(cart=cart, user=self.user)
+        cart_item = cart.items.get()
+        cart_item.quantity = 2
+        cart_item.save(update_fields=["quantity", "updated_at"])
+
+        second_reservation = create_stock_reservation_from_cart(cart=cart, user=self.user)
+
+        first_reservation.refresh_from_db()
+        self.assertEqual(first_reservation.status, StockReservationStatus.RELEASED)
+        self.assertEqual(second_reservation.status, StockReservationStatus.ACTIVE)
+        self.assertEqual(second_reservation.items.get().quantity, 2)
+        self.assertEqual(get_available_stock_quantity(product=self.product), 0)
+
+    def test_expired_stock_reservation_no_longer_counts_against_available_stock(self):
+        cart = self._create_cart(user=self.user, quantity=2)
+        reservation = create_stock_reservation_from_cart(cart=cart, user=self.user)
+        reservation.expires_at = timezone.now() - timedelta(minutes=1)
+        reservation.save(update_fields=["expires_at", "updated_at"])
+
+        expired_count = expire_stock_reservations()
+
+        reservation.refresh_from_db()
+        self.assertEqual(expired_count, 1)
+        self.assertEqual(reservation.status, StockReservationStatus.EXPIRED)
+        self.assertEqual(get_available_stock_quantity(product=self.product), 2)
+
+    def test_release_stock_reservation_frees_reserved_quantity(self):
+        cart = self._create_cart(user=self.user, quantity=2)
+        reservation = create_stock_reservation_from_cart(cart=cart, user=self.user)
+
+        release_stock_reservation(reservation)
+
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.status, StockReservationStatus.RELEASED)
+        self.assertIsNotNone(reservation.released_at)
+        self.assertEqual(get_available_stock_quantity(product=self.product), 2)
+
+    def test_complete_stock_reservation_links_order(self):
+        cart = self._create_cart(user=self.user, quantity=1)
+        reservation = create_stock_reservation_from_cart(cart=cart, user=self.user)
+        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+
+        complete_stock_reservation(reservation=reservation, order=order)
+
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.status, StockReservationStatus.COMPLETED)
+        self.assertEqual(reservation.completed_order, order)
+        self.assertIsNotNone(reservation.completed_at)
+
+    def test_buy_now_stock_reservation_uses_session_snapshot(self):
+        session = BuyNowSession.objects.create(
+            user=self.user,
+            product=self.product,
+            unit_price_snapshot=self.product.price,
+            quantity=1,
+        )
+
+        reservation = create_stock_reservation_from_buy_now_session(session=session)
+
+        self.assertEqual(reservation.source, OrderCheckoutSource.BUY_NOW)
+        self.assertEqual(reservation.items.get().quantity, 1)
+
+    def test_mock_authorize_and_capture_create_transactions_and_update_order_payment_status(self):
+        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+
+        authorized = authorize_payment(order=order, amount=order.total)
+        order.refresh_from_db()
+        captured = capture_payment(order=order, amount=order.total)
+        order.refresh_from_db()
+
+        self.assertEqual(authorized.provider, PaymentProvider.MOCK)
+        self.assertEqual(authorized.action, PaymentTransactionAction.AUTHORIZE)
+        self.assertEqual(authorized.status, PaymentTransactionStatus.AUTHORIZED)
+        self.assertTrue(authorized.provider_transaction_id.startswith("mock-authorize-"))
+        self.assertEqual(order.payment_status, OrderPaymentStatus.PAID)
+        self.assertEqual(captured.action, PaymentTransactionAction.CAPTURE)
+        self.assertEqual(captured.status, PaymentTransactionStatus.PAID)
+
+    def test_mock_refund_updates_order_payment_status(self):
+        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+        capture_payment(order=order, amount=order.total)
+
+        refunded = refund_payment(order=order, amount=order.total)
+        order.refresh_from_db()
+
+        self.assertEqual(refunded.status, PaymentTransactionStatus.REFUNDED)
+        self.assertEqual(order.payment_status, OrderPaymentStatus.REFUNDED)
 
     def test_cancel_order_and_restore_stock_updates_status_and_stock(self):
         order = self._create_order(status=OrderStatus.NEW, quantity=3)
@@ -1769,6 +1940,9 @@ class CommerceLifecycleServiceTests(TestCase):
 )
 class CommerceAdminTests(TestCase):
     def setUp(self):
+        PaymentTransaction.objects.all().delete()
+        StockReservationItem.objects.all().delete()
+        StockReservation.objects.all().delete()
         Category.objects.all().delete()
         Product.objects.all().delete()
         OrderItem.objects.all().delete()
@@ -1839,6 +2013,10 @@ class CommerceAdminTests(TestCase):
             "items-INITIAL_FORMS": str(order.items.count()),
             "items-MIN_NUM_FORMS": "0",
             "items-MAX_NUM_FORMS": "1000",
+            "payment_transactions-TOTAL_FORMS": "0",
+            "payment_transactions-INITIAL_FORMS": "0",
+            "payment_transactions-MIN_NUM_FORMS": "0",
+            "payment_transactions-MAX_NUM_FORMS": "1000",
         }
         for index, item in enumerate(order.items.all()):
             payload[f"items-{index}-id"] = str(item.pk)
@@ -1908,9 +2086,16 @@ class CommerceAdminTests(TestCase):
         self.assertEqual(order.status, OrderStatus.NEW)
         self.assertEqual(order.payment_status, OrderPaymentStatus.PAID)
 
+    def test_payment_safety_models_are_registered_in_admin(self):
+        self.assertIn(StockReservation, site._registry)
+        self.assertIn(PaymentTransaction, site._registry)
+
 
 class CommerceAdminFormTests(TestCase):
     def setUp(self):
+        PaymentTransaction.objects.all().delete()
+        StockReservationItem.objects.all().delete()
+        StockReservation.objects.all().delete()
         Category.objects.all().delete()
         Product.objects.all().delete()
         OrderItem.objects.all().delete()
