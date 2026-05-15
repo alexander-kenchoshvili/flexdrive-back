@@ -15,7 +15,8 @@ from rest_framework_simplejwt.token_blacklist.models import (
 )
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
-from .models import UserProfile
+from .google_auth import GoogleAuthError
+from .models import GoogleAccount, UserProfile
 from .email_delivery import EmailDeliveryError, send_auth_email
 
 
@@ -230,6 +231,207 @@ class AuthCsrfFlowAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("access_token", response.cookies)
         self.assertIn("refresh_token", response.cookies)
+
+
+class GoogleAuthAPITests(APITestCase):
+    def setUp(self):
+        self.user_model = get_user_model()
+        GoogleAccount.objects.filter(
+            email__in=[
+                "google-new@example.com",
+                "google-existing@example.com",
+                "google-inactive@example.com",
+                "google-linked@example.com",
+            ]
+        ).delete()
+        self.user_model.objects.filter(
+            email__in=[
+                "google-new@example.com",
+                "google-existing@example.com",
+                "google-inactive@example.com",
+                "google-linked@example.com",
+            ]
+        ).delete()
+
+    def _payload(self, *, sub="google-sub-1", email="google-new@example.com"):
+        return {
+            "iss": "https://accounts.google.com",
+            "sub": sub,
+            "email": email,
+            "email_verified": True,
+            "name": "Nino Google",
+            "given_name": "Nino",
+            "family_name": "Google",
+            "picture": "https://example.com/avatar.png",
+        }
+
+    @override_settings(GOOGLE_OAUTH_CLIENT_ID="client-id.apps.googleusercontent.com")
+    @patch("accounts.serializers.verify_google_id_token")
+    def test_google_auth_creates_active_user_and_sets_session_cookies(self, mock_verify):
+        mock_verify.return_value = self._payload()
+
+        response = self.client.post(
+            reverse("google_auth"),
+            {"credential": "test-google-token"},
+            format="json",
+        )
+
+        user = self.user_model.objects.get(email="google-new@example.com")
+        google_account = GoogleAccount.objects.get(user=user)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["message"], "Google login successful")
+        self.assertTrue(response.data["session"]["has_access"])
+        self.assertTrue(response.data["session"]["has_refresh"])
+        self.assertIn("access_token", response.cookies)
+        self.assertIn("refresh_token", response.cookies)
+        self.assertTrue(user.is_active)
+        self.assertFalse(user.has_usable_password())
+        self.assertEqual(user.first_name, "Nino")
+        self.assertEqual(user.last_name, "Google")
+        self.assertEqual(google_account.google_sub, "google-sub-1")
+        self.assertEqual(google_account.full_name, "Nino Google")
+        self.assertEqual(google_account.picture_url, "https://example.com/avatar.png")
+
+        me_response = self.client.get(reverse("me"))
+
+        self.assertEqual(me_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(me_response.data["email"], user.email)
+
+    @override_settings(GOOGLE_OAUTH_CLIENT_ID="client-id.apps.googleusercontent.com")
+    @patch("accounts.serializers.verify_google_id_token")
+    def test_google_auth_links_existing_active_user_by_verified_email(self, mock_verify):
+        user = self.user_model.objects.create_user(
+            username="google-existing@example.com",
+            email="google-existing@example.com",
+            password="Password123!",
+            is_active=True,
+        )
+        mock_verify.return_value = self._payload(
+            sub="google-sub-existing",
+            email="google-existing@example.com",
+        )
+
+        response = self.client.post(
+            reverse("google_auth"),
+            {"credential": "test-google-token"},
+            format="json",
+        )
+
+        user.refresh_from_db()
+        google_account = GoogleAccount.objects.get(google_sub="google-sub-existing")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(google_account.user, user)
+        self.assertTrue(user.has_usable_password())
+        self.assertIsNotNone(user.last_login)
+
+    @override_settings(GOOGLE_OAUTH_CLIENT_ID="client-id.apps.googleusercontent.com")
+    @patch("accounts.serializers.verify_google_id_token")
+    def test_google_auth_updates_existing_google_account_metadata(self, mock_verify):
+        user = self.user_model.objects.create_user(
+            username="google-linked@example.com",
+            email="google-linked@example.com",
+            password="Password123!",
+            is_active=True,
+        )
+        GoogleAccount.objects.create(
+            user=user,
+            google_sub="google-sub-linked",
+            email="old-google@example.com",
+            email_verified=True,
+            full_name="Old Name",
+            picture_url="",
+        )
+        mock_verify.return_value = self._payload(
+            sub="google-sub-linked",
+            email="google-linked@example.com",
+        )
+
+        response = self.client.post(
+            reverse("google_auth"),
+            {"credential": "test-google-token"},
+            format="json",
+        )
+
+        google_account = GoogleAccount.objects.get(google_sub="google-sub-linked")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(google_account.user, user)
+        self.assertEqual(google_account.email, "google-linked@example.com")
+        self.assertEqual(google_account.full_name, "Nino Google")
+
+    @override_settings(GOOGLE_OAUTH_CLIENT_ID="client-id.apps.googleusercontent.com")
+    @patch("accounts.serializers.verify_google_id_token")
+    def test_google_auth_rejects_unverified_email(self, mock_verify):
+        payload = self._payload()
+        payload["email_verified"] = False
+        mock_verify.return_value = payload
+
+        response = self.client.post(
+            reverse("google_auth"),
+            {"credential": "test-google-token"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Google email is not verified.", str(response.data))
+        self.assertFalse(
+            self.user_model.objects.filter(email="google-new@example.com").exists()
+        )
+
+    @override_settings(GOOGLE_OAUTH_CLIENT_ID="client-id.apps.googleusercontent.com")
+    @patch("accounts.serializers.verify_google_id_token")
+    def test_google_auth_rejects_invalid_credential(self, mock_verify):
+        mock_verify.side_effect = GoogleAuthError(
+            "Google credential could not be verified."
+        )
+
+        response = self.client.post(
+            reverse("google_auth"),
+            {"credential": "invalid-token"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Google credential could not be verified.", str(response.data))
+
+    @override_settings(GOOGLE_OAUTH_CLIENT_ID="client-id.apps.googleusercontent.com")
+    @patch("accounts.serializers.verify_google_id_token")
+    def test_google_auth_rejects_inactive_existing_email_account(self, mock_verify):
+        self.user_model.objects.create_user(
+            username="google-inactive@example.com",
+            email="google-inactive@example.com",
+            password="Password123!",
+            is_active=False,
+        )
+        mock_verify.return_value = self._payload(
+            sub="google-sub-inactive",
+            email="google-inactive@example.com",
+        )
+
+        response = self.client.post(
+            reverse("google_auth"),
+            {"credential": "test-google-token"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Account is not activated.", str(response.data))
+        self.assertFalse(
+            GoogleAccount.objects.filter(google_sub="google-sub-inactive").exists()
+        )
+
+    @override_settings(GOOGLE_OAUTH_CLIENT_ID="")
+    def test_google_auth_returns_503_when_backend_is_not_configured(self):
+        response = self.client.post(
+            reverse("google_auth"),
+            {"credential": "test-google-token"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data["detail"], "Google auth is not configured.")
 
 
 class AuthEmailDeliveryAPITests(APITestCase):

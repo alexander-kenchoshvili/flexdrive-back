@@ -11,8 +11,13 @@ import uuid
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import update_last_login
 
-from .models import UserProfile
+from .models import GoogleAccount, UserProfile
 from .email_delivery import EmailDeliveryError, send_auth_email
+from .google_auth import (
+    GoogleAuthConfigurationError,
+    GoogleAuthError,
+    verify_google_id_token,
+)
 from .token_utils import (
     build_refresh_token_for_user,
     get_auth_token_version,
@@ -36,6 +41,34 @@ def _build_link_email_html(*, intro_text, action_label, url):
         action_label,
         url,
     )
+
+
+def build_unique_username(email):
+    base = email.strip().lower()
+    if not base:
+        base = "user"
+
+    if len(base) > 140:
+        local_part, _, domain_part = base.partition("@")
+        trimmed_local = local_part[: max(1, 140 - len(domain_part) - 1)]
+        base = f"{trimmed_local}@{domain_part}" if domain_part else trimmed_local
+
+    candidate = base
+    suffix = 1
+
+    while User.objects.filter(username=candidate).exists():
+        candidate = f"{base}_{suffix}"[:150]
+        suffix += 1
+
+    return candidate
+
+
+def build_auth_tokens_for_user(user):
+    refresh = build_refresh_token_for_user(user)
+    return {
+        "refresh": str(refresh),
+        "access": str(refresh.access_token),
+    }
 
 
 class UserMeSerializer(serializers.ModelSerializer):
@@ -142,23 +175,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
         return attrs
 
     def _build_unique_username(self, email):
-        base = email.strip().lower()
-        if not base:
-            base = "user"
-
-        if len(base) > 140:
-            local_part, _, domain_part = base.partition("@")
-            trimmed_local = local_part[: max(1, 140 - len(domain_part) - 1)]
-            base = f"{trimmed_local}@{domain_part}" if domain_part else trimmed_local
-
-        candidate = base
-        suffix = 1
-
-        while User.objects.filter(username=candidate).exists():
-            candidate = f"{base}_{suffix}"[:150]
-            suffix += 1
-
-        return candidate
+        return build_unique_username(email)
 
     def create(self, validated_data):
         email = validated_data["email"]
@@ -282,12 +299,125 @@ class UserLoginSerializer(serializers.Serializer):
 
         update_last_login(None, user)
 
-        refresh = build_refresh_token_for_user(user)
+        return build_auth_tokens_for_user(user)
 
+
+class GoogleAuthSerializer(serializers.Serializer):
+    credential = serializers.CharField(write_only=True, trim_whitespace=False)
+
+    def validate(self, attrs):
+        try:
+            google_payload = verify_google_id_token(attrs.get("credential"))
+        except GoogleAuthConfigurationError:
+            raise
+        except GoogleAuthError as exc:
+            raise serializers.ValidationError(str(exc))
+
+        google_sub = str(google_payload.get("sub") or "").strip()
+        email = str(google_payload.get("email") or "").strip().lower()
+        email_verified = bool(google_payload.get("email_verified"))
+
+        if not google_sub:
+            raise serializers.ValidationError("Google credential is missing subject.")
+
+        if not email:
+            raise serializers.ValidationError("Google credential is missing email.")
+
+        if not email_verified:
+            raise serializers.ValidationError("Google email is not verified.")
+
+        attrs["google_payload"] = google_payload
+        attrs["google_sub"] = google_sub
+        attrs["email"] = email
+        return attrs
+
+    def _profile_fields_from_payload(self, payload):
         return {
-            "refresh": str(refresh),
-            "access": str(refresh.access_token),
+            "full_name": str(payload.get("name") or "").strip(),
+            "picture_url": str(payload.get("picture") or "").strip(),
         }
+
+    def _find_or_create_user(self, *, email, payload):
+        google_sub = str(payload.get("sub") or "").strip()
+        profile_fields = self._profile_fields_from_payload(payload)
+        google_account = GoogleAccount.objects.select_related("user").filter(
+            google_sub=google_sub,
+        ).first()
+
+        if google_account:
+            user = google_account.user
+            if not user.is_active:
+                raise serializers.ValidationError("Account is not activated.")
+
+            changed_fields = []
+
+            for field, value in {
+                "email": email,
+                "email_verified": True,
+                **profile_fields,
+            }.items():
+                if getattr(google_account, field) != value:
+                    setattr(google_account, field, value)
+                    changed_fields.append(field)
+
+            if changed_fields:
+                google_account.save(update_fields=[*changed_fields, "updated_at"])
+
+            return user
+
+        user = User.objects.filter(email__iexact=email).first()
+
+        if user:
+            if not user.is_active:
+                raise serializers.ValidationError("Account is not activated.")
+            if GoogleAccount.objects.filter(user=user).exclude(
+                google_sub=google_sub,
+            ).exists():
+                raise serializers.ValidationError(
+                    "This account is already linked to another Google account."
+                )
+        else:
+            user = User(
+                username=build_unique_username(email),
+                email=email,
+                is_active=True,
+                first_name=str(payload.get("given_name") or "").strip()[:150],
+                last_name=str(payload.get("family_name") or "").strip()[:150],
+            )
+            user.set_unusable_password()
+            try:
+                user.save()
+            except IntegrityError:
+                raise serializers.ValidationError(
+                    "A user with this email already exists."
+                )
+
+        try:
+            GoogleAccount.objects.create(
+                user=user,
+                google_sub=google_sub,
+                email=email,
+                email_verified=True,
+                **profile_fields,
+            )
+        except IntegrityError:
+            raise serializers.ValidationError(
+                "This Google account is already linked."
+            )
+
+        return user
+
+    def save(self, **kwargs):
+        payload = self.validated_data["google_payload"]
+        with transaction.atomic():
+            user = self._find_or_create_user(
+                email=self.validated_data["email"],
+                payload=payload,
+            )
+
+            update_last_login(None, user)
+
+        return build_auth_tokens_for_user(user)
 
 
 class ForgotPasswordSerializer(serializers.Serializer):

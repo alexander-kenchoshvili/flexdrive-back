@@ -13,6 +13,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .serializers import (
     UserCreateSerializer,
     ActivationSerializer,
+    GoogleAuthSerializer,
     ResendActivationSerializer,
     UserLoginSerializer,
     UserMeSerializer,
@@ -21,6 +22,7 @@ from .serializers import (
     ResetPasswordSerializer,
 )
 from .email_delivery import EmailDeliveryError
+from .google_auth import GoogleAuthConfigurationError
 from .utils import validate_recaptcha
 
 
@@ -72,6 +74,32 @@ def _api_cookie_delete_kwargs():
     if settings.API_COOKIE_DOMAIN:
         kwargs["domain"] = settings.API_COOKIE_DOMAIN
     return kwargs
+
+
+def _build_auth_cookie_response(*, access_token, refresh_token, message):
+    response = Response(
+        {
+            "message": message,
+            "session": _build_session_payload(
+                access_token=access_token,
+                refresh_token=refresh_token,
+            ),
+        },
+        status=status.HTTP_200_OK,
+    )
+
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        **_api_cookie_kwargs(),
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        **_api_cookie_kwargs(),
+    )
+    return response
+
 
 class RegisterAPIView(generics.CreateAPIView):
     serializer_class = UserCreateSerializer
@@ -183,32 +211,33 @@ class LoginAPIView(generics.GenericAPIView):
         access_token = tokens['access']
         refresh_token = tokens['refresh']
 
-        response = Response(
-            {
-                "message": "Login successful",
-                "session": _build_session_payload(
-                    access_token=access_token,
-                    refresh_token=refresh_token,
-                ),
-            },
-            status=status.HTTP_200_OK,
+        return _build_auth_cookie_response(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            message="Login successful",
         )
 
-        # Access token cookie
-        response.set_cookie(
-            key="access_token",
-            value=access_token,
-            **_api_cookie_kwargs(),
-        )
 
-        # Refresh token cookie
-        response.set_cookie(
-            key="refresh_token",
-            value=refresh_token,
-            **_api_cookie_kwargs(),
-        )
+class GoogleAuthAPIView(generics.GenericAPIView):
+    serializer_class = GoogleAuthSerializer
+    throttle_scope = "google_auth"
 
-        return response
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        try:
+            serializer.is_valid(raise_exception=True)
+            tokens = serializer.save()
+        except GoogleAuthConfigurationError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return _build_auth_cookie_response(
+            access_token=tokens["access"],
+            refresh_token=tokens["refresh"],
+            message="Google login successful",
+        )
 
 
 class MeAPIView(APIView):

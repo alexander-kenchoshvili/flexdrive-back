@@ -17,6 +17,29 @@ class CustomUser(AbstractUser):
     """
 
 
+class GoogleAccount(models.Model):
+    user = models.OneToOneField(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name="google_account",
+    )
+    google_sub = models.CharField(max_length=255, unique=True)
+    email = models.EmailField()
+    email_verified = models.BooleanField(default=False)
+    full_name = models.CharField(max_length=255, blank=True, default="")
+    picture_url = models.URLField(max_length=500, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["email"], name="accounts_google_email_idx"),
+        ]
+
+    def __str__(self):
+        return f"Google account for {self.email}"
+
+
 class UserProfile(models.Model):
     user = models.OneToOneField(
         CustomUser,

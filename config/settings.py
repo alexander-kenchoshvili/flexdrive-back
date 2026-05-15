@@ -416,6 +416,7 @@ REST_FRAMEWORK = {
         'login': '5/min',
         'register': '10/min',
         'checkout': '10/min',
+        'google_auth': '10/min',
         'order_lookup': '10/min',
         'password_reset': '5/min',
         'activation_resend': '5/hour',
@@ -435,6 +436,8 @@ SIMPLE_JWT = {
     'AUTH_COOKIE_SECURE': API_COOKIE_SECURE,
 }
 
+GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+GOOGLE_AUTH_CLOCK_SKEW_SECONDS = _parse_int_env("GOOGLE_AUTH_CLOCK_SKEW_SECONDS", 30)
 RECAPTCHA_SECRET_KEY = os.getenv('RECAPTCHA_SECRET_KEY')
 RECAPTCHA_MIN_SCORE = 0.5
 RECAPTCHA_TIMEOUT_SECONDS = 5
