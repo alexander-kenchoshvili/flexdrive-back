@@ -417,6 +417,7 @@ REST_FRAMEWORK = {
         'register': '10/min',
         'checkout': '10/min',
         'google_auth': '10/min',
+        'facebook_auth': '10/min',
         'order_lookup': '10/min',
         'password_reset': '5/min',
         'activation_resend': '5/hour',
@@ -440,6 +441,10 @@ GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
 GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
 GOOGLE_OAUTH_REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "").strip()
 GOOGLE_AUTH_CLOCK_SKEW_SECONDS = _parse_int_env("GOOGLE_AUTH_CLOCK_SKEW_SECONDS", 30)
+FACEBOOK_APP_ID = os.getenv("FACEBOOK_APP_ID", "").strip()
+FACEBOOK_APP_SECRET = os.getenv("FACEBOOK_APP_SECRET", "").strip()
+FACEBOOK_OAUTH_REDIRECT_URI = os.getenv("FACEBOOK_OAUTH_REDIRECT_URI", "").strip()
+FACEBOOK_GRAPH_API_VERSION = os.getenv("FACEBOOK_GRAPH_API_VERSION", "v25.0").strip()
 RECAPTCHA_SECRET_KEY = os.getenv('RECAPTCHA_SECRET_KEY')
 RECAPTCHA_MIN_SCORE = 0.5
 RECAPTCHA_TIMEOUT_SECONDS = 5

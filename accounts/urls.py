@@ -2,6 +2,8 @@ from django.urls import path
 from .views import (
     RegisterAPIView,
     ActivateAPIView,
+    FacebookOAuthCallbackAPIView,
+    FacebookOAuthStartAPIView,
     ResendActivationAPIView,
     GoogleAuthAPIView,
     GoogleOAuthCallbackAPIView,
@@ -27,6 +29,8 @@ urlpatterns = [
     path('google/', GoogleAuthAPIView.as_view(), name='google_auth'),
     path('google/start/', GoogleOAuthStartAPIView.as_view(), name='google_auth_start'),
     path('google/callback/', GoogleOAuthCallbackAPIView.as_view(), name='google_auth_callback'),
+    path('facebook/start/', FacebookOAuthStartAPIView.as_view(), name='facebook_auth_start'),
+    path('facebook/callback/', FacebookOAuthCallbackAPIView.as_view(), name='facebook_auth_callback'),
     path('me/', MeAPIView.as_view(), name='me'),
     path('profile/', ProfileAPIView.as_view(), name='profile'),
     path('logout/', LogoutAPIView.as_view(), name='logout'),

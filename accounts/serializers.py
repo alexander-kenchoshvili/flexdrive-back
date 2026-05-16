@@ -11,7 +11,7 @@ import uuid
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import update_last_login
 
-from .models import GoogleAccount, UserProfile
+from .models import FacebookAccount, GoogleAccount, UserProfile
 from .email_delivery import EmailDeliveryError, send_auth_email
 from .google_auth import (
     GoogleAuthConfigurationError,
@@ -409,6 +409,116 @@ class GoogleAuthSerializer(serializers.Serializer):
 
     def save(self, **kwargs):
         payload = self.validated_data["google_payload"]
+        with transaction.atomic():
+            user = self._find_or_create_user(
+                email=self.validated_data["email"],
+                payload=payload,
+            )
+
+            update_last_login(None, user)
+
+        return build_auth_tokens_for_user(user)
+
+
+class FacebookAuthSerializer(serializers.Serializer):
+    profile = serializers.DictField(write_only=True)
+
+    def validate(self, attrs):
+        facebook_profile = attrs.get("profile") or {}
+        facebook_id = str(facebook_profile.get("id") or "").strip()
+        email = str(facebook_profile.get("email") or "").strip().lower()
+
+        if not facebook_id:
+            raise serializers.ValidationError("Facebook profile is missing ID.")
+
+        if not email:
+            raise serializers.ValidationError(
+                "Facebook account did not provide an email address."
+            )
+
+        attrs["facebook_profile"] = facebook_profile
+        attrs["facebook_id"] = facebook_id
+        attrs["email"] = email
+        return attrs
+
+    def _profile_fields_from_payload(self, payload):
+        picture = payload.get("picture") or {}
+        picture_data = picture.get("data") if isinstance(picture, dict) else {}
+        return {
+            "full_name": str(payload.get("name") or "").strip(),
+            "picture_url": str((picture_data or {}).get("url") or "").strip(),
+        }
+
+    def _find_or_create_user(self, *, email, payload):
+        facebook_id = str(payload.get("id") or "").strip()
+        profile_fields = self._profile_fields_from_payload(payload)
+        facebook_account = FacebookAccount.objects.select_related("user").filter(
+            facebook_id=facebook_id,
+        ).first()
+
+        if facebook_account:
+            user = facebook_account.user
+            if not user.is_active:
+                raise serializers.ValidationError("Account is not activated.")
+
+            changed_fields = []
+
+            for field, value in {
+                "email": email,
+                **profile_fields,
+            }.items():
+                if getattr(facebook_account, field) != value:
+                    setattr(facebook_account, field, value)
+                    changed_fields.append(field)
+
+            if changed_fields:
+                facebook_account.save(update_fields=[*changed_fields, "updated_at"])
+
+            return user
+
+        user = User.objects.filter(email__iexact=email).first()
+
+        if user:
+            if not user.is_active:
+                raise serializers.ValidationError("Account is not activated.")
+            if FacebookAccount.objects.filter(user=user).exclude(
+                facebook_id=facebook_id,
+            ).exists():
+                raise serializers.ValidationError(
+                    "This account is already linked to another Facebook account."
+                )
+        else:
+            user = User(
+                username=build_unique_username(email),
+                email=email,
+                is_active=True,
+                first_name=str(payload.get("first_name") or "").strip()[:150],
+                last_name=str(payload.get("last_name") or "").strip()[:150],
+            )
+            user.set_unusable_password()
+            try:
+                user.save()
+            except IntegrityError:
+                raise serializers.ValidationError(
+                    "A user with this email already exists."
+                )
+
+        try:
+            FacebookAccount.objects.create(
+                user=user,
+                facebook_id=facebook_id,
+                email=email,
+                **profile_fields,
+            )
+        except IntegrityError:
+            raise serializers.ValidationError(
+                "This Facebook account is already linked."
+            )
+
+        return user
+
+    def save(self, **kwargs):
+        payload = self.validated_data["facebook_profile"]
         with transaction.atomic():
             user = self._find_or_create_user(
                 email=self.validated_data["email"],

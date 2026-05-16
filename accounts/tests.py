@@ -17,7 +17,7 @@ from rest_framework_simplejwt.token_blacklist.models import (
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
 from .google_auth import GoogleAuthError
-from .models import GoogleAccount, UserProfile
+from .models import FacebookAccount, GoogleAccount, UserProfile
 from .email_delivery import EmailDeliveryError, send_auth_email
 
 
@@ -519,6 +519,219 @@ class GoogleAuthAPITests(APITestCase):
             response["Location"].startswith(
                 "https://front.example/login?google_error=",
             )
+        )
+
+
+class FacebookAuthAPITests(APITestCase):
+    def setUp(self):
+        self.user_model = get_user_model()
+        FacebookAccount.objects.filter(
+            email__in=[
+                "facebook-new@example.com",
+                "facebook-existing@example.com",
+            ]
+        ).delete()
+        self.user_model.objects.filter(
+            email__in=[
+                "facebook-new@example.com",
+                "facebook-existing@example.com",
+            ]
+        ).delete()
+
+    def _profile(self, *, facebook_id="facebook-id-1", email="facebook-new@example.com"):
+        return {
+            "id": facebook_id,
+            "email": email,
+            "name": "Nino Facebook",
+            "first_name": "Nino",
+            "last_name": "Facebook",
+            "picture": {
+                "data": {
+                    "url": "https://example.com/facebook-avatar.png",
+                }
+            },
+        }
+
+    @override_settings(
+        FRONTEND_BASE_URL="https://front.example",
+        FACEBOOK_APP_ID="facebook-app-id",
+        FACEBOOK_APP_SECRET="facebook-secret",
+        FACEBOOK_OAUTH_REDIRECT_URI="https://front.example/auth/facebook/callback",
+        FACEBOOK_GRAPH_API_VERSION="v25.0",
+    )
+    def test_facebook_oauth_start_redirects_to_facebook_and_sets_state_cookie(self):
+        response = self.client.get(
+            reverse("facebook_auth_start"),
+            {"next": "/profile?tab=orders", "return_path": "/login"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("facebook_oauth_state", response.cookies)
+
+        location = response["Location"]
+        parsed = urlparse(location)
+        query = parse_qs(parsed.query)
+
+        self.assertEqual(parsed.netloc, "www.facebook.com")
+        self.assertEqual(parsed.path, "/v25.0/dialog/oauth")
+        self.assertEqual(query["client_id"], ["facebook-app-id"])
+        self.assertEqual(
+            query["redirect_uri"],
+            ["https://front.example/auth/facebook/callback"],
+        )
+        self.assertEqual(query["response_type"], ["code"])
+        self.assertEqual(query["scope"], ["email,public_profile"])
+        self.assertEqual(
+            query["state"][0],
+            response.cookies["facebook_oauth_state"].value,
+        )
+
+    @override_settings(
+        FRONTEND_BASE_URL="https://front.example",
+        FACEBOOK_APP_ID="facebook-app-id",
+        FACEBOOK_APP_SECRET="facebook-secret",
+        FACEBOOK_OAUTH_REDIRECT_URI="https://front.example/auth/facebook/callback",
+    )
+    @patch("accounts.views.fetch_facebook_profile")
+    @patch("accounts.views.exchange_facebook_authorization_code")
+    def test_facebook_oauth_callback_sets_auth_cookies_and_redirects(
+        self,
+        mock_exchange_code,
+        mock_fetch_profile,
+    ):
+        start_response = self.client.get(
+            reverse("facebook_auth_start"),
+            {"next": "/profile", "return_path": "/login"},
+        )
+        state = start_response.cookies["facebook_oauth_state"].value
+        self.client.cookies["facebook_oauth_state"] = state
+        mock_exchange_code.return_value = "facebook-access-token"
+        mock_fetch_profile.return_value = self._profile(
+            facebook_id="facebook-redirect-id",
+            email="facebook-new@example.com",
+        )
+
+        response = self.client.get(
+            reverse("facebook_auth_callback"),
+            {"state": state, "code": "auth-code"},
+        )
+
+        user = self.user_model.objects.get(email="facebook-new@example.com")
+        facebook_account = FacebookAccount.objects.get(user=user)
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], "https://front.example/profile")
+        self.assertIn("access_token", response.cookies)
+        self.assertIn("refresh_token", response.cookies)
+        self.assertEqual(response.cookies["facebook_oauth_state"].value, "")
+        self.assertTrue(user.is_active)
+        self.assertFalse(user.has_usable_password())
+        self.assertEqual(user.first_name, "Nino")
+        self.assertEqual(user.last_name, "Facebook")
+        self.assertEqual(facebook_account.facebook_id, "facebook-redirect-id")
+        self.assertEqual(facebook_account.full_name, "Nino Facebook")
+        self.assertEqual(
+            facebook_account.picture_url,
+            "https://example.com/facebook-avatar.png",
+        )
+        mock_exchange_code.assert_called_once_with("auth-code")
+        mock_fetch_profile.assert_called_once_with("facebook-access-token")
+
+    @override_settings(
+        FRONTEND_BASE_URL="https://front.example",
+        FACEBOOK_APP_ID="facebook-app-id",
+        FACEBOOK_APP_SECRET="facebook-secret",
+        FACEBOOK_OAUTH_REDIRECT_URI="https://front.example/auth/facebook/callback",
+    )
+    @patch("accounts.views.fetch_facebook_profile")
+    @patch("accounts.views.exchange_facebook_authorization_code")
+    def test_facebook_oauth_callback_links_existing_active_user_by_email(
+        self,
+        mock_exchange_code,
+        mock_fetch_profile,
+    ):
+        user = self.user_model.objects.create_user(
+            username="facebook-existing@example.com",
+            email="facebook-existing@example.com",
+            password="Password123!",
+            is_active=True,
+        )
+        start_response = self.client.get(
+            reverse("facebook_auth_start"),
+            {"next": "/profile", "return_path": "/login"},
+        )
+        state = start_response.cookies["facebook_oauth_state"].value
+        self.client.cookies["facebook_oauth_state"] = state
+        mock_exchange_code.return_value = "facebook-access-token"
+        mock_fetch_profile.return_value = self._profile(
+            facebook_id="facebook-existing-id",
+            email="facebook-existing@example.com",
+        )
+
+        response = self.client.get(
+            reverse("facebook_auth_callback"),
+            {"state": state, "code": "auth-code"},
+        )
+
+        facebook_account = FacebookAccount.objects.get(
+            facebook_id="facebook-existing-id",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(facebook_account.user, user)
+        self.assertTrue(user.has_usable_password())
+
+    @override_settings(FRONTEND_BASE_URL="https://front.example")
+    def test_facebook_oauth_callback_rejects_missing_state(self):
+        response = self.client.get(
+            reverse("facebook_auth_callback"),
+            {"code": "auth-code"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertTrue(
+            response["Location"].startswith(
+                "https://front.example/login?facebook_error=",
+            )
+        )
+
+    @override_settings(
+        FRONTEND_BASE_URL="https://front.example",
+        FACEBOOK_APP_ID="facebook-app-id",
+        FACEBOOK_APP_SECRET="facebook-secret",
+        FACEBOOK_OAUTH_REDIRECT_URI="https://front.example/auth/facebook/callback",
+    )
+    @patch("accounts.views.fetch_facebook_profile")
+    @patch("accounts.views.exchange_facebook_authorization_code")
+    def test_facebook_oauth_callback_rejects_missing_email(
+        self,
+        mock_exchange_code,
+        mock_fetch_profile,
+    ):
+        start_response = self.client.get(
+            reverse("facebook_auth_start"),
+            {"next": "/profile", "return_path": "/login"},
+        )
+        state = start_response.cookies["facebook_oauth_state"].value
+        self.client.cookies["facebook_oauth_state"] = state
+        profile = self._profile()
+        profile.pop("email")
+        mock_exchange_code.return_value = "facebook-access-token"
+        mock_fetch_profile.return_value = profile
+
+        response = self.client.get(
+            reverse("facebook_auth_callback"),
+            {"state": state, "code": "auth-code"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertTrue(
+            response["Location"].startswith(
+                "https://front.example/login?facebook_error=",
+            )
+        )
+        self.assertFalse(
+            FacebookAccount.objects.filter(facebook_id="facebook-id-1").exists()
         )
 
 

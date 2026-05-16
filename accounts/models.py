@@ -40,6 +40,28 @@ class GoogleAccount(models.Model):
         return f"Google account for {self.email}"
 
 
+class FacebookAccount(models.Model):
+    user = models.OneToOneField(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name="facebook_account",
+    )
+    facebook_id = models.CharField(max_length=255, unique=True)
+    email = models.EmailField()
+    full_name = models.CharField(max_length=255, blank=True, default="")
+    picture_url = models.URLField(max_length=500, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["email"], name="accounts_facebook_email_idx"),
+        ]
+
+    def __str__(self):
+        return f"Facebook account for {self.email}"
+
+
 class UserProfile(models.Model):
     user = models.OneToOneField(
         CustomUser,

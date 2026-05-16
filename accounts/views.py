@@ -18,6 +18,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .serializers import (
     UserCreateSerializer,
     ActivationSerializer,
+    FacebookAuthSerializer,
     GoogleAuthSerializer,
     ResendActivationSerializer,
     UserLoginSerializer,
@@ -27,6 +28,13 @@ from .serializers import (
     ResetPasswordSerializer,
 )
 from .email_delivery import EmailDeliveryError
+from .facebook_auth import (
+    FacebookAuthConfigurationError,
+    FacebookAuthError,
+    build_facebook_oauth_authorization_url,
+    exchange_facebook_authorization_code,
+    fetch_facebook_profile,
+)
 from .google_auth import (
     GoogleAuthConfigurationError,
     GoogleAuthError,
@@ -38,7 +46,9 @@ from .utils import validate_recaptcha
 
 GOOGLE_OAUTH_STATE_COOKIE = "google_oauth_state"
 GOOGLE_OAUTH_STATE_SALT = "accounts.google.oauth.state"
-GOOGLE_OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60
+FACEBOOK_OAUTH_STATE_COOKIE = "facebook_oauth_state"
+FACEBOOK_OAUTH_STATE_SALT = "accounts.facebook.oauth.state"
+OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60
 
 
 def _serialize_token_expiry(raw_token, token_class):
@@ -133,15 +143,15 @@ def _build_frontend_url(path):
     return f"{settings.FRONTEND_BASE_URL}{safe_path}"
 
 
-def _build_frontend_error_url(path, message):
+def _build_frontend_error_url(path, message, *, error_param="google_error"):
     safe_path = _normalize_frontend_path(path, default="/login")
     parsed = urlsplit(safe_path)
     query_items = [
         (key, value)
         for key, value in parse_qsl(parsed.query, keep_blank_values=True)
-        if key != "google_error"
+        if key != error_param
     ]
-    query_items.append(("google_error", message))
+    query_items.append((error_param, message))
     next_path = urlunsplit(
         (
             "",
@@ -154,40 +164,46 @@ def _build_frontend_error_url(path, message):
     return _build_frontend_url(next_path)
 
 
-def _set_google_oauth_state_cookie(response, state):
+def _set_oauth_state_cookie(response, *, cookie_name, state):
     response.set_cookie(
-        key=GOOGLE_OAUTH_STATE_COOKIE,
+        key=cookie_name,
         value=state,
-        max_age=GOOGLE_OAUTH_STATE_MAX_AGE_SECONDS,
+        max_age=OAUTH_STATE_MAX_AGE_SECONDS,
         **_api_cookie_kwargs(),
     )
 
 
-def _delete_google_oauth_state_cookie(response):
-    response.delete_cookie(GOOGLE_OAUTH_STATE_COOKIE, **_api_cookie_delete_kwargs())
+def _delete_oauth_state_cookie(response, *, cookie_name):
+    response.delete_cookie(cookie_name, **_api_cookie_delete_kwargs())
 
 
-def _load_google_oauth_state(raw_state):
+def _load_oauth_state(raw_state, *, salt):
     return signing.loads(
         raw_state,
-        salt=GOOGLE_OAUTH_STATE_SALT,
-        max_age=GOOGLE_OAUTH_STATE_MAX_AGE_SECONDS,
+        salt=salt,
+        max_age=OAUTH_STATE_MAX_AGE_SECONDS,
     )
 
 
-def _build_google_oauth_state(*, next_path, return_path):
+def _build_oauth_state(*, next_path, return_path, salt):
     return signing.dumps(
         {
             "nonce": secrets.token_urlsafe(18),
             "next": _normalize_frontend_path(next_path),
             "return_path": _normalize_frontend_path(return_path, default="/login"),
         },
-        salt=GOOGLE_OAUTH_STATE_SALT,
+        salt=salt,
         compress=True,
     )
 
 
-def _build_auth_redirect_response(*, access_token, refresh_token, redirect_to):
+def _build_auth_redirect_response(
+    *,
+    access_token,
+    refresh_token,
+    redirect_to,
+    state_cookie_name=GOOGLE_OAUTH_STATE_COOKIE,
+):
     response = HttpResponseRedirect(redirect_to)
     response.set_cookie(
         key="access_token",
@@ -199,7 +215,7 @@ def _build_auth_redirect_response(*, access_token, refresh_token, redirect_to):
         value=refresh_token,
         **_api_cookie_kwargs(),
     )
-    _delete_google_oauth_state_cookie(response)
+    _delete_oauth_state_cookie(response, cookie_name=state_cookie_name)
     return response
 
 
@@ -353,9 +369,10 @@ class GoogleOAuthStartAPIView(APIView):
         )
 
         try:
-            state = _build_google_oauth_state(
+            state = _build_oauth_state(
                 next_path=next_path,
                 return_path=return_path,
+                salt=GOOGLE_OAUTH_STATE_SALT,
             )
             authorization_url = build_google_oauth_authorization_url(state=state)
         except GoogleAuthConfigurationError as exc:
@@ -364,7 +381,11 @@ class GoogleOAuthStartAPIView(APIView):
             )
 
         response = HttpResponseRedirect(authorization_url)
-        _set_google_oauth_state_cookie(response, state)
+        _set_oauth_state_cookie(
+            response,
+            cookie_name=GOOGLE_OAUTH_STATE_COOKIE,
+            state=state,
+        )
         return response
 
 
@@ -373,7 +394,7 @@ class GoogleOAuthCallbackAPIView(APIView):
 
     def _error_redirect(self, return_path, message):
         response = HttpResponseRedirect(_build_frontend_error_url(return_path, message))
-        _delete_google_oauth_state_cookie(response)
+        _delete_oauth_state_cookie(response, cookie_name=GOOGLE_OAUTH_STATE_COOKIE)
         return response
 
     def get(self, request):
@@ -388,7 +409,7 @@ class GoogleOAuthCallbackAPIView(APIView):
             )
 
         try:
-            state_payload = _load_google_oauth_state(raw_state)
+            state_payload = _load_oauth_state(raw_state, salt=GOOGLE_OAUTH_STATE_SALT)
         except signing.BadSignature:
             return self._error_redirect(
                 return_path,
@@ -427,6 +448,112 @@ class GoogleOAuthCallbackAPIView(APIView):
             access_token=tokens["access"],
             refresh_token=tokens["refresh"],
             redirect_to=_build_frontend_url(next_path),
+            state_cookie_name=GOOGLE_OAUTH_STATE_COOKIE,
+        )
+
+
+class FacebookOAuthStartAPIView(APIView):
+    throttle_scope = "facebook_auth"
+
+    def get(self, request):
+        next_path = _normalize_frontend_path(request.GET.get("next"), default="/")
+        return_path = _normalize_frontend_path(
+            request.GET.get("return_path"),
+            default="/login",
+        )
+
+        try:
+            state = _build_oauth_state(
+                next_path=next_path,
+                return_path=return_path,
+                salt=FACEBOOK_OAUTH_STATE_SALT,
+            )
+            authorization_url = build_facebook_oauth_authorization_url(state=state)
+        except FacebookAuthConfigurationError as exc:
+            return HttpResponseRedirect(
+                _build_frontend_error_url(
+                    return_path,
+                    str(exc),
+                    error_param="facebook_error",
+                ),
+            )
+
+        response = HttpResponseRedirect(authorization_url)
+        _set_oauth_state_cookie(
+            response,
+            cookie_name=FACEBOOK_OAUTH_STATE_COOKIE,
+            state=state,
+        )
+        return response
+
+
+class FacebookOAuthCallbackAPIView(APIView):
+    throttle_scope = "facebook_auth"
+
+    def _error_redirect(self, return_path, message):
+        response = HttpResponseRedirect(
+            _build_frontend_error_url(
+                return_path,
+                message,
+                error_param="facebook_error",
+            )
+        )
+        _delete_oauth_state_cookie(response, cookie_name=FACEBOOK_OAUTH_STATE_COOKIE)
+        return response
+
+    def get(self, request):
+        raw_state = request.GET.get("state") or ""
+        cookie_state = request.COOKIES.get(FACEBOOK_OAUTH_STATE_COOKIE) or ""
+        return_path = "/login"
+
+        if not raw_state or raw_state != cookie_state:
+            return self._error_redirect(
+                return_path,
+                "Facebook ავტორიზაციის სესია ვეღარ მოიძებნა. სცადეთ თავიდან.",
+            )
+
+        try:
+            state_payload = _load_oauth_state(raw_state, salt=FACEBOOK_OAUTH_STATE_SALT)
+        except signing.BadSignature:
+            return self._error_redirect(
+                return_path,
+                "Facebook ავტორიზაციის სესია ვადაგასულია. სცადეთ თავიდან.",
+            )
+
+        next_path = _normalize_frontend_path(state_payload.get("next"), default="/")
+        return_path = _normalize_frontend_path(
+            state_payload.get("return_path"),
+            default="/login",
+        )
+
+        facebook_error = request.GET.get("error")
+        if facebook_error:
+            return self._error_redirect(
+                return_path,
+                "Facebook ავტორიზაცია შეწყდა. სცადეთ თავიდან.",
+            )
+
+        try:
+            access_token = exchange_facebook_authorization_code(
+                request.GET.get("code"),
+            )
+            profile = fetch_facebook_profile(access_token)
+            serializer = FacebookAuthSerializer(data={"profile": profile})
+            serializer.is_valid(raise_exception=True)
+            tokens = serializer.save()
+        except FacebookAuthConfigurationError as exc:
+            return self._error_redirect(return_path, str(exc))
+        except (FacebookAuthError, DRFValidationError) as exc:
+            return self._error_redirect(
+                return_path,
+                str(exc.detail if hasattr(exc, "detail") else exc),
+            )
+
+        return _build_auth_redirect_response(
+            access_token=tokens["access"],
+            refresh_token=tokens["refresh"],
+            redirect_to=_build_frontend_url(next_path),
+            state_cookie_name=FACEBOOK_OAUTH_STATE_COOKIE,
         )
 
 
