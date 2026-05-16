@@ -1,4 +1,8 @@
 from django.conf import settings
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 class GoogleAuthError(Exception):
@@ -37,7 +41,11 @@ def verify_google_id_token(credential):
             ),
         )
     except Exception as exc:
-        raise GoogleAuthError("Google credential could not be verified.") from exc
+        logger.exception("Google credential verification failed.")
+        message = "Google credential could not be verified."
+        if settings.DEBUG:
+            message = f"{message} {exc.__class__.__name__}: {exc}"
+        raise GoogleAuthError(message) from exc
 
     issuer = id_info.get("iss")
     if issuer not in {"accounts.google.com", "https://accounts.google.com"}:
