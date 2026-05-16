@@ -1,4 +1,5 @@
 from datetime import timedelta
+from urllib.parse import parse_qs, urlparse
 from unittest.mock import patch
 import uuid
 
@@ -432,6 +433,93 @@ class GoogleAuthAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(response.data["detail"], "Google auth is not configured.")
+
+    @override_settings(
+        FRONTEND_BASE_URL="https://front.example",
+        GOOGLE_OAUTH_CLIENT_ID="client-id.apps.googleusercontent.com",
+        GOOGLE_OAUTH_CLIENT_SECRET="client-secret",
+        GOOGLE_OAUTH_REDIRECT_URI="https://front.example/api/accounts/google/callback/",
+    )
+    def test_google_oauth_start_redirects_to_google_and_sets_state_cookie(self):
+        response = self.client.get(
+            reverse("google_auth_start"),
+            {"next": "/profile?tab=orders", "return_path": "/login"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("google_oauth_state", response.cookies)
+
+        location = response["Location"]
+        parsed = urlparse(location)
+        query = parse_qs(parsed.query)
+
+        self.assertEqual(parsed.netloc, "accounts.google.com")
+        self.assertEqual(query["client_id"], ["client-id.apps.googleusercontent.com"])
+        self.assertEqual(
+            query["redirect_uri"],
+            ["https://front.example/api/accounts/google/callback/"],
+        )
+        self.assertEqual(query["response_type"], ["code"])
+        self.assertEqual(query["scope"], ["openid email profile"])
+        self.assertEqual(query["prompt"], ["select_account"])
+        self.assertEqual(
+            query["state"][0],
+            response.cookies["google_oauth_state"].value,
+        )
+
+    @override_settings(
+        FRONTEND_BASE_URL="https://front.example",
+        GOOGLE_OAUTH_CLIENT_ID="client-id.apps.googleusercontent.com",
+        GOOGLE_OAUTH_CLIENT_SECRET="client-secret",
+        GOOGLE_OAUTH_REDIRECT_URI="https://front.example/api/accounts/google/callback/",
+    )
+    @patch("accounts.serializers.verify_google_id_token")
+    @patch("accounts.views.exchange_google_authorization_code")
+    def test_google_oauth_callback_sets_auth_cookies_and_redirects(
+        self,
+        mock_exchange_code,
+        mock_verify,
+    ):
+        start_response = self.client.get(
+            reverse("google_auth_start"),
+            {"next": "/profile", "return_path": "/login"},
+        )
+        state = start_response.cookies["google_oauth_state"].value
+        self.client.cookies["google_oauth_state"] = state
+        mock_exchange_code.return_value = "id-token"
+        mock_verify.return_value = self._payload(
+            sub="google-redirect-sub",
+            email="google-new@example.com",
+        )
+
+        response = self.client.get(
+            reverse("google_auth_callback"),
+            {"state": state, "code": "auth-code"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], "https://front.example/profile")
+        self.assertIn("access_token", response.cookies)
+        self.assertIn("refresh_token", response.cookies)
+        self.assertEqual(response.cookies["google_oauth_state"].value, "")
+        mock_exchange_code.assert_called_once_with("auth-code")
+        self.assertTrue(
+            GoogleAccount.objects.filter(google_sub="google-redirect-sub").exists()
+        )
+
+    @override_settings(FRONTEND_BASE_URL="https://front.example")
+    def test_google_oauth_callback_rejects_missing_state(self):
+        response = self.client.get(
+            reverse("google_auth_callback"),
+            {"code": "auth-code"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertTrue(
+            response["Location"].startswith(
+                "https://front.example/login?google_error=",
+            )
+        )
 
 
 class AuthEmailDeliveryAPITests(APITestCase):
