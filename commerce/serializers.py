@@ -3,7 +3,16 @@ from rest_framework import serializers
 from catalog.models import Product, ProductStatus
 
 from .images import build_product_primary_image_snapshot, empty_image_asset, serialize_image_asset
-from .models import BuyNowSession, Cart, CartItem, Order, OrderItem, OrderPaymentMethod, WishlistItem
+from .models import (
+    BuyNowSession,
+    Cart,
+    CartItem,
+    Order,
+    OrderBuyerType,
+    OrderItem,
+    OrderPaymentMethod,
+    WishlistItem,
+)
 from .services import (
     build_cart_price_change_message,
     get_buy_now_session_issue_data,
@@ -76,6 +85,29 @@ class WishlistItemCreateSerializer(serializers.Serializer):
 
 
 class CheckoutSerializer(serializers.Serializer):
+    buyer_type = serializers.ChoiceField(
+        choices=OrderBuyerType.choices,
+        default=OrderBuyerType.INDIVIDUAL,
+        required=False,
+    )
+    company_name = serializers.CharField(
+        max_length=255,
+        allow_blank=True,
+        required=False,
+        default="",
+    )
+    company_identification_code = serializers.CharField(
+        max_length=32,
+        allow_blank=True,
+        required=False,
+        default="",
+    )
+    company_legal_address = serializers.CharField(
+        max_length=255,
+        allow_blank=True,
+        required=False,
+        default="",
+    )
     first_name = serializers.CharField(max_length=150)
     last_name = serializers.CharField(max_length=150)
     email = serializers.EmailField(required=False, allow_blank=True, default="")
@@ -102,6 +134,46 @@ class CheckoutSerializer(serializers.Serializer):
         if value == OrderPaymentMethod.CARD:
             raise serializers.ValidationError("Card payments are temporarily unavailable.")
         return value
+
+    def validate(self, attrs):
+        buyer_type = attrs.get("buyer_type", OrderBuyerType.INDIVIDUAL)
+
+        if buyer_type != OrderBuyerType.LEGAL_ENTITY:
+            attrs["company_name"] = ""
+            attrs["company_identification_code"] = ""
+            attrs["company_legal_address"] = ""
+            return attrs
+
+        company_name = str(attrs.get("company_name", "")).strip()
+        company_identification_code = str(
+            attrs.get("company_identification_code", "")
+        ).strip()
+        company_legal_address = str(attrs.get("company_legal_address", "")).strip()
+
+        errors = {}
+        if not company_name:
+            errors["company_name"] = "შეიყვანე კომპანიის დასახელება."
+
+        if not company_identification_code:
+            errors["company_identification_code"] = "შეიყვანე საიდენტიფიკაციო კოდი."
+        elif not (
+            company_identification_code.isdigit()
+            and len(company_identification_code) == 9
+        ):
+            errors["company_identification_code"] = (
+                "შეიყვანე 9-ნიშნა საიდენტიფიკაციო კოდი."
+            )
+
+        if not company_legal_address:
+            errors["company_legal_address"] = "შეიყვანე იურიდიული მისამართი."
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        attrs["company_name"] = company_name
+        attrs["company_identification_code"] = company_identification_code
+        attrs["company_legal_address"] = company_legal_address
+        return attrs
 
 
 def normalize_order_lookup_phone(value):
@@ -454,6 +526,10 @@ class OrderSummarySerializer(serializers.ModelSerializer):
             "id",
             "public_token",
             "order_number",
+            "buyer_type",
+            "company_name",
+            "company_identification_code",
+            "company_legal_address",
             "payment_method",
             "payment_status",
             "status",

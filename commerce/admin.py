@@ -107,6 +107,8 @@ class OrderAdmin(admin.ModelAdmin):
     list_display = (
         "order_number",
         "customer_name",
+        "buyer_type",
+        "company_name",
         "phone",
         "email",
         "payment_method",
@@ -115,8 +117,22 @@ class OrderAdmin(admin.ModelAdmin):
         "status",
         "created_at",
     )
-    list_filter = ("status", "payment_status", "payment_method", "created_at")
-    search_fields = ("order_number", "first_name", "last_name", "email", "phone")
+    list_filter = (
+        "buyer_type",
+        "status",
+        "payment_status",
+        "payment_method",
+        "created_at",
+    )
+    search_fields = (
+        "order_number",
+        "first_name",
+        "last_name",
+        "email",
+        "phone",
+        "company_name",
+        "company_identification_code",
+    )
     readonly_fields = (
         "order_number",
         "public_token",
@@ -135,9 +151,20 @@ class OrderAdmin(admin.ModelAdmin):
                 "fields": (
                     "order_number",
                     "public_token",
+                    "buyer_type",
                     "payment_method",
                     "payment_status",
                     "status",
+                )
+            },
+        ),
+        (
+            "Company",
+            {
+                "fields": (
+                    "company_name",
+                    "company_identification_code",
+                    "company_legal_address",
                 )
             },
         ),

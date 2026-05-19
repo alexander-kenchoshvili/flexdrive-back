@@ -30,6 +30,11 @@ class OrderCheckoutSource(models.TextChoices):
     BUY_NOW = "buy_now", "Buy now"
 
 
+class OrderBuyerType(models.TextChoices):
+    INDIVIDUAL = "individual", "Individual"
+    LEGAL_ENTITY = "legal_entity", "Legal entity"
+
+
 class StockReservationStatus(models.TextChoices):
     ACTIVE = "active", "Active"
     COMPLETED = "completed", "Completed"
@@ -306,6 +311,15 @@ class Order(TimeStampedModel):
     )
     public_token = models.UUIDField(default=uuid.uuid4, unique=True, db_index=True, editable=False)
     order_number = models.CharField(max_length=32, unique=True, blank=True, db_index=True)
+    buyer_type = models.CharField(
+        max_length=20,
+        choices=OrderBuyerType.choices,
+        default=OrderBuyerType.INDIVIDUAL,
+        db_index=True,
+    )
+    company_name = models.CharField(max_length=255, blank=True, default="")
+    company_identification_code = models.CharField(max_length=32, blank=True, default="")
+    company_legal_address = models.CharField(max_length=255, blank=True, default="")
     checkout_source = models.CharField(
         max_length=20,
         choices=OrderCheckoutSource.choices,

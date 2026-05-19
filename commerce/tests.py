@@ -24,6 +24,7 @@ from .models import (
     Cart,
     CartItem,
     Order,
+    OrderBuyerType,
     OrderCheckoutSource,
     OrderItem,
     OrderPaymentMethod,
@@ -707,6 +708,58 @@ class CommerceAPITests(APITestCase):
         self.assertEqual(response.data["items"][0]["product_name"], "Car Vacuum 53")
         self.assertEqual(response.data["items"][0]["primary_image"]["alt_text"], "Vacuum image")
 
+    def test_checkout_stores_legal_entity_snapshot(self):
+        self.client.post(
+            reverse("commerce-cart-item-list"),
+            {"product_id": self.product.id, "quantity": 1},
+            format="json",
+        )
+
+        payload = {
+            **self._checkout_payload(),
+            "buyer_type": OrderBuyerType.LEGAL_ENTITY,
+            "company_name": "Flex Parts LLC",
+            "company_identification_code": "123456789",
+            "company_legal_address": "Tbilisi, Vazha-Pshavela 10",
+        }
+        response = self.client.post(
+            reverse("commerce-order-checkout"),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        order = Order.objects.get()
+        self.assertEqual(order.buyer_type, OrderBuyerType.LEGAL_ENTITY)
+        self.assertEqual(order.company_name, "Flex Parts LLC")
+        self.assertEqual(order.company_identification_code, "123456789")
+        self.assertEqual(order.company_legal_address, "Tbilisi, Vazha-Pshavela 10")
+        self.assertEqual(response.data["buyer_type"], OrderBuyerType.LEGAL_ENTITY)
+        self.assertEqual(response.data["company_name"], "Flex Parts LLC")
+
+    def test_legal_entity_checkout_requires_company_fields(self):
+        self.client.post(
+            reverse("commerce-cart-item-list"),
+            {"product_id": self.product.id, "quantity": 1},
+            format="json",
+        )
+
+        response = self.client.post(
+            reverse("commerce-order-checkout"),
+            {
+                **self._checkout_payload(),
+                "buyer_type": OrderBuyerType.LEGAL_ENTITY,
+                "company_identification_code": "123",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("company_name", response.data)
+        self.assertIn("company_identification_code", response.data)
+        self.assertIn("company_legal_address", response.data)
+        self.assertEqual(Order.objects.count(), 0)
+
     def test_guest_create_buy_now_session_sets_cookie_and_returns_summary(self):
         response = self.client.post(
             reverse("commerce-buy-now-session"),
@@ -971,6 +1024,35 @@ class CommerceAPITests(APITestCase):
         self.assertEqual(response.data["payment_status"], OrderPaymentStatus.PENDING)
         self.assertIn(BUY_NOW_TOKEN_COOKIE_NAME, response.cookies)
         self.assertEqual(response.cookies[BUY_NOW_TOKEN_COOKIE_NAME].value, "")
+
+    def test_buy_now_checkout_stores_legal_entity_snapshot(self):
+        create_response = self.client.post(
+            reverse("commerce-buy-now-session"),
+            {"product_id": self.product.id, "quantity": 1},
+            format="json",
+        )
+        guest_token = create_response.cookies[BUY_NOW_TOKEN_COOKIE_NAME].value
+        self.client.cookies[BUY_NOW_TOKEN_COOKIE_NAME] = guest_token
+
+        response = self.client.post(
+            reverse("commerce-buy-now-checkout"),
+            {
+                **self._checkout_payload(),
+                "buyer_type": OrderBuyerType.LEGAL_ENTITY,
+                "company_name": "Auto Mirror LLC",
+                "company_identification_code": "987654321",
+                "company_legal_address": "Batumi, Rustaveli 5",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        order = Order.objects.get()
+        self.assertEqual(order.checkout_source, OrderCheckoutSource.BUY_NOW)
+        self.assertEqual(order.buyer_type, OrderBuyerType.LEGAL_ENTITY)
+        self.assertEqual(order.company_name, "Auto Mirror LLC")
+        self.assertEqual(order.company_identification_code, "987654321")
+        self.assertEqual(order.company_legal_address, "Batumi, Rustaveli 5")
 
     def test_buy_now_checkout_rejects_when_price_has_changed(self):
         create_response = self.client.post(
@@ -1999,6 +2081,10 @@ class CommerceAdminTests(TestCase):
 
     def _build_admin_payload(self, order, **overrides):
         payload = {
+            "buyer_type": order.buyer_type,
+            "company_name": order.company_name,
+            "company_identification_code": order.company_identification_code,
+            "company_legal_address": order.company_legal_address,
             "payment_method": order.payment_method,
             "payment_status": order.payment_status,
             "status": order.status,
@@ -2141,6 +2227,10 @@ class CommerceAdminFormTests(TestCase):
         admin_form_class = site._registry[Order].get_form(request=None, obj=self.order)
         form = admin_form_class(
             data={
+                "buyer_type": self.order.buyer_type,
+                "company_name": self.order.company_name,
+                "company_identification_code": self.order.company_identification_code,
+                "company_legal_address": self.order.company_legal_address,
                 "payment_method": self.order.payment_method,
                 "status": OrderStatus.PROCESSING,
                 "first_name": self.order.first_name,

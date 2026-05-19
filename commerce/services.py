@@ -20,6 +20,7 @@ from .models import (
     Cart,
     CartItem,
     Order,
+    OrderBuyerType,
     OrderCheckoutSource,
     OrderItem,
     OrderPaymentMethod,
@@ -765,6 +766,13 @@ def create_order_from_cart(*, cart, user, validated_data):
 
     order = Order.objects.create(
         user=user if user and user.is_authenticated else None,
+        buyer_type=validated_data.get("buyer_type", OrderBuyerType.INDIVIDUAL),
+        company_name=validated_data.get("company_name", ""),
+        company_identification_code=validated_data.get(
+            "company_identification_code",
+            "",
+        ),
+        company_legal_address=validated_data.get("company_legal_address", ""),
         payment_method=validated_data["payment_method"],
         status=OrderStatus.NEW,
         subtotal=subtotal,
@@ -838,6 +846,13 @@ def create_order_from_buy_now_session(*, session, user, validated_data):
     order = Order.objects.create(
         user=user if user and user.is_authenticated else None,
         checkout_source=OrderCheckoutSource.BUY_NOW,
+        buyer_type=validated_data.get("buyer_type", OrderBuyerType.INDIVIDUAL),
+        company_name=validated_data.get("company_name", ""),
+        company_identification_code=validated_data.get(
+            "company_identification_code",
+            "",
+        ),
+        company_legal_address=validated_data.get("company_legal_address", ""),
         payment_method=validated_data["payment_method"],
         status=OrderStatus.NEW,
         subtotal=line_total,
