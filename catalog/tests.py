@@ -309,6 +309,27 @@ class CatalogAPITests(APITestCase):
         self.assertEqual(response.data["results"][0]["slug"], "product-0")
         self.assertEqual(response.data["results"][0]["manufacturer_part_number"], "MPN-0")
 
+    def test_products_search_matches_georgian_name_from_latin_transliteration(self):
+        Product.objects.create(
+            category=self.interior,
+            brand=self.brand,
+            name="ხუნდები Toyota Camry",
+            slug="toyota-camry-brake-pads",
+            sku="BRAKE-GE-01",
+            manufacturer_part_number="BRK-GE-01",
+            short_description="ხარისხიანი სამუხრუჭე ხუნდები",
+            description="Toyota Camry-ს სამუხრუჭე ხუნდები",
+            price=Decimal("65.00"),
+            stock_qty=4,
+            status=ProductStatus.PUBLISHED,
+        )
+
+        response = self.client.get(reverse("catalog-product-list"), {"q": "xundebi"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["slug"], "toyota-camry-brake-pads")
+
     def test_product_suggestions_require_minimum_query_length(self):
         response = self.client.get(reverse("catalog-product-suggestions"), {"q": "c"})
 
@@ -363,6 +384,27 @@ class CatalogAPITests(APITestCase):
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]["slug"], "product-0")
         self.assertEqual(response.data[0]["manufacturer_part_number"], "MPN-0")
+
+    def test_product_suggestions_match_georgian_name_from_latin_transliteration(self):
+        Product.objects.create(
+            category=self.interior,
+            brand=self.brand,
+            name="ხუნდები Honda Civic",
+            slug="honda-civic-brake-pads",
+            sku="BRAKE-GE-02",
+            manufacturer_part_number="BRK-GE-02",
+            short_description="სამუხრუჭე ხუნდები",
+            description="Honda Civic-ის სამუხრუჭე ხუნდები",
+            price=Decimal("70.00"),
+            stock_qty=3,
+            status=ProductStatus.PUBLISHED,
+        )
+
+        response = self.client.get(reverse("catalog-product-suggestions"), {"q": "xundebi"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["slug"], "honda-civic-brake-pads")
 
     def test_product_suggestions_limit_results_to_five(self):
         for index in range(6):

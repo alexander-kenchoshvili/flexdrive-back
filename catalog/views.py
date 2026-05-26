@@ -32,6 +32,109 @@ from .serializers import (
 )
 
 
+_LATIN_GEORGIAN_DIGRAPHS = {
+    "ch": ("ჩ",),
+    "dz": ("ძ",),
+    "gh": ("ღ",),
+    "kh": ("ხ",),
+    "sh": ("შ",),
+    "ts": ("ც",),
+    "zh": ("ჟ",),
+}
+
+_LATIN_GEORGIAN_CHARS = {
+    "a": ("ა",),
+    "b": ("ბ",),
+    "c": ("ც",),
+    "d": ("დ",),
+    "e": ("ე",),
+    "f": ("ფ",),
+    "g": ("გ",),
+    "h": ("ჰ",),
+    "i": ("ი",),
+    "j": ("ჯ",),
+    "k": ("კ", "ქ"),
+    "l": ("ლ",),
+    "m": ("მ",),
+    "n": ("ნ",),
+    "o": ("ო",),
+    "p": ("პ",),
+    "q": ("ქ",),
+    "r": ("რ",),
+    "s": ("ს",),
+    "t": ("ტ", "თ"),
+    "u": ("უ",),
+    "v": ("ვ",),
+    "w": ("წ", "ჭ"),
+    "x": ("ხ",),
+    "y": ("ყ",),
+    "z": ("ზ",),
+}
+
+_SEARCH_TERM_VARIANT_LIMIT = 8
+
+
+def _latin_to_georgian_variants(value):
+    normalized = str(value).strip()
+    if not normalized:
+        return []
+
+    tokens = []
+    index = 0
+    while index < len(normalized):
+        pair = normalized[index : index + 2].lower()
+        if pair in _LATIN_GEORGIAN_DIGRAPHS:
+            tokens.append(_LATIN_GEORGIAN_DIGRAPHS[pair])
+            index += 2
+            continue
+
+        char = normalized[index]
+        tokens.append(_LATIN_GEORGIAN_CHARS.get(char.lower(), (char,)))
+        index += 1
+
+    variants = [""]
+    for options in tokens:
+        next_variants = []
+        for prefix in variants:
+            for option in options:
+                candidate = f"{prefix}{option}"
+                if candidate not in next_variants:
+                    next_variants.append(candidate)
+                if len(next_variants) >= _SEARCH_TERM_VARIANT_LIMIT:
+                    break
+            if len(next_variants) >= _SEARCH_TERM_VARIANT_LIMIT:
+                break
+        variants = next_variants
+
+    return variants
+
+
+def _search_terms(value):
+    search_query = str(value or "").strip()
+    if not search_query:
+        return []
+
+    terms = [search_query]
+    for variant in _latin_to_georgian_variants(search_query):
+        if variant != search_query and variant not in terms:
+            terms.append(variant)
+    return terms
+
+
+def _product_search_filter(search_terms, include_descriptions=False):
+    query = Q()
+    for term in search_terms:
+        term_query = (
+            Q(name__icontains=term)
+            | Q(sku__icontains=term)
+            | Q(manufacturer_part_number__icontains=term)
+        )
+        if include_descriptions:
+            term_query |= Q(short_description__icontains=term) | Q(description__icontains=term)
+        query |= term_query
+    return query
+
+
 def _parse_bool(value, field_name):
     if value is None:
         return None
@@ -287,15 +390,9 @@ class ProductListAPIView(generics.ListAPIView):
         if side:
             queryset = queryset.filter(side=side)
 
-        search_query = params.get("q")
-        if search_query:
-            queryset = queryset.filter(
-                Q(name__icontains=search_query)
-                | Q(sku__icontains=search_query)
-                | Q(manufacturer_part_number__icontains=search_query)
-                | Q(short_description__icontains=search_query)
-                | Q(description__icontains=search_query)
-            )
+        search_terms = _search_terms(params.get("q"))
+        if search_terms:
+            queryset = queryset.filter(_product_search_filter(search_terms, include_descriptions=True))
 
         min_price = _parse_decimal(params.get("min_price"), "min_price")
         if min_price is not None:
@@ -436,9 +533,27 @@ class ProductSuggestionAPIView(generics.ListAPIView):
     def get_queryset(self):
         raw_query = self.request.query_params.get("q", "")
         search_query = str(raw_query).strip()
+        search_terms = _search_terms(search_query)
 
         if len(search_query) < 2:
             return Product.objects.none()
+
+        exact_match_whens = []
+        startswith_match_whens = []
+        for term in search_terms:
+            exact_match_whens.extend(
+                [
+                    When(name__iexact=term, then=2),
+                    When(manufacturer_part_number__iexact=term, then=2),
+                ]
+            )
+            startswith_match_whens.extend(
+                [
+                    When(name__istartswith=term, then=2),
+                    When(sku__istartswith=term, then=1),
+                    When(manufacturer_part_number__istartswith=term, then=1),
+                ]
+            )
 
         queryset = (
             Product.objects.filter(status=ProductStatus.PUBLISHED, category__is_active=True)
@@ -449,22 +564,15 @@ class ProductSuggestionAPIView(generics.ListAPIView):
                     queryset=ProductImage.objects.order_by("-is_primary", "sort_order", "id"),
                 )
             )
-            .filter(
-                Q(name__icontains=search_query)
-                | Q(sku__icontains=search_query)
-                | Q(manufacturer_part_number__icontains=search_query)
-            )
+            .filter(_product_search_filter(search_terms))
             .annotate(
                 exact_name_match=Case(
-                    When(name__iexact=search_query, then=2),
-                    When(manufacturer_part_number__iexact=search_query, then=2),
+                    *exact_match_whens,
                     default=0,
                     output_field=IntegerField(),
                 ),
                 startswith_match=Case(
-                    When(name__istartswith=search_query, then=2),
-                    When(sku__istartswith=search_query, then=1),
-                    When(manufacturer_part_number__istartswith=search_query, then=1),
+                    *startswith_match_whens,
                     default=0,
                     output_field=IntegerField(),
                 ),
