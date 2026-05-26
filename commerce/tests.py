@@ -19,6 +19,7 @@ from rest_framework.test import APITestCase
 from catalog.models import Category, Product, ProductImage, ProductStatus
 
 from .images import build_product_primary_image_snapshot
+from .meta_conversions import build_meta_purchase_event_id, build_meta_purchase_payload
 from .models import (
     BuyNowSession,
     Cart,
@@ -708,6 +709,50 @@ class CommerceAPITests(APITestCase):
         self.assertEqual(response.data["items"][0]["product_name"], "Car Vacuum 53")
         self.assertEqual(response.data["items"][0]["primary_image"]["alt_text"], "Vacuum image")
 
+    @patch("commerce.views.send_meta_purchase_event")
+    def test_checkout_sends_meta_purchase_event_after_order_creation(self, send_meta_purchase_event):
+        self.client.post(
+            reverse("commerce-cart-item-list"),
+            {"product_id": self.product.id, "quantity": 1},
+            format="json",
+        )
+
+        response = self.client.post(
+            reverse("commerce-order-checkout"),
+            self._checkout_payload(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        send_meta_purchase_event.assert_called_once()
+        call_kwargs = send_meta_purchase_event.call_args.kwargs
+        self.assertEqual(call_kwargs["order"], Order.objects.get())
+        self.assertIsNotNone(call_kwargs["request"])
+
+    @override_settings(
+        FRONTEND_BASE_URL="https://flexdrive.ge",
+        META_CAPI_TEST_EVENT_CODE="TEST12345",
+    )
+    def test_meta_purchase_payload_uses_matching_event_id_and_hashed_customer_data(self):
+        order = self._create_order(user=self.user, suffix=42)
+
+        payload = build_meta_purchase_payload(order=order)
+        event = payload["data"][0]
+
+        self.assertEqual(payload["test_event_code"], "TEST12345")
+        self.assertEqual(event["event_name"], "Purchase")
+        self.assertEqual(event["event_id"], build_meta_purchase_event_id(order))
+        self.assertEqual(
+            event["event_source_url"],
+            f"https://flexdrive.ge/checkout/success/{order.public_token}",
+        )
+        self.assertEqual(event["custom_data"]["currency"], "GEL")
+        self.assertEqual(event["custom_data"]["value"], 120.0)
+        self.assertEqual(event["custom_data"]["order_id"], order.order_number)
+        self.assertEqual(event["custom_data"]["content_ids"], ["CV-53"])
+        self.assertNotIn("buyer@example.com", str(payload))
+        self.assertNotIn("555123456", str(payload))
+
     def test_checkout_stores_legal_entity_snapshot(self):
         self.client.post(
             reverse("commerce-cart-item-list"),
@@ -1024,6 +1069,32 @@ class CommerceAPITests(APITestCase):
         self.assertEqual(response.data["payment_status"], OrderPaymentStatus.PENDING)
         self.assertIn(BUY_NOW_TOKEN_COOKIE_NAME, response.cookies)
         self.assertEqual(response.cookies[BUY_NOW_TOKEN_COOKIE_NAME].value, "")
+
+    @patch("commerce.views.send_meta_purchase_event")
+    def test_buy_now_checkout_sends_meta_purchase_event_after_order_creation(
+        self,
+        send_meta_purchase_event,
+    ):
+        create_response = self.client.post(
+            reverse("commerce-buy-now-session"),
+            {"product_id": self.product.id, "quantity": 1},
+            format="json",
+        )
+        guest_token = create_response.cookies[BUY_NOW_TOKEN_COOKIE_NAME].value
+        self.client.cookies[BUY_NOW_TOKEN_COOKIE_NAME] = guest_token
+
+        response = self.client.post(
+            reverse("commerce-buy-now-checkout"),
+            self._checkout_payload(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        send_meta_purchase_event.assert_called_once()
+        self.assertEqual(
+            send_meta_purchase_event.call_args.kwargs["order"],
+            Order.objects.get(),
+        )
 
     def test_buy_now_checkout_stores_legal_entity_snapshot(self):
         create_response = self.client.post(

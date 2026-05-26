@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 from accounts.utils import validate_recaptcha
 
 from .models import Order, OrderStatus
+from .meta_conversions import send_meta_purchase_event
 from .serializers import (
     BuyNowSessionCreateSerializer,
     BuyNowSessionSerializer,
@@ -330,6 +331,9 @@ class OrderCheckoutAPIView(APIView):
                 availability_error.to_response_data(),
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        send_meta_purchase_event(order=order, request=request)
+
         return Response(
             OrderSummarySerializer(order, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
@@ -372,6 +376,8 @@ class BuyNowCheckoutAPIView(BuyNowSessionResponseMixin, APIView):
             return self.build_buy_now_state_error_response(error)
         except BuyNowConflictError as error:
             return self.build_buy_now_conflict_response(resolved_session, error)
+
+        send_meta_purchase_event(order=order, request=request)
 
         response = Response(
             OrderSummarySerializer(order, context={"request": request}).data,
