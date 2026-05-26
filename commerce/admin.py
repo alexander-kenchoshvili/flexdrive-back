@@ -164,7 +164,6 @@ class OrderAdmin(admin.ModelAdmin):
                 "fields": (
                     "company_name",
                     "company_identification_code",
-                    "company_legal_address",
                 )
             },
         ),

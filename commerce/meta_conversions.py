@@ -1,8 +1,10 @@
 import hashlib
+import json
 import logging
 import re
 import time
 from decimal import Decimal
+from urllib.parse import unquote
 
 import requests
 from django.conf import settings
@@ -11,6 +13,9 @@ logger = logging.getLogger(__name__)
 
 CURRENCY = "GEL"
 PURCHASE_EVENT_NAME = "Purchase"
+COOKIE_CONSENT_NAME = "flexdrive_cookie_consent"
+COOKIE_CONSENT_VERSION = 1
+MARKETING_CONSENT_HEADER = "X-FlexDrive-Marketing-Consent"
 
 
 def build_meta_purchase_event_id(order):
@@ -20,6 +25,9 @@ def build_meta_purchase_event_id(order):
 
 def send_meta_purchase_event(*, order, request=None):
     if not _is_meta_capi_enabled():
+        return False
+
+    if not _has_meta_marketing_consent(request):
         return False
 
     payload = build_meta_purchase_payload(order=order, request=request)
@@ -65,6 +73,46 @@ def _is_meta_capi_enabled():
         and bool(settings.META_PIXEL_ID)
         and bool(settings.META_CAPI_ACCESS_TOKEN)
     )
+
+
+def _has_meta_marketing_consent(request):
+    if request is None:
+        return False
+
+    if _request_marketing_consent_header(request) == "granted":
+        return True
+
+    consent = _parse_cookie_consent(
+        request.COOKIES.get(COOKIE_CONSENT_NAME),
+    )
+
+    return (
+        isinstance(consent, dict)
+        and consent.get("version") == COOKIE_CONSENT_VERSION
+        and consent.get("marketing") is True
+    )
+
+
+def _request_marketing_consent_header(request):
+    headers = getattr(request, "headers", None)
+    if headers is not None:
+        return str(headers.get(MARKETING_CONSENT_HEADER, "")).strip().lower()
+
+    meta = getattr(request, "META", {})
+    return str(meta.get("HTTP_X_FLEXDRIVE_MARKETING_CONSENT", "")).strip().lower()
+
+
+def _parse_cookie_consent(raw_value):
+    if not raw_value:
+        return None
+
+    for candidate in (raw_value, unquote(raw_value)):
+        try:
+            return json.loads(candidate)
+        except (TypeError, ValueError):
+            continue
+
+    return None
 
 
 def _build_events_url():

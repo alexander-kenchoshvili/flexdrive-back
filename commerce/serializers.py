@@ -102,12 +102,6 @@ class CheckoutSerializer(serializers.Serializer):
         required=False,
         default="",
     )
-    company_legal_address = serializers.CharField(
-        max_length=255,
-        allow_blank=True,
-        required=False,
-        default="",
-    )
     first_name = serializers.CharField(max_length=150)
     last_name = serializers.CharField(max_length=150)
     email = serializers.EmailField(required=False, allow_blank=True, default="")
@@ -141,14 +135,12 @@ class CheckoutSerializer(serializers.Serializer):
         if buyer_type != OrderBuyerType.LEGAL_ENTITY:
             attrs["company_name"] = ""
             attrs["company_identification_code"] = ""
-            attrs["company_legal_address"] = ""
             return attrs
 
         company_name = str(attrs.get("company_name", "")).strip()
         company_identification_code = str(
             attrs.get("company_identification_code", "")
         ).strip()
-        company_legal_address = str(attrs.get("company_legal_address", "")).strip()
 
         errors = {}
         if not company_name:
@@ -164,15 +156,11 @@ class CheckoutSerializer(serializers.Serializer):
                 "შეიყვანე 9-ნიშნა საიდენტიფიკაციო კოდი."
             )
 
-        if not company_legal_address:
-            errors["company_legal_address"] = "შეიყვანე იურიდიული მისამართი."
-
         if errors:
             raise serializers.ValidationError(errors)
 
         attrs["company_name"] = company_name
         attrs["company_identification_code"] = company_identification_code
-        attrs["company_legal_address"] = company_legal_address
         return attrs
 
 
@@ -529,7 +517,6 @@ class OrderSummarySerializer(serializers.ModelSerializer):
             "buyer_type",
             "company_name",
             "company_identification_code",
-            "company_legal_address",
             "payment_method",
             "payment_status",
             "status",

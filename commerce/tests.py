@@ -2,6 +2,7 @@ import uuid
 from datetime import timedelta
 from decimal import Decimal
 from io import BytesIO
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.conf import settings
@@ -19,7 +20,12 @@ from rest_framework.test import APITestCase
 from catalog.models import Category, Product, ProductImage, ProductStatus
 
 from .images import build_product_primary_image_snapshot
-from .meta_conversions import build_meta_purchase_event_id, build_meta_purchase_payload
+from .meta_conversions import (
+    MARKETING_CONSENT_HEADER,
+    build_meta_purchase_event_id,
+    build_meta_purchase_payload,
+    send_meta_purchase_event,
+)
 from .models import (
     BuyNowSession,
     Cart,
@@ -753,6 +759,45 @@ class CommerceAPITests(APITestCase):
         self.assertNotIn("buyer@example.com", str(payload))
         self.assertNotIn("555123456", str(payload))
 
+    @override_settings(
+        META_CAPI_ENABLED=True,
+        META_PIXEL_ID="1020718363721235",
+        META_CAPI_ACCESS_TOKEN="test-token",
+        META_CAPI_TEST_EVENT_CODE="",
+        META_CAPI_TIMEOUT_SECONDS=1,
+    )
+    @patch("commerce.meta_conversions.requests.post")
+    def test_meta_purchase_event_requires_marketing_consent(self, requests_post):
+        order = self._create_order(user=self.user, suffix=43)
+        request = SimpleNamespace(COOKIES={}, META={})
+
+        sent = send_meta_purchase_event(order=order, request=request)
+
+        self.assertFalse(sent)
+        requests_post.assert_not_called()
+
+    @override_settings(
+        META_CAPI_ENABLED=True,
+        META_PIXEL_ID="1020718363721235",
+        META_CAPI_ACCESS_TOKEN="test-token",
+        META_CAPI_TEST_EVENT_CODE="",
+        META_CAPI_TIMEOUT_SECONDS=1,
+    )
+    @patch("commerce.meta_conversions.requests.post")
+    def test_meta_purchase_event_sends_with_marketing_consent(self, requests_post):
+        order = self._create_order(user=self.user, suffix=44)
+        request = SimpleNamespace(
+            COOKIES={},
+            META={"HTTP_X_FLEXDRIVE_MARKETING_CONSENT": "granted"},
+            headers={MARKETING_CONSENT_HEADER: "granted"},
+        )
+        requests_post.return_value.raise_for_status.return_value = None
+
+        sent = send_meta_purchase_event(order=order, request=request)
+
+        self.assertTrue(sent)
+        requests_post.assert_called_once()
+
     def test_checkout_stores_legal_entity_snapshot(self):
         self.client.post(
             reverse("commerce-cart-item-list"),
@@ -765,7 +810,6 @@ class CommerceAPITests(APITestCase):
             "buyer_type": OrderBuyerType.LEGAL_ENTITY,
             "company_name": "Flex Parts LLC",
             "company_identification_code": "123456789",
-            "company_legal_address": "Tbilisi, Vazha-Pshavela 10",
         }
         response = self.client.post(
             reverse("commerce-order-checkout"),
@@ -778,7 +822,6 @@ class CommerceAPITests(APITestCase):
         self.assertEqual(order.buyer_type, OrderBuyerType.LEGAL_ENTITY)
         self.assertEqual(order.company_name, "Flex Parts LLC")
         self.assertEqual(order.company_identification_code, "123456789")
-        self.assertEqual(order.company_legal_address, "Tbilisi, Vazha-Pshavela 10")
         self.assertEqual(response.data["buyer_type"], OrderBuyerType.LEGAL_ENTITY)
         self.assertEqual(response.data["company_name"], "Flex Parts LLC")
 
@@ -802,7 +845,6 @@ class CommerceAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("company_name", response.data)
         self.assertIn("company_identification_code", response.data)
-        self.assertIn("company_legal_address", response.data)
         self.assertEqual(Order.objects.count(), 0)
 
     def test_guest_create_buy_now_session_sets_cookie_and_returns_summary(self):
@@ -1112,7 +1154,6 @@ class CommerceAPITests(APITestCase):
                 "buyer_type": OrderBuyerType.LEGAL_ENTITY,
                 "company_name": "Auto Mirror LLC",
                 "company_identification_code": "987654321",
-                "company_legal_address": "Batumi, Rustaveli 5",
             },
             format="json",
         )
@@ -1123,7 +1164,6 @@ class CommerceAPITests(APITestCase):
         self.assertEqual(order.buyer_type, OrderBuyerType.LEGAL_ENTITY)
         self.assertEqual(order.company_name, "Auto Mirror LLC")
         self.assertEqual(order.company_identification_code, "987654321")
-        self.assertEqual(order.company_legal_address, "Batumi, Rustaveli 5")
 
     def test_buy_now_checkout_rejects_when_price_has_changed(self):
         create_response = self.client.post(
@@ -2155,7 +2195,6 @@ class CommerceAdminTests(TestCase):
             "buyer_type": order.buyer_type,
             "company_name": order.company_name,
             "company_identification_code": order.company_identification_code,
-            "company_legal_address": order.company_legal_address,
             "payment_method": order.payment_method,
             "payment_status": order.payment_status,
             "status": order.status,
@@ -2301,7 +2340,6 @@ class CommerceAdminFormTests(TestCase):
                 "buyer_type": self.order.buyer_type,
                 "company_name": self.order.company_name,
                 "company_identification_code": self.order.company_identification_code,
-                "company_legal_address": self.order.company_legal_address,
                 "payment_method": self.order.payment_method,
                 "status": OrderStatus.PROCESSING,
                 "first_name": self.order.first_name,

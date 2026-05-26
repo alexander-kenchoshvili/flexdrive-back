@@ -319,7 +319,6 @@ class Order(TimeStampedModel):
     )
     company_name = models.CharField(max_length=255, blank=True, default="")
     company_identification_code = models.CharField(max_length=32, blank=True, default="")
-    company_legal_address = models.CharField(max_length=255, blank=True, default="")
     checkout_source = models.CharField(
         max_length=20,
         choices=OrderCheckoutSource.choices,
