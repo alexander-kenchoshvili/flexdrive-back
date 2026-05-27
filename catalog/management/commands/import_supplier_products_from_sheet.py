@@ -1,3 +1,6 @@
+import json
+import os
+
 from django.core.management.base import BaseCommand, CommandError
 
 from catalog.supplier_sheet_import import (
@@ -5,6 +8,14 @@ from catalog.supplier_sheet_import import (
     fetch_sheet_values,
     import_supplier_sheet_report,
 )
+
+
+ENV_CREDENTIALS_JSON = "GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON"
+ENV_SPREADSHEET_ID = "GOOGLE_SHEETS_SPREADSHEET_ID"
+ENV_SHEET_NAME = "GOOGLE_SHEETS_SHEET_NAME"
+ENV_CELL_RANGE = "GOOGLE_SHEETS_CELL_RANGE"
+DEFAULT_SHEET_NAME = "Products"
+DEFAULT_CELL_RANGE = "A:T"
 
 
 class Command(BaseCommand):
@@ -16,24 +27,29 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             "--credentials-file",
-            required=True,
-            help="Path to the Google service account JSON key file.",
+            help=(
+                "Path to the Google service account JSON key file. "
+                f"If omitted, {ENV_CREDENTIALS_JSON} is used."
+            ),
         )
         parser.add_argument(
             "--spreadsheet-id",
-            required=True,
-            help="Google Sheets spreadsheet ID.",
+            help=f"Google Sheets spreadsheet ID. If omitted, {ENV_SPREADSHEET_ID} is used.",
         )
         parser.add_argument(
             "--sheet-name",
-            default="Products",
-            help="Sheet tab name containing product rows (default: Products).",
+            help=(
+                "Sheet tab name containing product rows. "
+                f"If omitted, {ENV_SHEET_NAME} or {DEFAULT_SHEET_NAME} is used."
+            ),
         )
         parser.add_argument(
             "--range",
-            default="A:T",
             dest="cell_range",
-            help="A1 cell range without the sheet name (default: A:T).",
+            help=(
+                "A1 cell range without the sheet name. "
+                f"If omitted, {ENV_CELL_RANGE} or {DEFAULT_CELL_RANGE} is used."
+            ),
         )
         parser.add_argument(
             "--timeout",
@@ -55,16 +71,18 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         try:
+            resolved_options = _resolve_import_options(options, os.environ)
             values = fetch_sheet_values(
-                credentials_file=options["credentials_file"],
-                spreadsheet_id=options["spreadsheet_id"],
-                sheet_name=options["sheet_name"],
-                cell_range=options["cell_range"],
+                credentials_file=resolved_options["credentials_file"],
+                credentials_info=resolved_options["credentials_info"],
+                spreadsheet_id=resolved_options["spreadsheet_id"],
+                sheet_name=resolved_options["sheet_name"],
+                cell_range=resolved_options["cell_range"],
                 timeout=options["timeout"],
             )
             report = build_supplier_sheet_report(
-                spreadsheet_id=options["spreadsheet_id"],
-                sheet_name=options["sheet_name"],
+                spreadsheet_id=resolved_options["spreadsheet_id"],
+                sheet_name=resolved_options["sheet_name"],
                 values=values,
             )
         except Exception as exc:
@@ -214,6 +232,50 @@ def _format_year_range(year_from, year_to):
     if year_from == year_to:
         return str(year_from)
     return f"{year_from}-{year_to}"
+
+
+def _resolve_import_options(options, environ):
+    credentials_file = options.get("credentials_file")
+    credentials_info = None
+
+    if not credentials_file:
+        credentials_info = _load_service_account_info_from_env(environ)
+
+    spreadsheet_id = options.get("spreadsheet_id") or environ.get(ENV_SPREADSHEET_ID)
+    if not spreadsheet_id:
+        raise CommandError(f"Pass --spreadsheet-id or set {ENV_SPREADSHEET_ID}.")
+
+    return {
+        "credentials_file": credentials_file,
+        "credentials_info": credentials_info,
+        "spreadsheet_id": spreadsheet_id,
+        "sheet_name": (
+            options.get("sheet_name")
+            or environ.get(ENV_SHEET_NAME)
+            or DEFAULT_SHEET_NAME
+        ),
+        "cell_range": (
+            options.get("cell_range")
+            or environ.get(ENV_CELL_RANGE)
+            or DEFAULT_CELL_RANGE
+        ),
+    }
+
+
+def _load_service_account_info_from_env(environ):
+    raw_credentials = environ.get(ENV_CREDENTIALS_JSON)
+    if not raw_credentials:
+        raise CommandError(f"Pass --credentials-file or set {ENV_CREDENTIALS_JSON}.")
+
+    try:
+        credentials_info = json.loads(raw_credentials)
+    except json.JSONDecodeError as exc:
+        raise CommandError(f"{ENV_CREDENTIALS_JSON} must contain valid JSON.") from exc
+
+    if not isinstance(credentials_info, dict):
+        raise CommandError(f"{ENV_CREDENTIALS_JSON} must contain a JSON object.")
+
+    return credentials_info
 
 
 def _safe_console_text(message, output_wrapper):

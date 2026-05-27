@@ -1,8 +1,16 @@
 from decimal import Decimal
 
+from django.core.management.base import CommandError
 from django.test import TestCase
 
 from catalog.admin import CategoryAdmin
+from catalog.management.commands.import_supplier_products_from_sheet import (
+    ENV_CELL_RANGE,
+    ENV_CREDENTIALS_JSON,
+    ENV_SHEET_NAME,
+    ENV_SPREADSHEET_ID,
+    _resolve_import_options,
+)
 from catalog.models import (
     Brand,
     Category,
@@ -397,3 +405,62 @@ class SupplierSheetImportReportTests(TestCase):
             is_active=True,
             markup_percent=markup_percent,
         )
+
+
+class SupplierSheetImportCommandOptionTests(TestCase):
+    def test_resolve_import_options_uses_env_credentials_for_staging(self):
+        env = {
+            ENV_CREDENTIALS_JSON: (
+                '{"type": "service_account", "client_email": "reader@example.com"}'
+            ),
+            ENV_SPREADSHEET_ID: "env-spreadsheet-id",
+            ENV_SHEET_NAME: "Products",
+            ENV_CELL_RANGE: "A:T",
+        }
+        options = {
+            "credentials_file": None,
+            "spreadsheet_id": None,
+            "sheet_name": None,
+            "cell_range": None,
+        }
+
+        resolved = _resolve_import_options(options, env)
+
+        self.assertIsNone(resolved["credentials_file"])
+        self.assertEqual(resolved["credentials_info"]["type"], "service_account")
+        self.assertEqual(resolved["spreadsheet_id"], "env-spreadsheet-id")
+        self.assertEqual(resolved["sheet_name"], "Products")
+        self.assertEqual(resolved["cell_range"], "A:T")
+
+    def test_resolve_import_options_prefers_cli_file_and_spreadsheet_id(self):
+        env = {
+            ENV_CREDENTIALS_JSON: "not parsed when credentials file is provided",
+            ENV_SPREADSHEET_ID: "env-spreadsheet-id",
+            ENV_SHEET_NAME: "EnvProducts",
+            ENV_CELL_RANGE: "B:C",
+        }
+        options = {
+            "credentials_file": "local-key.json",
+            "spreadsheet_id": "cli-spreadsheet-id",
+            "sheet_name": "CliProducts",
+            "cell_range": "C:D",
+        }
+
+        resolved = _resolve_import_options(options, env)
+
+        self.assertEqual(resolved["credentials_file"], "local-key.json")
+        self.assertIsNone(resolved["credentials_info"])
+        self.assertEqual(resolved["spreadsheet_id"], "cli-spreadsheet-id")
+        self.assertEqual(resolved["sheet_name"], "CliProducts")
+        self.assertEqual(resolved["cell_range"], "C:D")
+
+    def test_resolve_import_options_requires_credentials(self):
+        options = {
+            "credentials_file": None,
+            "spreadsheet_id": "spreadsheet-id",
+            "sheet_name": None,
+            "cell_range": None,
+        }
+
+        with self.assertRaises(CommandError):
+            _resolve_import_options(options, {})

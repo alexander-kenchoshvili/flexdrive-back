@@ -177,11 +177,31 @@ class _ImportCounters:
         return SupplierSheetImportResult(**self.__dict__)
 
 
-def fetch_sheet_values(*, credentials_file, spreadsheet_id, sheet_name, cell_range="A:T", timeout=30):
-    credentials = service_account.Credentials.from_service_account_file(
-        credentials_file,
-        scopes=[SHEETS_READONLY_SCOPE],
-    )
+def fetch_sheet_values(
+    *,
+    credentials_file=None,
+    credentials_info=None,
+    spreadsheet_id,
+    sheet_name,
+    cell_range="A:T",
+    timeout=30,
+):
+    if credentials_info is not None:
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_info,
+            scopes=[SHEETS_READONLY_SCOPE],
+        )
+    elif credentials_file:
+        credentials = service_account.Credentials.from_service_account_file(
+            credentials_file,
+            scopes=[SHEETS_READONLY_SCOPE],
+        )
+    else:
+        raise ValueError(
+            "Google Sheets credentials are required. Provide credentials_file "
+            "or credentials_info."
+        )
+
     session = AuthorizedSession(credentials)
     encoded_range = quote(f"{sheet_name}!{cell_range}", safe="")
     url = (
