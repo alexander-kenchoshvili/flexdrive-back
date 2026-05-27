@@ -98,17 +98,30 @@ class CategoryAdmin(admin.ModelAdmin):
         "slug",
         "parent",
         "sort_order",
+        "markup_percent",
         "is_active",
         "has_image",
         "updated_at",
     )
     list_filter = ("is_active", "parent")
     search_fields = ("name", "slug")
-    list_editable = ("sort_order", "is_active")
+    list_editable = ("sort_order", "markup_percent", "is_active")
     prepopulated_fields = {"slug": ("name",)}
     ordering = ("sort_order", "name")
     fieldsets = (
-        ("General", {"fields": ("name", "slug", "parent", "sort_order", "is_active")}),
+        (
+            "General",
+            {
+                "fields": (
+                    "name",
+                    "slug",
+                    "parent",
+                    "sort_order",
+                    "markup_percent",
+                    "is_active",
+                )
+            },
+        ),
         (
             "Category image",
             {
@@ -138,6 +151,30 @@ class CategoryAdmin(admin.ModelAdmin):
     @admin.display(boolean=True, description="image")
     def has_image(self, obj):
         return bool(obj.desktop_image or obj.tablet_image or obj.mobile_image)
+
+    def save_model(self, request, obj, form, change):
+        previous_markup = None
+        if change and obj.pk:
+            previous_markup = (
+                type(obj)
+                .objects.filter(pk=obj.pk)
+                .values_list("markup_percent", flat=True)
+                .first()
+            )
+
+        super().save_model(request, obj, form, change)
+
+        if previous_markup is not None and previous_markup != obj.markup_percent:
+            self._recalculate_category_product_prices(obj)
+
+    @staticmethod
+    def _recalculate_category_product_prices(category):
+        for product in category.products.filter(
+            supplier_price__isnull=False,
+            markup_percent_override__isnull=True,
+        ).select_related("category"):
+            product.price = product.calculate_customer_price()
+            product.save(update_fields=["price", "updated_at"])
 
 
 @admin.register(Brand)
@@ -202,6 +239,8 @@ class ProductAdmin(admin.ModelAdmin):
         "status",
         "placement",
         "side",
+        "supplier_price",
+        "effective_markup_percent_readonly",
         "price",
         "old_price",
         "on_sale_flag",
@@ -238,8 +277,19 @@ class ProductAdmin(admin.ModelAdmin):
     list_select_related = ("category", "brand")
     autocomplete_fields = ("brand",)
     inlines = (ProductImageInline, ProductSpecInline, ProductFitmentInline)
-    readonly_fields = ("on_sale_readonly", "in_stock_readonly", "created_at", "updated_at")
+    readonly_fields = (
+        "category_markup_readonly",
+        "effective_markup_percent_readonly",
+        "calculated_customer_price_readonly",
+        "on_sale_readonly",
+        "in_stock_readonly",
+        "created_at",
+        "updated_at",
+    )
     actions = ("action_publish", "action_unpublish", "action_mark_featured")
+
+    class Media:
+        js = ("catalog/admin_product_pricing_preview.js",)
 
     fieldsets = (
         (
@@ -269,7 +319,20 @@ class ProductAdmin(admin.ModelAdmin):
             },
         ),
         ("Descriptions", {"fields": ("short_description", "description")}),
-        ("Pricing", {"fields": ("price", "old_price", "on_sale_readonly")}),
+        (
+            "Pricing",
+            {
+                "fields": (
+                    "supplier_price",
+                    "category_markup_readonly",
+                    "markup_percent_override",
+                    "calculated_customer_price_readonly",
+                    "price",
+                    "old_price",
+                    "on_sale_readonly",
+                )
+            },
+        ),
         (
             "Parts metadata",
             {"fields": ("placement", "side", "is_universal_fitment")},
@@ -298,6 +361,30 @@ class ProductAdmin(admin.ModelAdmin):
         if not obj:
             return False
         return obj.in_stock
+
+    @admin.display(description="Category markup")
+    def category_markup_readonly(self, obj):
+        if not obj or not obj.category_id:
+            return "0.00%"
+        return f"{obj.category.markup_percent:.2f}%"
+
+    @admin.display(description="Applied markup")
+    def effective_markup_percent_readonly(self, obj):
+        if not obj:
+            return "0.00%"
+        return f"{obj.effective_markup_percent:.2f}%"
+
+    @admin.display(description="Calculated customer price")
+    def calculated_customer_price_readonly(self, obj):
+        if not obj:
+            return ""
+        return f"{obj.calculate_customer_price():.2f} GEL"
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = list(super().get_readonly_fields(request, obj))
+        if obj and obj.supplier_price is not None and "price" not in readonly_fields:
+            readonly_fields.append("price")
+        return readonly_fields
 
     @admin.action(description="Publish selected products")
     def action_publish(self, request, queryset):

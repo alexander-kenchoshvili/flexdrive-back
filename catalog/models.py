@@ -1,6 +1,6 @@
 import os
 import uuid
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -78,6 +78,16 @@ class Category(TimeStampedModel):
         blank=True,
     )
     sort_order = models.PositiveIntegerField(default=0)
+    markup_percent = models.DecimalField(
+        max_digits=7,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[
+            MinValueValidator(Decimal("0.00")),
+            MaxValueValidator(Decimal("1000.00")),
+        ],
+        help_text="Default markup percentage used to calculate customer prices for products in this category.",
+    )
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -337,6 +347,25 @@ class Product(TimeStampedModel):
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0.00"))],
     )
+    supplier_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(Decimal("0.00"))],
+        help_text="Private supplier cost. Customer-facing price is calculated from this value and markup.",
+    )
+    markup_percent_override = models.DecimalField(
+        max_digits=7,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        validators=[
+            MinValueValidator(Decimal("0.00")),
+            MaxValueValidator(Decimal("1000.00")),
+        ],
+        help_text="Optional product-specific markup percentage. Leave empty to use the category markup.",
+    )
     old_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -377,6 +406,9 @@ class Product(TimeStampedModel):
         ]
 
     def clean(self):
+        if self.supplier_price is not None:
+            self.price = self.calculate_customer_price()
+
         if self.old_price is not None and self.old_price <= self.price:
             raise ValidationError(
                 {
@@ -387,6 +419,32 @@ class Product(TimeStampedModel):
                 }
             )
 
+    def save(self, *args, **kwargs):
+        pricing_update_fields = {
+            "supplier_price",
+            "markup_percent_override",
+            "category",
+            "category_id",
+            "price",
+        }
+        update_fields = kwargs.get("update_fields")
+        update_field_set = set(update_fields) if update_fields is not None else None
+        should_recalculate_price = (
+            self.supplier_price is not None
+            and (
+                update_field_set is None
+                or not pricing_update_fields.isdisjoint(update_field_set)
+            )
+        )
+
+        if should_recalculate_price:
+            self.price = self.calculate_customer_price()
+            if update_field_set is not None:
+                update_field_set.add("price")
+                kwargs["update_fields"] = list(update_field_set)
+
+        super().save(*args, **kwargs)
+
     @property
     def in_stock(self):
         return self.stock_qty > 0
@@ -394,6 +452,29 @@ class Product(TimeStampedModel):
     @property
     def on_sale(self):
         return self.old_price is not None and self.old_price > self.price
+
+    @property
+    def effective_markup_percent(self):
+        if self.markup_percent_override is not None:
+            return self.markup_percent_override
+
+        category = getattr(self, "category", None)
+        if category is not None:
+            return category.markup_percent
+
+        return Decimal("0.00")
+
+    def calculate_customer_price(self):
+        if self.supplier_price is None:
+            return self.price
+
+        supplier_price = Decimal(str(self.supplier_price))
+        markup_percent = Decimal(str(self.effective_markup_percent or Decimal("0.00")))
+        multiplier = Decimal("1.00") + (markup_percent / Decimal("100"))
+        return (supplier_price * multiplier).quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP,
+        )
 
     def __str__(self):
         return self.name
