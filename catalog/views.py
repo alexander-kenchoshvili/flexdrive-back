@@ -73,7 +73,45 @@ _LATIN_GEORGIAN_CHARS = {
     "z": ("ზ",),
 }
 
+_GEORGIAN_LATIN_CHARS = {
+    "ა": "a",
+    "ბ": "b",
+    "გ": "g",
+    "დ": "d",
+    "ე": "e",
+    "ვ": "v",
+    "ზ": "z",
+    "თ": "t",
+    "ი": "i",
+    "კ": "k",
+    "ლ": "l",
+    "მ": "m",
+    "ნ": "n",
+    "ო": "o",
+    "პ": "p",
+    "ჟ": "zh",
+    "რ": "r",
+    "ს": "s",
+    "ტ": "t",
+    "უ": "u",
+    "ფ": "f",
+    "ქ": "q",
+    "ღ": "gh",
+    "ყ": "y",
+    "შ": "sh",
+    "ჩ": "ch",
+    "ც": "ts",
+    "ძ": "dz",
+    "წ": "w",
+    "ჭ": "w",
+    "ხ": "kh",
+    "ჯ": "j",
+    "ჰ": "h",
+}
+
 _SEARCH_TERM_VARIANT_LIMIT = 8
+_VEHICLE_SEARCH_MAX_TOKENS = 4
+_VEHICLE_PREFIX_MIN_LENGTH = 3
 
 
 def _latin_to_georgian_variants(value):
@@ -111,16 +149,32 @@ def _latin_to_georgian_variants(value):
     return variants
 
 
+def _georgian_to_latin(value):
+    normalized = str(value).strip()
+    if not normalized:
+        return ""
+
+    return "".join(_GEORGIAN_LATIN_CHARS.get(char, char) for char in normalized)
+
+
 def _search_terms(value):
     search_query = str(value or "").strip()
     if not search_query:
         return []
 
     terms = [search_query]
+    latin_variant = _georgian_to_latin(search_query)
+    if latin_variant and latin_variant != search_query and latin_variant not in terms:
+        terms.append(latin_variant)
+
     for variant in _latin_to_georgian_variants(search_query):
         if variant != search_query and variant not in terms:
             terms.append(variant)
     return terms
+
+
+def _search_tokens(value):
+    return [token for token in str(value or "").strip().split() if token]
 
 
 def _product_search_filter(search_terms, include_descriptions=False):
@@ -135,6 +189,168 @@ def _product_search_filter(search_terms, include_descriptions=False):
             term_query |= Q(short_description__icontains=term) | Q(description__icontains=term)
         query |= term_query
     return query
+
+
+def _vehicle_entity_filter(search_terms, prefix=False):
+    query = Q()
+    for term in search_terms:
+        if prefix:
+            query |= Q(name__istartswith=term) | Q(slug__istartswith=term)
+        else:
+            query |= Q(name__iexact=term) | Q(slug__iexact=term)
+    return query
+
+
+def _first_vehicle_entity_match(queryset, search_terms):
+    exact_match = queryset.filter(_vehicle_entity_filter(search_terms)).first()
+    if exact_match:
+        return exact_match
+
+    prefix_terms = [
+        term for term in search_terms if len(term.strip()) >= _VEHICLE_PREFIX_MIN_LENGTH
+    ]
+    if not prefix_terms:
+        return None
+
+    return queryset.filter(_vehicle_entity_filter(prefix_terms, prefix=True)).first()
+
+
+def _vehicle_search_match(value):
+    search_terms = _search_terms(value)
+    if not search_terms:
+        return None
+
+    make = _first_vehicle_entity_match(
+        VehicleMake.objects.filter(is_active=True),
+        search_terms,
+    )
+    if make:
+        return {"make": make, "model": None, "engine": None}
+
+    model = _first_vehicle_entity_match(
+        VehicleModel.objects.filter(is_active=True, make__is_active=True)
+        .select_related("make"),
+        search_terms,
+    )
+    if model:
+        return {"make": model.make, "model": model, "engine": None}
+
+    engine = _first_vehicle_entity_match(
+        VehicleEngine.objects.filter(
+            is_active=True,
+            model__is_active=True,
+            model__make__is_active=True,
+        )
+        .select_related("model__make", "model"),
+        search_terms,
+    )
+    if engine:
+        return {"make": engine.model.make, "model": engine.model, "engine": engine}
+
+    return None
+
+
+def _merge_vehicle_search_match(current, match):
+    if current is None:
+        return match
+
+    if current["make"] != match["make"]:
+        return None
+
+    merged = {
+        "make": current["make"],
+        "model": current.get("model"),
+        "engine": current.get("engine"),
+    }
+
+    if match.get("model"):
+        if merged["model"] and merged["model"] != match["model"]:
+            return None
+        merged["model"] = match["model"]
+
+    if match.get("engine"):
+        if merged["engine"] and merged["engine"] != match["engine"]:
+            return None
+        merged["engine"] = match["engine"]
+        merged["model"] = match["model"]
+
+    return merged
+
+
+def _resolve_search_parts(raw_query):
+    tokens = _search_tokens(raw_query)
+    if not tokens:
+        return None
+
+    vehicle_filter = None
+    product_tokens = []
+    index = 0
+
+    while index < len(tokens):
+        matched_vehicle = False
+        max_size = min(_VEHICLE_SEARCH_MAX_TOKENS, len(tokens) - index)
+
+        for size in range(max_size, 0, -1):
+            phrase = " ".join(tokens[index : index + size])
+            match = _vehicle_search_match(phrase)
+            if not match:
+                continue
+
+            merged = _merge_vehicle_search_match(vehicle_filter, match)
+            if not merged:
+                continue
+
+            vehicle_filter = merged
+            index += size
+            matched_vehicle = True
+            break
+
+        if matched_vehicle:
+            continue
+
+        product_tokens.append(tokens[index])
+        index += 1
+
+    if vehicle_filter is None:
+        return None
+
+    return {
+        "vehicle_filter": vehicle_filter,
+        "product_query": " ".join(product_tokens).strip(),
+    }
+
+
+def _apply_catalog_search(queryset, raw_query, include_descriptions=False):
+    search_query = str(raw_query or "").strip()
+    if not search_query:
+        return queryset
+
+    search_parts = _resolve_search_parts(search_query)
+    if search_parts:
+        vehicle_filter = search_parts["vehicle_filter"]
+        fitment_filter = _matching_fitment_filter(vehicle_filter)
+        matching_fitments = ProductFitment.objects.filter(fitment_filter)
+        queryset = queryset.filter(
+            Q(is_universal_fitment=True) | Q(fitments__in=matching_fitments)
+        ).distinct()
+
+        product_query = search_parts["product_query"]
+        if product_query:
+            queryset = queryset.filter(
+                _product_search_filter(
+                    _search_terms(product_query),
+                    include_descriptions=include_descriptions,
+                )
+            )
+        return queryset
+
+    search_terms = _search_terms(search_query)
+    if search_terms:
+        return queryset.filter(
+            _product_search_filter(search_terms, include_descriptions=include_descriptions)
+        )
+
+    return queryset
 
 
 def _parse_bool(value, field_name):
@@ -392,9 +608,11 @@ class ProductListAPIView(generics.ListAPIView):
         if side:
             queryset = queryset.filter(side=side)
 
-        search_terms = _search_terms(params.get("q"))
-        if search_terms:
-            queryset = queryset.filter(_product_search_filter(search_terms, include_descriptions=True))
+        queryset = _apply_catalog_search(
+            queryset,
+            params.get("q"),
+            include_descriptions=True,
+        )
 
         min_price = _parse_decimal(params.get("min_price"), "min_price")
         if min_price is not None:
@@ -533,10 +751,11 @@ class ProductSuggestionAPIView(generics.ListAPIView):
     def get_queryset(self):
         raw_query = self.request.query_params.get("q", "")
         search_query = str(raw_query).strip()
-        search_terms = _search_terms(search_query)
 
         if len(search_query) < 2:
             return Product.objects.none()
+
+        search_terms = _search_terms(search_query)
 
         exact_match_whens = []
         startswith_match_whens = []
@@ -564,7 +783,9 @@ class ProductSuggestionAPIView(generics.ListAPIView):
                     queryset=ProductImage.objects.order_by("-is_primary", "sort_order", "id"),
                 )
             )
-            .filter(_product_search_filter(search_terms))
+        )
+        queryset = (
+            _apply_catalog_search(queryset, search_query)
             .annotate(
                 exact_name_match=Case(
                     *exact_match_whens,

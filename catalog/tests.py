@@ -330,6 +330,63 @@ class CatalogAPITests(APITestCase):
         self.assertEqual(response.data["count"], 1)
         self.assertEqual(response.data["results"][0]["slug"], "toyota-camry-brake-pads")
 
+    def test_products_search_matches_vehicle_make_fitments(self):
+        response = self.client.get(reverse("catalog-product-list"), {"q": "toyota"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slugs = {row["slug"] for row in response.data["results"]}
+        self.assertEqual(slugs, {"product-0", "product-1", "product-2", "product-3"})
+        self.assertNotIn("product-4", slugs)
+
+    def test_products_search_matches_vehicle_make_from_georgian_query(self):
+        subaru = VehicleMake.objects.create(name="Subaru", slug="subaru", sort_order=5)
+        impreza = VehicleModel.objects.create(
+            make=subaru,
+            name="Impreza",
+            slug="impreza",
+            sort_order=1,
+        )
+        ProductFitment.objects.create(
+            product=self.products[7],
+            vehicle_model=impreza,
+            year_from=2012,
+            year_to=2016,
+        )
+
+        response = self.client.get(reverse("catalog-product-list"), {"q": "სუბარუ"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slugs = {row["slug"] for row in response.data["results"]}
+        self.assertEqual(slugs, {"product-3", "product-7"})
+
+    def test_products_search_matches_vehicle_make_from_partial_georgian_query(self):
+        subaru = VehicleMake.objects.create(name="Subaru", slug="subaru", sort_order=5)
+        impreza = VehicleModel.objects.create(
+            make=subaru,
+            name="Impreza",
+            slug="impreza",
+            sort_order=1,
+        )
+        ProductFitment.objects.create(
+            product=self.products[7],
+            vehicle_model=impreza,
+            year_from=2012,
+            year_to=2016,
+        )
+
+        response = self.client.get(reverse("catalog-product-list"), {"q": "სუბარ"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slugs = {row["slug"] for row in response.data["results"]}
+        self.assertEqual(slugs, {"product-3", "product-7"})
+
+    def test_products_search_combines_vehicle_and_product_terms(self):
+        response = self.client.get(reverse("catalog-product-list"), {"q": "toyota camry Product 0"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["slug"], "product-0")
+
     def test_product_suggestions_require_minimum_query_length(self):
         response = self.client.get(reverse("catalog-product-suggestions"), {"q": "c"})
 
@@ -405,6 +462,15 @@ class CatalogAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]["slug"], "honda-civic-brake-pads")
+
+    def test_product_suggestions_match_vehicle_make_fitments(self):
+        response = self.client.get(reverse("catalog-product-suggestions"), {"q": "toyota"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slugs = {row["slug"] for row in response.data}
+        self.assertIn("product-0", slugs)
+        self.assertIn("product-3", slugs)
+        self.assertNotIn("product-4", slugs)
 
     def test_product_suggestions_limit_results_to_five(self):
         for index in range(6):
