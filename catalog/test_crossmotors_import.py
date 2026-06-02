@@ -111,6 +111,32 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(report.importable_count, 0)
         self.assertFalse(report.rows[0].is_valid)
 
+    def test_build_report_keeps_aftermarket_original_analogs(self):
+        report = build_crossmotors_report(
+            [
+                {
+                    "code": "003637",
+                    "oem": "17a941035f",
+                    "name": "წინა ფარი (Original) LH",
+                    "brand": "Volkswagen",
+                    "model": "Jetta",
+                    "generation": "VW Jetta 19-",
+                    "manufacturer": "Suo Lun",
+                    "qty": 0,
+                    "dealer_price": 240.0,
+                    "currency": "GEL",
+                }
+            ],
+            product_queryset=Product.objects.none(),
+            open_ended_year_to=2027,
+        )
+
+        self.assertEqual(report.original_count, 0)
+        self.assertEqual(report.importable_count, 1)
+        self.assertEqual(report.valid_row_count, 1)
+        self.assertEqual(report.rows[0].values["sku"], "CM-003637")
+        self.assertEqual(report.rows[0].values["part_manufacturer"], "Suo Lun")
+
     def test_build_report_flags_missing_price_without_rejecting_staging_rows(self):
         report = build_crossmotors_report(
             [

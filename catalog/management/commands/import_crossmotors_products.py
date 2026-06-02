@@ -79,6 +79,7 @@ class Command(BaseCommand):
                 page_size=resolved_options["page_size"],
                 timeout=resolved_options["timeout"],
                 max_pages=options["max_pages"],
+                in_stock_only=False,
             )
             report = build_crossmotors_report(
                 items,

@@ -611,7 +611,6 @@ def _parse_item(item, *, row_number, open_ended_year_to):
 def _is_original_part(values):
     text = " ".join(
         (
-            values.get("name") or "",
             values.get("vehicle_make") or "",
             values.get("vehicle_model") or "",
             values.get("part_manufacturer") or "",
