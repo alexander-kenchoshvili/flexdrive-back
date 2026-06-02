@@ -117,6 +117,8 @@ def build_cart_price_change_message(price_change_count):
 def get_product_availability_issue(product):
     if product.status != ProductStatus.PUBLISHED or not product.category.is_active:
         return "unavailable"
+    if not product.price_available:
+        return "unavailable"
     if product.stock_qty <= 0:
         return "out_of_stock"
     return "available"
@@ -1418,6 +1420,8 @@ def _is_buy_now_session_expired(session):
 def _ensure_product_is_purchasable(product):
     if product.status != ProductStatus.PUBLISHED or not product.category.is_active:
         raise ValidationError({"product_id": "Product is not available."})
+    if not product.price_available:
+        raise ValidationError({"product_id": "Product price is not available."})
     if product.stock_qty <= 0:
         raise ValidationError({"quantity": "Product is out of stock."})
 

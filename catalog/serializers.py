@@ -5,11 +5,29 @@ from .models import (
     Product,
     ProductFitment,
     ProductImage,
+    ProductPlacement,
     ProductSpec,
+    ProductSide,
     VehicleEngine,
     VehicleMake,
     VehicleModel,
 )
+
+
+PLACEMENT_LABELS_KA = {
+    ProductPlacement.FRONT: "წინა",
+    ProductPlacement.REAR: "უკანა",
+    ProductPlacement.UPPER: "ზედა",
+    ProductPlacement.LOWER: "ქვედა",
+    ProductPlacement.INNER: "შიდა",
+    ProductPlacement.OUTER: "გარე",
+}
+SIDE_LABELS_KA = {
+    ProductSide.LEFT: "მარცხენა",
+    ProductSide.RIGHT: "მარჯვენა",
+    ProductSide.BOTH: "ორივე",
+    ProductSide.CENTER: "ცენტრი",
+}
 
 
 def _absolute_file_url(request, file_field):
@@ -172,6 +190,10 @@ class ProductListSerializer(serializers.ModelSerializer):
     category = serializers.SerializerMethodField()
     on_sale = serializers.SerializerMethodField()
     in_stock = serializers.SerializerMethodField()
+    price_available = serializers.SerializerMethodField()
+    purchasable = serializers.SerializerMethodField()
+    placement_label = serializers.SerializerMethodField()
+    side_label = serializers.SerializerMethodField()
     primary_image = serializers.SerializerMethodField()
     compatibility = serializers.SerializerMethodField()
     seo = serializers.SerializerMethodField()
@@ -188,6 +210,8 @@ class ProductListSerializer(serializers.ModelSerializer):
             "price",
             "old_price",
             "on_sale",
+            "price_available",
+            "purchasable",
             "is_new",
             "is_featured",
             "is_universal_fitment",
@@ -195,7 +219,9 @@ class ProductListSerializer(serializers.ModelSerializer):
             "brand",
             "category",
             "placement",
+            "placement_label",
             "side",
+            "side_label",
             "primary_image",
             "compatibility",
             "seo",
@@ -219,6 +245,22 @@ class ProductListSerializer(serializers.ModelSerializer):
 
     def get_in_stock(self, obj):
         return obj.in_stock
+
+    def get_price_available(self, obj):
+        return obj.price_available
+
+    def get_purchasable(self, obj):
+        return obj.purchasable
+
+    def get_placement_label(self, obj):
+        if not obj.placement:
+            return ""
+        return PLACEMENT_LABELS_KA.get(obj.placement, obj.get_placement_display())
+
+    def get_side_label(self, obj):
+        if not obj.side:
+            return ""
+        return SIDE_LABELS_KA.get(obj.side, obj.get_side_display())
 
     def get_primary_image(self, obj):
         primary = self._resolve_primary_image(obj)
@@ -290,6 +332,8 @@ class ProductSuggestionSerializer(ProductListSerializer):
             "sku",
             "manufacturer_part_number",
             "price",
+            "price_available",
+            "purchasable",
             "in_stock",
             "brand",
             "category",

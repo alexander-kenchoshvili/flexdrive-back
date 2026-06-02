@@ -23,9 +23,11 @@ from .models import (
 )
 from .serializers import (
     CategorySerializer,
+    PLACEMENT_LABELS_KA,
     ProductDetailSerializer,
     ProductListSerializer,
     ProductSuggestionSerializer,
+    SIDE_LABELS_KA,
     VehicleEngineSerializer,
     VehicleMakeSerializer,
     VehicleModelSerializer,
@@ -480,7 +482,6 @@ class ProductListAPIView(generics.ListAPIView):
             for row in brand_rows
         ]
 
-        placement_labels = dict(ProductPlacement.choices)
         placement_rows = (
             queryset.exclude(placement="")
             .values("placement")
@@ -490,13 +491,12 @@ class ProductListAPIView(generics.ListAPIView):
         placement_facets = [
             {
                 "value": row["placement"],
-                "label": placement_labels.get(row["placement"], row["placement"]),
+                "label": PLACEMENT_LABELS_KA.get(row["placement"], row["placement"]),
                 "count": row["count"],
             }
             for row in placement_rows
         ]
 
-        side_labels = dict(ProductSide.choices)
         side_rows = (
             queryset.exclude(side="")
             .values("side")
@@ -506,7 +506,7 @@ class ProductListAPIView(generics.ListAPIView):
         side_facets = [
             {
                 "value": row["side"],
-                "label": side_labels.get(row["side"], row["side"]),
+                "label": SIDE_LABELS_KA.get(row["side"], row["side"]),
                 "count": row["count"],
             }
             for row in side_rows

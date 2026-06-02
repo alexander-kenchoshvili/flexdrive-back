@@ -450,6 +450,14 @@ class Product(TimeStampedModel):
         return self.stock_qty > 0
 
     @property
+    def price_available(self):
+        return self.price > Decimal("0.00")
+
+    @property
+    def purchasable(self):
+        return self.in_stock and self.price_available
+
+    @property
     def on_sale(self):
         return self.old_price is not None and self.old_price > self.price
 
