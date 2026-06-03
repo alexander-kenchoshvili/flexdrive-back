@@ -113,6 +113,24 @@ _SEARCH_TERM_VARIANT_LIMIT = 8
 _VEHICLE_SEARCH_MAX_TOKENS = 4
 _VEHICLE_PREFIX_MIN_LENGTH = 3
 
+_SEARCH_TOKEN_STRIP_CHARS = " \t\r\n.,;:()[]{}\"'“”„"
+
+_SIDE_SEARCH_TERMS = {
+    ProductSide.LEFT: ("მარცხენა", "left", "lh"),
+    ProductSide.RIGHT: ("მარჯვენა", "right", "rh"),
+    ProductSide.BOTH: ("ორივე", "both"),
+    ProductSide.CENTER: ("ცენტრი", "center", "middle"),
+}
+
+_PLACEMENT_SEARCH_TERMS = {
+    ProductPlacement.FRONT: ("წინა", "front"),
+    ProductPlacement.REAR: ("უკანა", "rear", "back"),
+    ProductPlacement.UPPER: ("ზედა", "upper", "top"),
+    ProductPlacement.LOWER: ("ქვედა", "lower", "bottom"),
+    ProductPlacement.INNER: ("შიდა", "inner", "inside"),
+    ProductPlacement.OUTER: ("გარე", "outer", "outside"),
+}
+
 
 def _latin_to_georgian_variants(value):
     normalized = str(value).strip()
@@ -162,19 +180,34 @@ def _search_terms(value):
     if not search_query:
         return []
 
-    terms = [search_query]
-    latin_variant = _georgian_to_latin(search_query)
-    if latin_variant and latin_variant != search_query and latin_variant not in terms:
-        terms.append(latin_variant)
+    base_terms = [search_query]
+    normalized_lower = search_query.lower()
+    if len(search_query) > 3 and search_query.endswith("ს"):
+        base_terms.append(search_query[:-1])
+    if len(search_query) > 3 and normalized_lower.endswith("s"):
+        base_terms.append(search_query[:-1])
 
-    for variant in _latin_to_georgian_variants(search_query):
-        if variant != search_query and variant not in terms:
-            terms.append(variant)
+    terms = []
+    for base_term in base_terms:
+        if base_term not in terms:
+            terms.append(base_term)
+
+        latin_variant = _georgian_to_latin(base_term)
+        if latin_variant and latin_variant != base_term and latin_variant not in terms:
+            terms.append(latin_variant)
+
+        for variant in _latin_to_georgian_variants(base_term):
+            if variant != base_term and variant not in terms:
+                terms.append(variant)
     return terms
 
 
 def _search_tokens(value):
     return [token for token in str(value or "").strip().split() if token]
+
+
+def _normalize_search_token(value):
+    return str(value or "").strip(_SEARCH_TOKEN_STRIP_CHARS).lower()
 
 
 def _product_search_filter(search_terms, include_descriptions=False):
@@ -188,6 +221,62 @@ def _product_search_filter(search_terms, include_descriptions=False):
         if include_descriptions:
             term_query |= Q(short_description__icontains=term) | Q(description__icontains=term)
         query |= term_query
+    return query
+
+
+def _expanded_attribute_terms(raw_terms):
+    terms = set()
+    for raw_term in raw_terms:
+        terms.add(_normalize_search_token(raw_term))
+        for variant in _search_terms(raw_term):
+            normalized = _normalize_search_token(variant)
+            if normalized:
+                terms.add(normalized)
+    return terms
+
+
+_SIDE_SEARCH_TERM_LOOKUP = {
+    term: value
+    for value, raw_terms in _SIDE_SEARCH_TERMS.items()
+    for term in _expanded_attribute_terms(raw_terms)
+}
+_PLACEMENT_SEARCH_TERM_LOOKUP = {
+    term: value
+    for value, raw_terms in _PLACEMENT_SEARCH_TERMS.items()
+    for term in _expanded_attribute_terms(raw_terms)
+}
+
+
+def _attribute_search_match(value):
+    normalized_terms = {
+        _normalize_search_token(term)
+        for term in _search_terms(value)
+        if _normalize_search_token(term)
+    }
+    if not normalized_terms:
+        return None
+
+    for term in normalized_terms:
+        side = _SIDE_SEARCH_TERM_LOOKUP.get(term)
+        if side:
+            return {"field": "side", "value": side}
+
+    for term in normalized_terms:
+        placement = _PLACEMENT_SEARCH_TERM_LOOKUP.get(term)
+        if placement:
+            return {"field": "placement", "value": placement}
+
+    return None
+
+
+def _attribute_constraint(field, value, token, include_descriptions=False):
+    query = Q(**{field: value})
+    token_terms = _search_terms(token)
+    if token_terms:
+        query |= _product_search_filter(
+            token_terms,
+            include_descriptions=include_descriptions,
+        )
     return query
 
 
@@ -283,6 +372,7 @@ def _resolve_search_parts(raw_query):
         return None
 
     vehicle_filter = None
+    attribute_filters = {}
     product_tokens = []
     index = 0
 
@@ -308,14 +398,26 @@ def _resolve_search_parts(raw_query):
         if matched_vehicle:
             continue
 
+        attribute_match = _attribute_search_match(tokens[index])
+        if attribute_match:
+            field = attribute_match["field"]
+            value = attribute_match["value"]
+            existing = attribute_filters.get(field)
+
+            if not existing or existing["value"] == value:
+                attribute_filters[field] = {"value": value, "token": tokens[index]}
+                index += 1
+                continue
+
         product_tokens.append(tokens[index])
         index += 1
 
-    if vehicle_filter is None:
+    if vehicle_filter is None and not attribute_filters:
         return None
 
     return {
         "vehicle_filter": vehicle_filter,
+        "attribute_filters": attribute_filters,
         "product_query": " ".join(product_tokens).strip(),
     }
 
@@ -328,11 +430,22 @@ def _apply_catalog_search(queryset, raw_query, include_descriptions=False):
     search_parts = _resolve_search_parts(search_query)
     if search_parts:
         vehicle_filter = search_parts["vehicle_filter"]
-        fitment_filter = _matching_fitment_filter(vehicle_filter)
-        matching_fitments = ProductFitment.objects.filter(fitment_filter)
-        queryset = queryset.filter(
-            Q(is_universal_fitment=True) | Q(fitments__in=matching_fitments)
-        ).distinct()
+        if vehicle_filter:
+            fitment_filter = _matching_fitment_filter(vehicle_filter)
+            matching_fitments = ProductFitment.objects.filter(fitment_filter)
+            queryset = queryset.filter(
+                Q(is_universal_fitment=True) | Q(fitments__in=matching_fitments)
+            ).distinct()
+
+        for field, match in search_parts["attribute_filters"].items():
+            queryset = queryset.filter(
+                _attribute_constraint(
+                    field,
+                    match["value"],
+                    match["token"],
+                    include_descriptions=include_descriptions,
+                )
+            )
 
         product_query = search_parts["product_query"]
         if product_query:

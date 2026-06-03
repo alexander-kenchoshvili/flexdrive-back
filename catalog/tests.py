@@ -472,6 +472,134 @@ class CatalogAPITests(APITestCase):
         self.assertIn("product-3", slugs)
         self.assertNotIn("product-4", slugs)
 
+    def test_product_suggestions_match_vehicle_possessive_and_product_term(self):
+        subaru = VehicleMake.objects.create(name="სუბარუ", slug="subaru", sort_order=10)
+        forester = VehicleModel.objects.create(
+            make=subaru,
+            name="Forester",
+            slug="forester",
+            sort_order=1,
+        )
+        headlight = Product.objects.create(
+            category=self.exterior,
+            brand=self.brand,
+            name="ფარი Forester",
+            slug="forester-headlight",
+            sku="SUB-FARI-01",
+            manufacturer_part_number="SUB-FARI-01",
+            short_description="წინა ფარი",
+            description="Subaru Forester-ის ფარი",
+            price=Decimal("120.00"),
+            stock_qty=4,
+            status=ProductStatus.PUBLISHED,
+        )
+        ProductFitment.objects.create(
+            product=headlight,
+            vehicle_model=forester,
+            year_from=2015,
+            year_to=2018,
+        )
+
+        response = self.client.get(
+            reverse("catalog-product-suggestions"),
+            {"q": "სუბარუს ფარი"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data[0]["slug"], "forester-headlight")
+
+    def test_product_suggestions_match_latin_vehicle_possessive_and_product_term(self):
+        subaru = VehicleMake.objects.create(name="სუბარუ", slug="subaru", sort_order=10)
+        forester = VehicleModel.objects.create(
+            make=subaru,
+            name="Forester",
+            slug="forester",
+            sort_order=1,
+        )
+        headlight = Product.objects.create(
+            category=self.exterior,
+            brand=self.brand,
+            name="ფარი Forester",
+            slug="forester-headlight-latin",
+            sku="SUB-FARI-02",
+            manufacturer_part_number="SUB-FARI-02",
+            short_description="წინა ფარი",
+            description="Subaru Forester-ის ფარი",
+            price=Decimal("120.00"),
+            stock_qty=4,
+            status=ProductStatus.PUBLISHED,
+        )
+        ProductFitment.objects.create(
+            product=headlight,
+            vehicle_model=forester,
+            year_from=2015,
+            year_to=2018,
+        )
+
+        response = self.client.get(
+            reverse("catalog-product-suggestions"),
+            {"q": "subarus fari"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data[0]["slug"], "forester-headlight-latin")
+
+    def test_product_suggestions_parse_latin_vehicle_side_placement_and_product_terms(self):
+        subaru = VehicleMake.objects.create(name="სუბარუ", slug="subaru", sort_order=10)
+        forester = VehicleModel.objects.create(
+            make=subaru,
+            name="Forester",
+            slug="forester",
+            sort_order=1,
+        )
+        front_left_door = Product.objects.create(
+            category=self.exterior,
+            brand=self.brand,
+            name="კარი Forester",
+            slug="forester-front-left-door",
+            sku="SUB-DOOR-FL",
+            manufacturer_part_number="SUB-DOOR-FL",
+            short_description="Forester door",
+            description="Subaru Forester door",
+            price=Decimal("220.00"),
+            placement=ProductPlacement.FRONT,
+            side=ProductSide.LEFT,
+            stock_qty=4,
+            status=ProductStatus.PUBLISHED,
+        )
+        rear_left_door = Product.objects.create(
+            category=self.exterior,
+            brand=self.brand,
+            name="კარი Forester",
+            slug="forester-rear-left-door",
+            sku="SUB-DOOR-RL",
+            manufacturer_part_number="SUB-DOOR-RL",
+            short_description="Forester door",
+            description="Subaru Forester door",
+            price=Decimal("210.00"),
+            placement=ProductPlacement.REAR,
+            side=ProductSide.LEFT,
+            stock_qty=4,
+            status=ProductStatus.PUBLISHED,
+        )
+        for product in (front_left_door, rear_left_door):
+            ProductFitment.objects.create(
+                product=product,
+                vehicle_model=forester,
+                year_from=2015,
+                year_to=2018,
+            )
+
+        response = self.client.get(
+            reverse("catalog-product-suggestions"),
+            {"q": "subarus wina marcxena kari"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slugs = [row["slug"] for row in response.data]
+        self.assertIn("forester-front-left-door", slugs)
+        self.assertNotIn("forester-rear-left-door", slugs)
+
     def test_product_suggestions_limit_results_to_five(self):
         for index in range(6):
             Product.objects.create(
