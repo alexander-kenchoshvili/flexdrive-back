@@ -193,6 +193,33 @@ class CatalogAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data["results"]), 3)
 
+    def test_products_list_orders_in_stock_products_first(self):
+        response = self.client.get(reverse("catalog-product-list"), {"page_size": 12})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        stock_flags = [row["in_stock"] for row in response.data["results"]]
+        first_out_of_stock = stock_flags.index(False)
+        self.assertNotIn(True, stock_flags[first_out_of_stock:])
+
+    def test_products_list_keeps_in_stock_first_with_explicit_price_sort(self):
+        response = self.client.get(
+            reverse("catalog-product-list"),
+            {"page_size": 12, "ordering": "price_asc"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data["results"]
+        stock_flags = [row["in_stock"] for row in results]
+        first_out_of_stock = stock_flags.index(False)
+        self.assertNotIn(True, stock_flags[first_out_of_stock:])
+
+        in_stock_prices = [
+            Decimal(row["price"])
+            for row in results
+            if row["in_stock"]
+        ]
+        self.assertEqual(in_stock_prices, sorted(in_stock_prices))
+
     def test_products_filter_on_sale(self):
         response = self.client.get(reverse("catalog-product-list"), {"on_sale": "true"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -387,6 +414,100 @@ class CatalogAPITests(APITestCase):
         self.assertEqual(response.data["count"], 1)
         self.assertEqual(response.data["results"][0]["slug"], "product-0")
 
+    def test_products_search_orders_direct_product_matches_before_related_accessories(self):
+        subaru = VehicleMake.objects.create(name="სუბარუ", slug="subaru", sort_order=10)
+        forester = VehicleModel.objects.create(
+            make=subaru,
+            name="Forester",
+            slug="forester",
+            sort_order=1,
+        )
+        direct_wing = Product.objects.create(
+            category=self.exterior,
+            brand=self.brand,
+            name="წინა კრილო",
+            slug="subaru-front-wing",
+            sku="SUB-WING-01",
+            manufacturer_part_number="SUB-WING-01",
+            short_description="Subaru Forester wing",
+            description="Subaru Forester front wing",
+            price=Decimal("180.00"),
+            stock_qty=4,
+            status=ProductStatus.PUBLISHED,
+        )
+        ProductFitment.objects.create(
+            product=direct_wing,
+            vehicle_model=forester,
+            year_from=2015,
+            year_to=2018,
+        )
+        for index in range(10):
+            accessory = Product.objects.create(
+                category=self.exterior,
+                brand=self.brand,
+                name=f"კრილოს მოლდინგი {index}",
+                slug=f"subaru-wing-molding-{index}",
+                sku=f"SUB-WING-MOLD-{index}",
+                manufacturer_part_number=f"SUB-WING-MOLD-{index}",
+                short_description="Subaru Forester wing molding",
+                description="Subaru Forester wing molding",
+                price=Decimal("45.00") + Decimal(index),
+                stock_qty=4,
+                status=ProductStatus.PUBLISHED,
+            )
+            ProductFitment.objects.create(
+                product=accessory,
+                vehicle_model=forester,
+                year_from=2015,
+                year_to=2018,
+            )
+
+        response = self.client.get(
+            reverse("catalog-product-list"),
+            {"q": "სუბარუს კრილო"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreater(response.data["count"], 9)
+        self.assertEqual(response.data["results"][0]["slug"], "subaru-front-wing")
+
+    def test_products_search_matches_georgian_vehicle_alias_and_product_term(self):
+        mercedes = VehicleMake.objects.create(name="Mercedes", slug="mercedes", sort_order=10)
+        glc = VehicleModel.objects.create(
+            make=mercedes,
+            name="GLC",
+            slug="glc",
+            sort_order=1,
+        )
+        hood = Product.objects.create(
+            category=self.exterior,
+            brand=self.brand,
+            name="კაპოტი",
+            slug="mercedes-glc-hood",
+            sku="MB-HOOD-01",
+            manufacturer_part_number="MB-HOOD-01",
+            short_description="Mercedes GLC hood",
+            description="Mercedes GLC hood",
+            price=Decimal("900.00"),
+            stock_qty=4,
+            status=ProductStatus.PUBLISHED,
+        )
+        ProductFitment.objects.create(
+            product=hood,
+            vehicle_model=glc,
+            year_from=2020,
+            year_to=2024,
+        )
+
+        response = self.client.get(
+            reverse("catalog-product-list"),
+            {"q": "მერსედესის კაპოტი"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["slug"], "mercedes-glc-hood")
+
     def test_product_suggestions_require_minimum_query_length(self):
         response = self.client.get(reverse("catalog-product-suggestions"), {"q": "c"})
 
@@ -471,6 +592,56 @@ class CatalogAPITests(APITestCase):
         self.assertIn("product-0", slugs)
         self.assertIn("product-3", slugs)
         self.assertNotIn("product-4", slugs)
+
+    def test_product_suggestions_order_direct_product_matches_before_related_accessories(self):
+        subaru = VehicleMake.objects.create(name="სუბარუ", slug="subaru", sort_order=10)
+        forester = VehicleModel.objects.create(
+            make=subaru,
+            name="Forester",
+            slug="forester",
+            sort_order=1,
+        )
+        direct_wing = Product.objects.create(
+            category=self.exterior,
+            brand=self.brand,
+            name="წინა კრილო",
+            slug="suggestion-subaru-front-wing",
+            sku="SUG-SUB-WING-01",
+            manufacturer_part_number="SUG-SUB-WING-01",
+            short_description="Subaru Forester wing",
+            description="Subaru Forester front wing",
+            price=Decimal("180.00"),
+            stock_qty=4,
+            status=ProductStatus.PUBLISHED,
+        )
+        accessory = Product.objects.create(
+            category=self.exterior,
+            brand=self.brand,
+            name="კრილოს მოლდინგი",
+            slug="suggestion-subaru-wing-molding",
+            sku="SUG-SUB-WING-MOLD",
+            manufacturer_part_number="SUG-SUB-WING-MOLD",
+            short_description="Subaru Forester wing molding",
+            description="Subaru Forester wing molding",
+            price=Decimal("45.00"),
+            stock_qty=4,
+            status=ProductStatus.PUBLISHED,
+        )
+        for product in (direct_wing, accessory):
+            ProductFitment.objects.create(
+                product=product,
+                vehicle_model=forester,
+                year_from=2015,
+                year_to=2018,
+            )
+
+        response = self.client.get(
+            reverse("catalog-product-suggestions"),
+            {"q": "სუბარუს კრილო"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data[0]["slug"], "suggestion-subaru-front-wing")
 
     def test_product_suggestions_match_vehicle_possessive_and_product_term(self):
         subaru = VehicleMake.objects.create(name="სუბარუ", slug="subaru", sort_order=10)
@@ -782,8 +953,8 @@ class CatalogAPITests(APITestCase):
             [
                 "featured-in-newer",
                 "featured-in-older",
-                "featured-out",
                 "regular-in-newer",
+                "regular-in-older",
             ],
         )
         self.assertNotIn(product.slug, [item["slug"] for item in response.data["related_products"]])

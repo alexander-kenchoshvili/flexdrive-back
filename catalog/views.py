@@ -1,6 +1,7 @@
 from decimal import Decimal, InvalidOperation
 
 from django.db.models import Case, Count, F, IntegerField, Max, Min, Prefetch, Q, When
+from django.db.models.functions import Length
 from rest_framework import generics
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import PageNumberPagination
@@ -131,6 +132,29 @@ _PLACEMENT_SEARCH_TERMS = {
     ProductPlacement.OUTER: ("გარე", "outer", "outside"),
 }
 
+_SEARCH_WORD_BOUNDARIES = (" ", "(", "-", "/")
+
+_VEHICLE_MAKE_ALIASES = {
+    "audi": ("აუდი", "audi"),
+    "bmw": ("ბმვ", "bmw"),
+    "ford": ("ფორდი", "ფორდ", "ford"),
+    "honda": ("ჰონდა", "honda"),
+    "lexus": ("ლექსუსი", "ლექსუს", "leksusi", "leksus", "lexus"),
+    "mazda": ("მაზდა", "mazda"),
+    "mercedes": ("მერსედესი", "მერსედეს", "mersedesi", "mersedes", "mercedes"),
+    "mitsubishi": ("მიცუბიში", "mitsubishi"),
+    "subaru": ("სუბარუ", "subaru"),
+    "tesla": ("ტესლა", "tesla"),
+    "toyota": ("ტოიოტა", "toiota", "toyota"),
+    "volkswagen": (
+        "ფოლკსვაგენი",
+        "ფოლკსვაგენ",
+        "polksvageni",
+        "polksvagen",
+        "volkswagen",
+    ),
+}
+
 
 def _latin_to_georgian_variants(value):
     normalized = str(value).strip()
@@ -182,6 +206,10 @@ def _search_terms(value):
 
     base_terms = [search_query]
     normalized_lower = search_query.lower()
+    if len(search_query) > 4 and search_query.endswith("ის"):
+        base_terms.append(search_query[:-2])
+    if len(search_query) > 4 and normalized_lower.endswith("is"):
+        base_terms.append(search_query[:-2])
     if len(search_query) > 3 and search_query.endswith("ს"):
         base_terms.append(search_query[:-1])
     if len(search_query) > 3 and normalized_lower.endswith("s"):
@@ -210,6 +238,34 @@ def _normalize_search_token(value):
     return str(value or "").strip(_SEARCH_TOKEN_STRIP_CHARS).lower()
 
 
+def _expanded_search_terms(raw_terms):
+    terms = set()
+    for raw_term in raw_terms:
+        terms.add(_normalize_search_token(raw_term))
+        for variant in _search_terms(raw_term):
+            normalized = _normalize_search_token(variant)
+            if normalized:
+                terms.add(normalized)
+    return terms
+
+
+_VEHICLE_MAKE_ALIAS_LOOKUP = {
+    term: slug
+    for slug, raw_terms in _VEHICLE_MAKE_ALIASES.items()
+    for term in _expanded_search_terms((*raw_terms, slug))
+}
+
+
+def _vehicle_search_terms(value):
+    search_terms = _search_terms(value)
+    terms = _unique_search_terms(search_terms)
+    for term in search_terms:
+        alias = _VEHICLE_MAKE_ALIAS_LOOKUP.get(_normalize_search_token(term))
+        if alias and alias not in terms:
+            terms.append(alias)
+    return terms
+
+
 def _product_search_filter(search_terms, include_descriptions=False):
     query = Q()
     for term in search_terms:
@@ -224,26 +280,119 @@ def _product_search_filter(search_terms, include_descriptions=False):
     return query
 
 
-def _expanded_attribute_terms(raw_terms):
-    terms = set()
-    for raw_term in raw_terms:
-        terms.add(_normalize_search_token(raw_term))
-        for variant in _search_terms(raw_term):
-            normalized = _normalize_search_token(variant)
-            if normalized:
-                terms.add(normalized)
+def _unique_search_terms(values):
+    terms = []
+    for value in values:
+        normalized = str(value or "").strip()
+        if normalized and normalized not in terms:
+            terms.append(normalized)
     return terms
+
+
+def _search_relevance_terms(raw_query):
+    search_parts = _resolve_search_parts(raw_query)
+    product_query = (
+        search_parts["product_query"]
+        if search_parts and search_parts["product_query"]
+        else str(raw_query or "").strip()
+    )
+    phrase_terms = _unique_search_terms(_search_terms(product_query))
+    token_terms = _unique_search_terms(
+        term
+        for token in _search_tokens(product_query)
+        for term in _search_terms(token)
+    )
+    return phrase_terms, token_terms
+
+
+def _name_boundary_whens(search_terms, score):
+    whens = []
+    for term in search_terms:
+        whens.append(When(name__iexact=term, then=score))
+        for boundary in _SEARCH_WORD_BOUNDARIES:
+            whens.extend(
+                [
+                    When(name__istartswith=f"{term}{boundary}", then=score),
+                    When(name__iendswith=f"{boundary}{term}", then=score),
+                ]
+            )
+            for trailing_boundary in _SEARCH_WORD_BOUNDARIES:
+                whens.append(
+                    When(
+                        name__icontains=f"{boundary}{term}{trailing_boundary}",
+                        then=score,
+                    )
+                )
+    return whens
+
+
+def _in_stock_order_annotation():
+    return Case(
+        When(stock_qty__gt=0, then=1),
+        default=0,
+        output_field=IntegerField(),
+    )
+
+
+def _search_relevance_annotations(raw_query):
+    phrase_terms, token_terms = _search_relevance_terms(raw_query)
+    relevance_terms = _unique_search_terms([*phrase_terms, *token_terms])
+
+    identifier_match_whens = []
+    startswith_match_whens = []
+    contains_match_whens = []
+    for term in relevance_terms:
+        identifier_match_whens.extend(
+            [
+                When(sku__iexact=term, then=3),
+                When(manufacturer_part_number__iexact=term, then=3),
+            ]
+        )
+        startswith_match_whens.extend(
+            [
+                When(name__istartswith=term, then=2),
+                When(sku__istartswith=term, then=1),
+                When(manufacturer_part_number__istartswith=term, then=1),
+            ]
+        )
+        contains_match_whens.append(When(name__icontains=term, then=1))
+
+    return {
+        "search_identifier_match": Case(
+            *identifier_match_whens,
+            default=0,
+            output_field=IntegerField(),
+        ),
+        "search_direct_name_match": Case(
+            *_name_boundary_whens(phrase_terms, 8),
+            *_name_boundary_whens(token_terms, 6),
+            default=0,
+            output_field=IntegerField(),
+        ),
+        "search_startswith_match": Case(
+            *startswith_match_whens,
+            default=0,
+            output_field=IntegerField(),
+        ),
+        "search_contains_match": Case(
+            *contains_match_whens,
+            default=0,
+            output_field=IntegerField(),
+        ),
+        "in_stock_order": _in_stock_order_annotation(),
+        "search_name_length": Length("name"),
+    }
 
 
 _SIDE_SEARCH_TERM_LOOKUP = {
     term: value
     for value, raw_terms in _SIDE_SEARCH_TERMS.items()
-    for term in _expanded_attribute_terms(raw_terms)
+    for term in _expanded_search_terms(raw_terms)
 }
 _PLACEMENT_SEARCH_TERM_LOOKUP = {
     term: value
     for value, raw_terms in _PLACEMENT_SEARCH_TERMS.items()
-    for term in _expanded_attribute_terms(raw_terms)
+    for term in _expanded_search_terms(raw_terms)
 }
 
 
@@ -305,7 +454,7 @@ def _first_vehicle_entity_match(queryset, search_terms):
 
 
 def _vehicle_search_match(value):
-    search_terms = _search_terms(value)
+    search_terms = _vehicle_search_terms(value)
     if not search_terms:
         return None
 
@@ -758,14 +907,33 @@ class ProductListAPIView(generics.ListAPIView):
         elif on_sale is False:
             queryset = queryset.filter(Q(old_price__isnull=True) | Q(old_price__lte=F("price")))
 
-        ordering_key = params.get("ordering", "newest")
+        search_query = str(params.get("q") or "").strip()
+        ordering_param = params.get("ordering")
+        if search_query and not ordering_param:
+            return queryset.annotate(
+                **_search_relevance_annotations(search_query),
+            ).order_by(
+                "-in_stock_order",
+                "-search_identifier_match",
+                "-search_direct_name_match",
+                "-search_startswith_match",
+                "-search_contains_match",
+                "-is_featured",
+                "search_name_length",
+                "name",
+                "id",
+            )
+
+        ordering_key = ordering_param or "newest"
         ordering = self.ORDERING_MAP.get(ordering_key)
         if not ordering:
             raise ValidationError(
                 {"ordering": f"Invalid value. Allowed: {', '.join(self.ORDERING_MAP.keys())}."}
             )
 
-        return queryset.order_by(*ordering)
+        return queryset.annotate(
+            in_stock_order=_in_stock_order_annotation(),
+        ).order_by("-in_stock_order", *ordering)
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -868,25 +1036,6 @@ class ProductSuggestionAPIView(generics.ListAPIView):
         if len(search_query) < 2:
             return Product.objects.none()
 
-        search_terms = _search_terms(search_query)
-
-        exact_match_whens = []
-        startswith_match_whens = []
-        for term in search_terms:
-            exact_match_whens.extend(
-                [
-                    When(name__iexact=term, then=2),
-                    When(manufacturer_part_number__iexact=term, then=2),
-                ]
-            )
-            startswith_match_whens.extend(
-                [
-                    When(name__istartswith=term, then=2),
-                    When(sku__istartswith=term, then=1),
-                    When(manufacturer_part_number__istartswith=term, then=1),
-                ]
-            )
-
         queryset = (
             Product.objects.filter(status=ProductStatus.PUBLISHED, category__is_active=True)
             .select_related("category", "brand")
@@ -900,27 +1049,16 @@ class ProductSuggestionAPIView(generics.ListAPIView):
         queryset = (
             _apply_catalog_search(queryset, search_query)
             .annotate(
-                exact_name_match=Case(
-                    *exact_match_whens,
-                    default=0,
-                    output_field=IntegerField(),
-                ),
-                startswith_match=Case(
-                    *startswith_match_whens,
-                    default=0,
-                    output_field=IntegerField(),
-                ),
-                in_stock_order=Case(
-                    When(stock_qty__gt=0, then=1),
-                    default=0,
-                    output_field=IntegerField(),
-                ),
+                **_search_relevance_annotations(search_query),
             )
             .order_by(
-                "-exact_name_match",
-                "-startswith_match",
-                "-is_featured",
                 "-in_stock_order",
+                "-search_identifier_match",
+                "-search_direct_name_match",
+                "-search_startswith_match",
+                "-search_contains_match",
+                "-is_featured",
+                "search_name_length",
                 "name",
                 "id",
             )
@@ -998,13 +1136,9 @@ class ProductDetailAPIView(generics.RetrieveAPIView):
                 )
             )
             .annotate(
-                in_stock_order=Case(
-                    When(stock_qty__gt=0, then=1),
-                    default=0,
-                    output_field=IntegerField(),
-                )
+                in_stock_order=_in_stock_order_annotation()
             )
-            .order_by("-is_featured", "-in_stock_order", "-created_at", "-id")[:4]
+            .order_by("-in_stock_order", "-is_featured", "-created_at", "-id")[:4]
         )
 
 
