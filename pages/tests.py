@@ -26,12 +26,17 @@ class GetCurrentContentAPITests(APITestCase):
             page__slug="main",
             component_type__name="OrderConfidence",
         )
+        vehicle_brand_component = Component.objects.get(
+            page__slug="main",
+            component_type__name="VehicleBrandSwiper",
+        )
         component_key = f"ValueProposition_{value_component.id}"
         component_payload = response.data["secondary"][component_key]
         items = component_payload["data"]["contentData"]["list"]
 
-        self.assertEqual(value_component.position, 40)
-        self.assertEqual(order_confidence_component.position, 50)
+        self.assertEqual(vehicle_brand_component.position, 40)
+        self.assertEqual(value_component.position, 50)
+        self.assertEqual(order_confidence_component.position, 60)
         self.assertEqual(
             component_payload["data"]["title"],
             "ავტონაწილების შერჩევა Flex[[Drive]]-თან ერთად",
@@ -66,6 +71,52 @@ class GetCurrentContentAPITests(APITestCase):
             ],
         )
 
+    def test_main_page_includes_seeded_vehicle_brand_swiper_component(self):
+        response = self.client.post(
+            reverse("get-current-content"),
+            {"slug": "main"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        component = Component.objects.get(
+            page__slug="main",
+            component_type__name="VehicleBrandSwiper",
+        )
+        component_key = f"VehicleBrandSwiper_{component.id}"
+        component_payload = response.data["secondary"][component_key]
+        content_data = component_payload["data"]["contentData"]
+        items = content_data["list"]
+
+        self.assertEqual(component.position, 40)
+        self.assertEqual(component_payload["conf"]["componentName"], "VehicleBrandSwiper")
+        self.assertEqual(component_payload["data"]["title"], "ნაწილები მარკის მიხედვით")
+        self.assertEqual(
+            component_payload["data"]["subtitle"],
+            "აირჩიე ავტომობილის მარკა და პირდაპირ გადადი შესაბამისი ნაწილების კატალოგში.",
+        )
+        self.assertEqual(component_payload["data"]["buttonText"], "ყველა მარკის ნახვა")
+        self.assertEqual(content_data["name"], "vehicle_brand_cards")
+        self.assertEqual(content_data["listcount"], 12)
+        self.assertEqual(
+            [(item["title"], item["slug"], item["content_type"], item["icon_svg"]) for item in items],
+            [
+                ("Subaru", "subaru", "vehicle_brand", None),
+                ("Volkswagen", "volkswagen", "vehicle_brand", None),
+                ("Audi", "audi", "vehicle_brand", None),
+                ("Honda", "honda", "vehicle_brand", None),
+                ("Toyota", "toyota", "vehicle_brand", None),
+                ("Ford", "ford", "vehicle_brand", None),
+                ("Lexus", "lexus", "vehicle_brand", None),
+                ("Mitsubishi", "mitsubishi", "vehicle_brand", None),
+                ("Mazda", "mazda", "vehicle_brand", None),
+                ("BMW", "bmw", "vehicle_brand", None),
+                ("Mercedes", "mercedes", "vehicle_brand", None),
+                ("Tesla", "tesla", "vehicle_brand", None),
+            ],
+        )
+
     def test_main_page_includes_seeded_order_confidence_component(self):
         response = self.client.post(
             reverse("get-current-content"),
@@ -83,7 +134,7 @@ class GetCurrentContentAPITests(APITestCase):
         component_payload = response.data["secondary"][component_key]
         items = component_payload["data"]["contentData"]["list"]
 
-        self.assertEqual(component.position, 50)
+        self.assertEqual(component.position, 60)
         self.assertEqual(
             component_payload["data"]["title"],
             "შეკვეთა Auto[[Mate]]-ზე წინასწარ გასაგებია",
@@ -134,7 +185,7 @@ class GetCurrentContentAPITests(APITestCase):
         component_payload = response.data["secondary"][component_key]
         items = component_payload["data"]["contentData"]["list"]
 
-        self.assertEqual(component.position, 60)
+        self.assertEqual(component.position, 70)
         self.assertEqual(
             component_payload["data"]["title"],
             "აირჩიე გზა შეკვეთამდე Flex[[Drive]]-ზე",

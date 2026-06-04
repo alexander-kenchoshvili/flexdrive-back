@@ -200,46 +200,6 @@ class ComponentAdmin(admin.ModelAdmin):
     list_editable = ('position', 'enabled')
 
 
-class ContentItemInline(admin.TabularInline):
-    model = ContentItem
-    extra = 1
-    fields = ("title", "content_type", "catalog_category", "position", "singlePageRoute")
-    ordering = ("position", "id")
-    show_change_link = True
-
-    base_fields = (
-        "title",
-        "description",
-        "content_type",
-        "position",
-        "singlePageRoute",
-    )
-    category_fields = (
-        "title",
-        "content_type",
-        "catalog_category",
-        "position",
-        "singlePageRoute",
-    )
-    image_fields = (
-        "image_desktop",
-        "image_tablet",
-        "image_mobile",
-    )
-
-    def get_fields(self, request, obj=None):
-        content_name = (getattr(obj, "name", "") or "").lower()
-        if content_name == "value_proposition_cards":
-            return self.base_fields + self.image_fields
-        return self.category_fields
-
-
-@admin.register(Content)
-class ContentAdmin(admin.ModelAdmin):
-    list_display = ('name',)
-    inlines = [ContentItemInline]
-
-
 class ContentItemAdminForm(forms.ModelForm):
     def clean_icon_svg(self):
         value = self.cleaned_data.get("icon_svg")
@@ -265,6 +225,57 @@ class ContentItemAdminForm(forms.ModelForm):
                 attrs={"rows": 8, "style": "width: 48rem; font-family: monospace;"}
             ),
         }
+
+
+class ContentItemInline(admin.TabularInline):
+    model = ContentItem
+    form = ContentItemAdminForm
+    extra = 1
+    fields = ("title", "content_type", "catalog_category", "position", "singlePageRoute")
+    ordering = ("position", "id")
+    show_change_link = True
+
+    base_fields = (
+        "title",
+        "description",
+        "content_type",
+        "position",
+        "singlePageRoute",
+    )
+    category_fields = (
+        "title",
+        "content_type",
+        "catalog_category",
+        "position",
+        "singlePageRoute",
+    )
+    image_fields = (
+        "image_desktop",
+        "image_tablet",
+        "image_mobile",
+    )
+    vehicle_brand_fields = (
+        "title",
+        "description",
+        "slug",
+        "content_type",
+        "icon_svg",
+        "position",
+    )
+
+    def get_fields(self, request, obj=None):
+        content_name = (getattr(obj, "name", "") or "").lower()
+        if content_name == "value_proposition_cards":
+            return self.base_fields + self.image_fields
+        if content_name == "vehicle_brand_cards":
+            return self.vehicle_brand_fields
+        return self.category_fields
+
+
+@admin.register(Content)
+class ContentAdmin(admin.ModelAdmin):
+    list_display = ('name',)
+    inlines = [ContentItemInline]
 
 
 class BlogPostInline(admin.StackedInline):
