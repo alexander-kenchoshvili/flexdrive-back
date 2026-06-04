@@ -714,6 +714,7 @@ class CatalogAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data[0]["slug"], "forester-headlight-latin")
+        self.assertEqual(response.data[0]["fitment_summary"], "სუბარუ Forester · 2015-2018")
 
     def test_product_suggestions_parse_latin_vehicle_side_placement_and_product_terms(self):
         subaru = VehicleMake.objects.create(name="სუბარუ", slug="subaru", sort_order=10)

@@ -324,6 +324,8 @@ class ProductListSerializer(serializers.ModelSerializer):
 
 
 class ProductSuggestionSerializer(ProductListSerializer):
+    fitment_summary = serializers.SerializerMethodField()
+
     class Meta(ProductListSerializer.Meta):
         fields = (
             "id",
@@ -338,7 +340,26 @@ class ProductSuggestionSerializer(ProductListSerializer):
             "brand",
             "category",
             "primary_image",
+            "fitment_summary",
         )
+
+    def get_fitment_summary(self, obj):
+        fitments = list(obj.fitments.all())
+        if fitments:
+            fitment = fitments[0]
+            make = fitment.vehicle_model.make.name
+            model = fitment.vehicle_model.name
+            years = (
+                str(fitment.year_from)
+                if fitment.year_from == fitment.year_to
+                else f"{fitment.year_from}-{fitment.year_to}"
+            )
+            return f"{make} {model} · {years}"
+
+        if obj.is_universal_fitment:
+            return "უნივერსალური შესაბამისობა"
+
+        return "შესაბამისობა დასაზუსტებელია"
 
 
 class ProductDetailSerializer(ProductListSerializer):

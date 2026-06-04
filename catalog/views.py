@@ -1043,7 +1043,22 @@ class ProductSuggestionAPIView(generics.ListAPIView):
                 Prefetch(
                     "images",
                     queryset=ProductImage.objects.order_by("-is_primary", "sort_order", "id"),
-                )
+                ),
+                Prefetch(
+                    "fitments",
+                    queryset=ProductFitment.objects.select_related(
+                        "vehicle_model__make",
+                        "engine",
+                    ).order_by(
+                        "vehicle_model__make__sort_order",
+                        "vehicle_model__make__name",
+                        "vehicle_model__sort_order",
+                        "vehicle_model__name",
+                        "year_from",
+                        "year_to",
+                        "engine__name",
+                    ),
+                ),
             )
         )
         queryset = (
