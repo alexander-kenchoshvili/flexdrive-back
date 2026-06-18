@@ -1,7 +1,9 @@
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from decimal import Decimal
 from io import BytesIO
+from threading import Barrier
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -10,7 +12,14 @@ from django.contrib.admin.sites import site
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, TestCase, override_settings
+from django.db import close_old_connections
+from django.test import (
+    Client,
+    TestCase,
+    TransactionTestCase,
+    override_settings,
+    skipUnlessDBFeature,
+)
 from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
@@ -30,6 +39,7 @@ from .models import (
     BuyNowSession,
     Cart,
     CartItem,
+    CheckoutAttempt,
     Order,
     OrderBuyerType,
     OrderCheckoutSource,
@@ -71,6 +81,9 @@ from .services import (
     complete_stock_reservation,
     create_stock_reservation_from_buy_now_session,
     create_stock_reservation_from_cart,
+    build_checkout_owner_fingerprint,
+    build_checkout_request_fingerprint,
+    create_order_from_cart,
     expire_stock_reservations,
     get_available_stock_quantity,
     refund_payment,
@@ -93,6 +106,7 @@ class CommerceAPITests(APITestCase):
         PaymentTransaction.objects.all().delete()
         StockReservationItem.objects.all().delete()
         StockReservation.objects.all().delete()
+        CheckoutAttempt.objects.all().delete()
         CartItem.objects.all().delete()
         Cart.objects.all().delete()
         OrderItem.objects.all().delete()
@@ -735,6 +749,164 @@ class CommerceAPITests(APITestCase):
         self.assertEqual(call_kwargs["order"], Order.objects.get())
         self.assertIsNotNone(call_kwargs["request"])
 
+    def test_cart_checkout_replays_same_order_for_same_idempotency_key(self):
+        self.client.post(
+            reverse("commerce-cart-item-list"),
+            {"product_id": self.product.id, "quantity": 2},
+            format="json",
+        )
+        idempotency_key = str(uuid.uuid4())
+
+        first_response = self.client.post(
+            reverse("commerce-order-checkout"),
+            self._checkout_payload(),
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=idempotency_key,
+        )
+        second_response = self.client.post(
+            reverse("commerce-order-checkout"),
+            self._checkout_payload(),
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=idempotency_key,
+        )
+
+        self.product.refresh_from_db()
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_response["Idempotency-Replayed"], "true")
+        self.assertEqual(
+            second_response.data["public_token"],
+            first_response.data["public_token"],
+        )
+        self.assertEqual(Order.objects.count(), 1)
+        self.assertEqual(CheckoutAttempt.objects.count(), 1)
+        self.assertEqual(self.product.stock_qty, 3)
+
+    def test_cart_checkout_with_second_key_does_not_create_duplicate_order(self):
+        self.client.post(
+            reverse("commerce-cart-item-list"),
+            {"product_id": self.product.id, "quantity": 1},
+            format="json",
+        )
+
+        first_response = self.client.post(
+            reverse("commerce-order-checkout"),
+            self._checkout_payload(),
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        )
+        second_response = self.client.post(
+            reverse("commerce-order-checkout"),
+            self._checkout_payload(),
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        )
+
+        self.product.refresh_from_db()
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(str(second_response.data["detail"]), "Cart is empty.")
+        self.assertEqual(Order.objects.count(), 1)
+        self.assertEqual(CheckoutAttempt.objects.count(), 1)
+        self.assertEqual(self.product.stock_qty, 4)
+
+    def test_cart_checkout_rejects_reused_key_with_different_payload(self):
+        self.client.post(
+            reverse("commerce-cart-item-list"),
+            {"product_id": self.product.id, "quantity": 1},
+            format="json",
+        )
+        idempotency_key = str(uuid.uuid4())
+
+        first_response = self.client.post(
+            reverse("commerce-order-checkout"),
+            self._checkout_payload(),
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=idempotency_key,
+        )
+        second_response = self.client.post(
+            reverse("commerce-order-checkout"),
+            {
+                **self._checkout_payload(),
+                "city": "Batumi",
+            },
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=idempotency_key,
+        )
+
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second_response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(
+            second_response.data["code"],
+            "checkout_idempotency_conflict",
+        )
+        self.assertEqual(Order.objects.count(), 1)
+
+    def test_checkout_rejects_invalid_idempotency_key(self):
+        self.client.post(
+            reverse("commerce-cart-item-list"),
+            {"product_id": self.product.id, "quantity": 1},
+            format="json",
+        )
+
+        response = self.client.post(
+            reverse("commerce-order-checkout"),
+            self._checkout_payload(),
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="not-a-uuid",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            str(response.data["idempotency_key"]),
+            "Idempotency-Key must be a valid UUID.",
+        )
+        self.assertEqual(Order.objects.count(), 0)
+
+    def test_checkout_cors_preflight_allows_idempotency_key_header(self):
+        response = self.client.options(
+            reverse("commerce-order-checkout"),
+            HTTP_ORIGIN="http://localhost:3000",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS=(
+                "content-type, idempotency-key, x-csrftoken"
+            ),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        allowed_headers = {
+            header.strip().lower()
+            for header in response["Access-Control-Allow-Headers"].split(",")
+        }
+        self.assertIn("idempotency-key", allowed_headers)
+
+    @patch("commerce.views.send_meta_purchase_event")
+    def test_cart_checkout_replay_does_not_send_duplicate_purchase_event(
+        self,
+        send_meta_purchase_event,
+    ):
+        self.client.post(
+            reverse("commerce-cart-item-list"),
+            {"product_id": self.product.id, "quantity": 1},
+            format="json",
+        )
+        idempotency_key = str(uuid.uuid4())
+
+        self.client.post(
+            reverse("commerce-order-checkout"),
+            self._checkout_payload(),
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=idempotency_key,
+        )
+        self.client.post(
+            reverse("commerce-order-checkout"),
+            self._checkout_payload(),
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=idempotency_key,
+        )
+
+        send_meta_purchase_event.assert_called_once()
+
     @override_settings(
         FRONTEND_BASE_URL="https://flexdrive.ge",
         META_CAPI_TEST_EVENT_CODE="TEST12345",
@@ -1137,6 +1309,42 @@ class CommerceAPITests(APITestCase):
             send_meta_purchase_event.call_args.kwargs["order"],
             Order.objects.get(),
         )
+
+    def test_buy_now_checkout_replays_order_after_session_is_consumed(self):
+        create_response = self.client.post(
+            reverse("commerce-buy-now-session"),
+            {"product_id": self.product.id, "quantity": 2},
+            format="json",
+        )
+        guest_token = create_response.cookies[BUY_NOW_TOKEN_COOKIE_NAME].value
+        idempotency_key = str(uuid.uuid4())
+        self.client.cookies[BUY_NOW_TOKEN_COOKIE_NAME] = guest_token
+
+        first_response = self.client.post(
+            reverse("commerce-buy-now-checkout"),
+            self._checkout_payload(),
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=idempotency_key,
+        )
+        self.client.cookies[BUY_NOW_TOKEN_COOKIE_NAME] = guest_token
+        second_response = self.client.post(
+            reverse("commerce-buy-now-checkout"),
+            self._checkout_payload(),
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=idempotency_key,
+        )
+
+        self.product.refresh_from_db()
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_response["Idempotency-Replayed"], "true")
+        self.assertEqual(
+            second_response.data["public_token"],
+            first_response.data["public_token"],
+        )
+        self.assertEqual(Order.objects.count(), 1)
+        self.assertEqual(BuyNowSession.objects.count(), 0)
+        self.assertEqual(self.product.stock_qty, 3)
 
     def test_buy_now_checkout_stores_legal_entity_snapshot(self):
         create_response = self.client.post(
@@ -2123,6 +2331,103 @@ class CommerceLifecycleServiceTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(order.status, OrderStatus.NEW)
         self.assertIsNone(order.stock_restored_at)
+
+
+@skipUnlessDBFeature("has_select_for_update")
+class CheckoutConcurrencyTests(TransactionTestCase):
+    reset_sequences = True
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="concurrent-buyer@example.com",
+            email="concurrent-buyer@example.com",
+            password="Password123!",
+            is_active=True,
+        )
+        self.category = Category.objects.create(
+            name="Concurrency",
+            slug="concurrency",
+            sort_order=1,
+        )
+        self.product = Product.objects.create(
+            category=self.category,
+            name="Concurrent Product",
+            slug="concurrent-product",
+            sku="CONCURRENT-1",
+            price=Decimal("100.00"),
+            stock_qty=2,
+            status=ProductStatus.PUBLISHED,
+        )
+        self.cart = Cart.objects.create(user=self.user, is_active=True)
+        CartItem.objects.create(
+            cart=self.cart,
+            product=self.product,
+            unit_price_snapshot=self.product.price,
+            quantity=1,
+        )
+        self.validated_data = {
+            "buyer_type": OrderBuyerType.INDIVIDUAL,
+            "company_name": "",
+            "company_identification_code": "",
+            "first_name": "Concurrent",
+            "last_name": "Buyer",
+            "email": self.user.email,
+            "phone": "555123456",
+            "city": "Tbilisi",
+            "address_line": "Concurrency Street 1",
+            "note": "",
+            "terms_accepted": True,
+            "payment_method": OrderPaymentMethod.CASH_ON_DELIVERY,
+        }
+
+    def _checkout(self, *, idempotency_key, barrier):
+        close_old_connections()
+        try:
+            user = get_user_model().objects.get(pk=self.user.pk)
+            cart = Cart.objects.get(pk=self.cart.pk)
+            owner_fingerprint = build_checkout_owner_fingerprint(user=user)
+            request_fingerprint = build_checkout_request_fingerprint(
+                source=OrderCheckoutSource.CART,
+                validated_data=self.validated_data,
+            )
+            barrier.wait(timeout=10)
+            result = create_order_from_cart(
+                cart=cart,
+                user=user,
+                validated_data=self.validated_data,
+                idempotency_key=idempotency_key,
+                owner_fingerprint=owner_fingerprint,
+                request_fingerprint=request_fingerprint,
+            )
+            return ("success", result.created, result.order.pk)
+        except Exception as error:
+            return ("error", type(error).__name__, str(error))
+        finally:
+            close_old_connections()
+
+    def test_parallel_checkout_requests_with_same_key_create_one_order(self):
+        idempotency_key = uuid.uuid4()
+        barrier = Barrier(2)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(
+                executor.map(
+                    lambda _: self._checkout(
+                        idempotency_key=idempotency_key,
+                        barrier=barrier,
+                    ),
+                    range(2),
+                )
+            )
+
+        self.product.refresh_from_db()
+        self.assertEqual(Order.objects.count(), 1)
+        self.assertEqual(CheckoutAttempt.objects.count(), 1)
+        self.assertEqual(self.product.stock_qty, 1)
+        self.assertEqual(
+            sorted(result[1] for result in results if result[0] == "success"),
+            [False, True],
+        )
 
 
 @override_settings(

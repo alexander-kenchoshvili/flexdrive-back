@@ -6,6 +6,7 @@ from django.http import HttpResponseRedirect
 from .models import (
     Cart,
     CartItem,
+    CheckoutAttempt,
     Order,
     OrderItem,
     OrderStatus,
@@ -293,3 +294,25 @@ class PaymentTransactionAdmin(admin.ModelAdmin):
         "cancelled_at",
         "refunded_at",
     )
+
+
+@admin.register(CheckoutAttempt)
+class CheckoutAttemptAdmin(admin.ModelAdmin):
+    list_display = ("key", "source", "order", "created_at", "updated_at")
+    list_filter = ("source", "created_at")
+    search_fields = ("key", "order__order_number")
+    readonly_fields = (
+        "key",
+        "source",
+        "owner_fingerprint",
+        "request_fingerprint",
+        "order",
+        "created_at",
+        "updated_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

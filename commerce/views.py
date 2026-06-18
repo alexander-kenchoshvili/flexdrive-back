@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 
 from accounts.utils import validate_recaptcha
 
-from .models import Order, OrderStatus
+from .models import Order, OrderCheckoutSource, OrderStatus
 from .meta_conversions import send_meta_purchase_event
 from .serializers import (
     BuyNowSessionCreateSerializer,
@@ -39,6 +39,8 @@ from .services import (
     add_product_to_wishlist,
     BuyNowConflictError,
     BuyNowSessionStateError,
+    build_checkout_owner_fingerprint,
+    build_checkout_request_fingerprint,
     CartAvailabilityChangedError,
     confirm_buy_now_session_updates,
     confirm_cart_item_prices,
@@ -46,6 +48,7 @@ from .services import (
     create_order_from_buy_now_session,
     create_order_from_cart,
     delete_buy_now_session,
+    get_completed_idempotent_order,
     get_cart_item_for_update,
     get_buy_now_session_queryset,
     get_cart_queryset,
@@ -55,6 +58,8 @@ from .services import (
     resolve_buy_now_session,
     resolve_cart,
     resolve_wishlist,
+    parse_guest_token,
+    parse_checkout_idempotency_key,
     sync_cart_availability_issues,
     update_cart_item_quantity,
 )
@@ -315,12 +320,26 @@ class OrderCheckoutAPIView(APIView):
         resolved_cart = resolve_cart(request)
         serializer = CheckoutSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        idempotency_key = parse_checkout_idempotency_key(
+            request.headers.get("Idempotency-Key")
+        )
+        owner_fingerprint = build_checkout_owner_fingerprint(
+            user=request.user if request.user.is_authenticated else None,
+            guest_token=resolved_cart.guest_token,
+        )
+        request_fingerprint = build_checkout_request_fingerprint(
+            source=OrderCheckoutSource.CART,
+            validated_data=serializer.validated_data,
+        )
 
         try:
-            order = create_order_from_cart(
+            result = create_order_from_cart(
                 cart=resolved_cart.cart,
                 user=request.user if request.user.is_authenticated else None,
                 validated_data=serializer.validated_data,
+                idempotency_key=idempotency_key,
+                owner_fingerprint=owner_fingerprint,
+                request_fingerprint=request_fingerprint,
             )
         except CartAvailabilityChangedError as availability_error:
             sync_cart_availability_issues(
@@ -332,12 +351,23 @@ class OrderCheckoutAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        send_meta_purchase_event(order=order, request=request)
+        if result.created:
+            send_meta_purchase_event(order=result.order, request=request)
 
-        return Response(
-            OrderSummarySerializer(order, context={"request": request}).data,
-            status=status.HTTP_201_CREATED,
+        response = Response(
+            OrderSummarySerializer(
+                result.order,
+                context={"request": request},
+            ).data,
+            status=(
+                status.HTTP_201_CREATED
+                if result.created
+                else status.HTTP_200_OK
+            ),
         )
+        if not result.created:
+            response["Idempotency-Replayed"] = "true"
+        return response
 
 
 class BuyNowCheckoutAPIView(BuyNowSessionResponseMixin, APIView):
@@ -358,31 +388,104 @@ class BuyNowCheckoutAPIView(BuyNowSessionResponseMixin, APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        serializer = CheckoutSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        idempotency_key = parse_checkout_idempotency_key(
+            request.headers.get("Idempotency-Key")
+        )
+        request_fingerprint = build_checkout_request_fingerprint(
+            source=OrderCheckoutSource.BUY_NOW,
+            validated_data=serializer.validated_data,
+        )
+        user = request.user if request.user.is_authenticated else None
+        guest_token = None
+        if not user:
+            guest_token = parse_guest_token(
+                request.COOKIES.get(BUY_NOW_TOKEN_COOKIE_NAME)
+            )
+
+        owner_fingerprint = None
+        if user or guest_token:
+            owner_fingerprint = build_checkout_owner_fingerprint(
+                user=user,
+                guest_token=guest_token,
+            )
+
+        if idempotency_key and owner_fingerprint:
+            existing_order = get_completed_idempotent_order(
+                idempotency_key=idempotency_key,
+                source=OrderCheckoutSource.BUY_NOW,
+                owner_fingerprint=owner_fingerprint,
+                request_fingerprint=request_fingerprint,
+            )
+            if existing_order:
+                response = Response(
+                    OrderSummarySerializer(
+                        existing_order,
+                        context={"request": request},
+                    ).data,
+                    status=status.HTTP_200_OK,
+                )
+                response["Idempotency-Replayed"] = "true"
+                return self.apply_buy_now_cookie(response, delete_cookie=True)
+
         try:
             resolved_session = resolve_buy_now_session(request)
         except BuyNowSessionStateError as error:
+            if idempotency_key and owner_fingerprint:
+                existing_order = get_completed_idempotent_order(
+                    idempotency_key=idempotency_key,
+                    source=OrderCheckoutSource.BUY_NOW,
+                    owner_fingerprint=owner_fingerprint,
+                    request_fingerprint=request_fingerprint,
+                )
+                if existing_order:
+                    response = Response(
+                        OrderSummarySerializer(
+                            existing_order,
+                            context={"request": request},
+                        ).data,
+                        status=status.HTTP_200_OK,
+                    )
+                    response["Idempotency-Replayed"] = "true"
+                    return self.apply_buy_now_cookie(response, delete_cookie=True)
             return self.build_buy_now_state_error_response(error)
 
-        serializer = CheckoutSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        owner_fingerprint = build_checkout_owner_fingerprint(
+            user=user,
+            guest_token=resolved_session.guest_token,
+        )
 
         try:
-            order = create_order_from_buy_now_session(
+            result = create_order_from_buy_now_session(
                 session=resolved_session.session,
-                user=request.user if request.user.is_authenticated else None,
+                user=user,
                 validated_data=serializer.validated_data,
+                idempotency_key=idempotency_key,
+                owner_fingerprint=owner_fingerprint,
+                request_fingerprint=request_fingerprint,
             )
         except BuyNowSessionStateError as error:
             return self.build_buy_now_state_error_response(error)
         except BuyNowConflictError as error:
             return self.build_buy_now_conflict_response(resolved_session, error)
 
-        send_meta_purchase_event(order=order, request=request)
+        if result.created:
+            send_meta_purchase_event(order=result.order, request=request)
 
         response = Response(
-            OrderSummarySerializer(order, context={"request": request}).data,
-            status=status.HTTP_201_CREATED,
+            OrderSummarySerializer(
+                result.order,
+                context={"request": request},
+            ).data,
+            status=(
+                status.HTTP_201_CREATED
+                if result.created
+                else status.HTTP_200_OK
+            ),
         )
+        if not result.created:
+            response["Idempotency-Replayed"] = "true"
         return self.apply_buy_now_cookie(response, resolved_session, delete_cookie=True)
 
 

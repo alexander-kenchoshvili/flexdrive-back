@@ -373,6 +373,29 @@ class Order(TimeStampedModel):
         return self.order_number or f"Order {self.pk}"
 
 
+class CheckoutAttempt(TimeStampedModel):
+    key = models.UUIDField(unique=True, db_index=True, editable=False)
+    source = models.CharField(
+        max_length=20,
+        choices=OrderCheckoutSource.choices,
+    )
+    owner_fingerprint = models.CharField(max_length=64)
+    request_fingerprint = models.CharField(max_length=64)
+    order = models.OneToOneField(
+        Order,
+        related_name="checkout_attempt",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+
+    def __str__(self):
+        return f"{self.source}:{self.key}"
+
+
 class OrderItem(TimeStampedModel):
     order = models.ForeignKey(
         Order,
@@ -448,6 +471,15 @@ class StockReservation(TimeStampedModel):
                 condition=(
                     Q(user__isnull=False, guest_token__isnull=True)
                     | Q(user__isnull=True, guest_token__isnull=False)
+                    | Q(
+                        user__isnull=True,
+                        guest_token__isnull=True,
+                        status__in=(
+                            StockReservationStatus.COMPLETED,
+                            StockReservationStatus.EXPIRED,
+                            StockReservationStatus.RELEASED,
+                        ),
+                    )
                 ),
                 name="commerce_stock_reservation_requires_single_owner",
             )

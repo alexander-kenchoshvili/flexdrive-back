@@ -16,9 +16,12 @@ from rest_framework_simplejwt.token_blacklist.models import (
 )
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
+from commerce.models import StockReservation, StockReservationStatus
+
 from .google_auth import GoogleAuthError
 from .models import FacebookAccount, GoogleAccount, UserProfile
 from .email_delivery import EmailDeliveryError, send_auth_email
+from .services import delete_user_account
 
 
 class ProfileAPITests(APITestCase):
@@ -108,6 +111,65 @@ class ProfileAPITests(APITestCase):
         self.assertIn("refresh_token", response.cookies)
         self.assertEqual(response.cookies["access_token"].value, "")
         self.assertEqual(response.cookies["refresh_token"].value, "")
+
+    def test_delete_profile_releases_active_reservations_and_anonymizes_history(self):
+        active_reservation = StockReservation.objects.create(
+            user=self.user,
+            status=StockReservationStatus.ACTIVE,
+            expires_at=timezone.now() + timedelta(minutes=10),
+        )
+        completed_reservation = StockReservation.objects.create(
+            user=self.user,
+            status=StockReservationStatus.COMPLETED,
+            expires_at=timezone.now() - timedelta(minutes=10),
+            completed_at=timezone.now() - timedelta(minutes=5),
+        )
+        guest_token = uuid.uuid4()
+        guest_reservation = StockReservation.objects.create(
+            guest_token=guest_token,
+            status=StockReservationStatus.ACTIVE,
+            expires_at=timezone.now() + timedelta(minutes=10),
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.delete(reverse("profile"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        active_reservation.refresh_from_db()
+        completed_reservation.refresh_from_db()
+        guest_reservation.refresh_from_db()
+        self.assertEqual(active_reservation.status, StockReservationStatus.RELEASED)
+        self.assertIsNotNone(active_reservation.released_at)
+        self.assertIsNone(active_reservation.user_id)
+        self.assertEqual(
+            completed_reservation.status,
+            StockReservationStatus.COMPLETED,
+        )
+        self.assertIsNone(completed_reservation.user_id)
+        self.assertEqual(guest_reservation.status, StockReservationStatus.ACTIVE)
+        self.assertEqual(guest_reservation.guest_token, guest_token)
+
+    def test_delete_user_account_rolls_back_reservation_release_if_delete_fails(self):
+        reservation = StockReservation.objects.create(
+            user=self.user,
+            status=StockReservationStatus.ACTIVE,
+            expires_at=timezone.now() + timedelta(minutes=10),
+        )
+
+        with patch.object(
+            get_user_model(),
+            "delete",
+            side_effect=RuntimeError("delete failed"),
+        ):
+            with self.assertRaisesMessage(RuntimeError, "delete failed"):
+                delete_user_account(self.user)
+
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.status, StockReservationStatus.ACTIVE)
+        self.assertIsNone(reservation.released_at)
+        self.assertTrue(
+            get_user_model().objects.filter(pk=self.user.pk).exists()
+        )
 
     def test_profile_requires_authentication(self):
         response = self.client.get(reverse("profile"))

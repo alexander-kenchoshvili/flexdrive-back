@@ -1,3 +1,5 @@
+import hashlib
+import json
 import uuid
 from datetime import timedelta
 from dataclasses import asdict, dataclass
@@ -19,6 +21,7 @@ from .models import (
     BuyNowSession,
     Cart,
     CartItem,
+    CheckoutAttempt,
     Order,
     OrderBuyerType,
     OrderCheckoutSource,
@@ -49,6 +52,7 @@ BUY_NOW_SESSION_EXPIRED_CODE = "buy_now_session_expired"
 BUY_NOW_ACTION_CONFIRM_UPDATES = "confirm_updates"
 BUY_NOW_ACTION_RETURN_TO_PRODUCT = "return_to_product"
 BUY_NOW_ACTION_RESTART = "restart_buy_now"
+CHECKOUT_IDEMPOTENCY_CONFLICT_CODE = "checkout_idempotency_conflict"
 
 CHECKOUT_AVAILABILITY_CHANGED_DETAIL = (
     "პროდუქტის ხელმისაწვდომობა შეიცვალა. "
@@ -100,6 +104,157 @@ class StockReservationError(Exception):
         super().__init__(detail)
         self.detail = detail
         self.issues = issues or []
+
+
+class CheckoutIdempotencyConflict(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_code = CHECKOUT_IDEMPOTENCY_CONFLICT_CODE
+
+    def __init__(self):
+        super().__init__(
+            {
+                "detail": (
+                    "ეს checkout მცდელობა სხვა შეკვეთის მონაცემებთან არის დაკავშირებული. "
+                    "გთხოვთ, დაიწყოთ ახალი მცდელობა."
+                ),
+                "code": self.default_code,
+            }
+        )
+
+
+@dataclass(frozen=True)
+class OrderCreationResult:
+    order: Order
+    created: bool
+
+
+def parse_checkout_idempotency_key(raw_value):
+    if not raw_value:
+        return None
+
+    try:
+        return uuid.UUID(str(raw_value).strip())
+    except (TypeError, ValueError):
+        raise ValidationError(
+            {"idempotency_key": "Idempotency-Key must be a valid UUID."}
+        )
+
+
+def build_checkout_owner_fingerprint(*, user=None, guest_token=None):
+    if user is not None and getattr(user, "is_authenticated", True):
+        owner_value = f"user:{user.pk}"
+    elif guest_token is not None:
+        owner_value = f"guest:{guest_token}"
+    else:
+        raise ValueError("Checkout owner is required.")
+
+    return hashlib.sha256(owner_value.encode("utf-8")).hexdigest()
+
+
+def build_checkout_request_fingerprint(*, source, validated_data):
+    fields = (
+        "buyer_type",
+        "company_name",
+        "company_identification_code",
+        "first_name",
+        "last_name",
+        "email",
+        "phone",
+        "city",
+        "address_line",
+        "note",
+        "payment_method",
+    )
+    payload = {
+        "source": source,
+        **{
+            field: str(validated_data.get(field, "") or "")
+            for field in fields
+        },
+    }
+    canonical_payload = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()
+
+
+def get_completed_idempotent_order(
+    *,
+    idempotency_key,
+    source,
+    owner_fingerprint,
+    request_fingerprint,
+):
+    if idempotency_key is None:
+        return None
+
+    attempt = (
+        CheckoutAttempt.objects.select_related("order")
+        .prefetch_related("order__items")
+        .filter(key=idempotency_key)
+        .first()
+    )
+    if attempt is None:
+        return None
+
+    _validate_checkout_attempt(
+        attempt=attempt,
+        source=source,
+        owner_fingerprint=owner_fingerprint,
+        request_fingerprint=request_fingerprint,
+    )
+    return attempt.order
+
+
+def _lock_checkout_attempt(
+    *,
+    idempotency_key,
+    source,
+    owner_fingerprint,
+    request_fingerprint,
+):
+    if idempotency_key is None:
+        return None
+
+    attempt, _ = CheckoutAttempt.objects.get_or_create(
+        key=idempotency_key,
+        defaults={
+            "source": source,
+            "owner_fingerprint": owner_fingerprint,
+            "request_fingerprint": request_fingerprint,
+        },
+    )
+    attempt = (
+        CheckoutAttempt.objects.select_for_update()
+        .select_related("order")
+        .prefetch_related("order__items")
+        .get(pk=attempt.pk)
+    )
+    _validate_checkout_attempt(
+        attempt=attempt,
+        source=source,
+        owner_fingerprint=owner_fingerprint,
+        request_fingerprint=request_fingerprint,
+    )
+    return attempt
+
+
+def _validate_checkout_attempt(
+    *,
+    attempt,
+    source,
+    owner_fingerprint,
+    request_fingerprint,
+):
+    if (
+        attempt.source != source
+        or attempt.owner_fingerprint != owner_fingerprint
+        or attempt.request_fingerprint != request_fingerprint
+    ):
+        raise CheckoutIdempotencyConflict()
 
 
 def build_cart_price_change_message(price_change_count):
@@ -431,9 +586,14 @@ def get_cart_item_for_update(cart, item_id):
 
 @transaction.atomic
 def add_product_to_cart(cart, product, quantity):
+    locked_cart = Cart.objects.select_for_update().get(pk=cart.pk)
     _ensure_product_is_purchasable(product)
 
-    cart_item = CartItem.objects.select_for_update().filter(cart=cart, product=product).first()
+    cart_item = (
+        CartItem.objects.select_for_update()
+        .filter(cart=locked_cart, product=product)
+        .first()
+    )
     desired_quantity = quantity + (cart_item.quantity if cart_item else 0)
 
     if desired_quantity > product.stock_qty:
@@ -449,7 +609,7 @@ def add_product_to_cart(cart, product, quantity):
         return cart_item
 
     return CartItem.objects.create(
-        cart=cart,
+        cart=locked_cart,
         product=product,
         unit_price_snapshot=product.price,
         quantity=quantity,
@@ -458,30 +618,38 @@ def add_product_to_cart(cart, product, quantity):
 
 @transaction.atomic
 def update_cart_item_quantity(cart_item, quantity):
-    product = cart_item.product
+    Cart.objects.select_for_update().get(pk=cart_item.cart_id)
+    locked_cart_item = (
+        CartItem.objects.select_for_update()
+        .select_related("product", "product__category")
+        .get(pk=cart_item.pk)
+    )
+    product = locked_cart_item.product
     _ensure_product_is_purchasable(product)
 
     if quantity > product.stock_qty:
         raise ValidationError({"quantity": "Requested quantity exceeds available stock."})
 
-    cart_item.quantity = quantity
+    locked_cart_item.quantity = quantity
     update_fields = ["quantity", "updated_at"]
-    if cart_item.unit_price_snapshot != product.price:
-        cart_item.unit_price_snapshot = product.price
+    if locked_cart_item.unit_price_snapshot != product.price:
+        locked_cart_item.unit_price_snapshot = product.price
         update_fields.append("unit_price_snapshot")
-    cart_item.save(update_fields=update_fields)
-    return cart_item
+    locked_cart_item.save(update_fields=update_fields)
+    return locked_cart_item
 
 
 @transaction.atomic
 def remove_cart_item(cart_item):
-    cart_item.delete()
+    Cart.objects.select_for_update().get(pk=cart_item.cart_id)
+    CartItem.objects.select_for_update().get(pk=cart_item.pk).delete()
 
 
 @transaction.atomic
 def confirm_cart_item_prices(cart):
+    locked_cart = Cart.objects.select_for_update().get(pk=cart.pk)
     cart_items = list(
-        cart.items.select_for_update()
+        locked_cart.items.select_for_update()
         .select_related("product")
         .order_by("id")
     )
@@ -714,9 +882,28 @@ def sync_cart_availability_issues(*, cart, issues):
 
 
 @transaction.atomic
-def create_order_from_cart(*, cart, user, validated_data):
+def create_order_from_cart(
+    *,
+    cart,
+    user,
+    validated_data,
+    idempotency_key=None,
+    owner_fingerprint="",
+    request_fingerprint="",
+):
+    checkout_attempt = _lock_checkout_attempt(
+        idempotency_key=idempotency_key,
+        source=OrderCheckoutSource.CART,
+        owner_fingerprint=owner_fingerprint,
+        request_fingerprint=request_fingerprint,
+    )
+    if checkout_attempt and checkout_attempt.order_id:
+        return OrderCreationResult(order=checkout_attempt.order, created=False)
+
+    locked_cart = Cart.objects.select_for_update().get(pk=cart.pk)
     cart_items = list(
-        cart.items.select_related("product", "product__category")
+        locked_cart.items.select_for_update()
+        .select_related("product", "product__category")
         .prefetch_related("product__images")
         .order_by("id")
     )
@@ -724,7 +911,12 @@ def create_order_from_cart(*, cart, user, validated_data):
         raise ValidationError({"detail": "Cart is empty."})
 
     product_ids = [item.product_id for item in cart_items]
-    products = Product.objects.select_for_update().select_related("category").filter(id__in=product_ids)
+    products = (
+        Product.objects.select_for_update()
+        .select_related("category")
+        .filter(id__in=product_ids)
+        .order_by("id")
+    )
     products_by_id = {product.id: product for product in products}
 
     availability_issues, availability_detail = _build_cart_availability_issues(
@@ -812,13 +1004,34 @@ def create_order_from_cart(*, cart, user, validated_data):
         locked_products.append(product)
 
     Product.objects.bulk_update(locked_products, ["stock_qty"])
-    cart.items.all().delete()
+    locked_cart.items.all().delete()
 
-    return order
+    if checkout_attempt:
+        checkout_attempt.order = order
+        checkout_attempt.save(update_fields=["order", "updated_at"])
+
+    return OrderCreationResult(order=order, created=True)
 
 
 @transaction.atomic
-def create_order_from_buy_now_session(*, session, user, validated_data):
+def create_order_from_buy_now_session(
+    *,
+    session,
+    user,
+    validated_data,
+    idempotency_key=None,
+    owner_fingerprint="",
+    request_fingerprint="",
+):
+    checkout_attempt = _lock_checkout_attempt(
+        idempotency_key=idempotency_key,
+        source=OrderCheckoutSource.BUY_NOW,
+        owner_fingerprint=owner_fingerprint,
+        request_fingerprint=request_fingerprint,
+    )
+    if checkout_attempt and checkout_attempt.order_id:
+        return OrderCreationResult(order=checkout_attempt.order, created=False)
+
     locked_session = (
         BuyNowSession.objects.select_for_update()
         .select_related("product", "product__category")
@@ -883,7 +1096,11 @@ def create_order_from_buy_now_session(*, session, user, validated_data):
     locked_product.save(update_fields=["stock_qty", "updated_at"])
     locked_session.delete()
 
-    return order
+    if checkout_attempt:
+        checkout_attempt.order = order
+        checkout_attempt.save(update_fields=["order", "updated_at"])
+
+    return OrderCreationResult(order=order, created=True)
 
 
 def get_reserved_stock_quantities(*, product_ids, now=None, exclude_reservation_ids=None):
@@ -1359,6 +1576,10 @@ def _parse_guest_token(raw_token):
         return uuid.UUID(str(raw_token))
     except (TypeError, ValueError):
         return None
+
+
+def parse_guest_token(raw_token):
+    return _parse_guest_token(raw_token)
 
 
 def _build_buy_now_session_not_found_error(*, clear_guest_token=False):

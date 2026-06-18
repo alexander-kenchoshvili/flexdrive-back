@@ -41,6 +41,7 @@ from .google_auth import (
     build_google_oauth_authorization_url,
     exchange_google_authorization_code,
 )
+from .services import delete_user_account
 from .utils import validate_recaptcha
 
 
@@ -591,7 +592,7 @@ class ProfileAPIView(APIView):
             except TokenError:
                 pass
 
-        request.user.delete()
+        delete_user_account(request.user)
 
         response = Response(
             {"message": "Account deleted successfully."},

@@ -14,6 +14,7 @@ from pathlib import Path
 from datetime import timedelta
 import os
 from urllib.parse import parse_qs, unquote, urlparse
+from corsheaders.defaults import default_headers
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 load_dotenv()
@@ -219,6 +220,7 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = _dedupe(
     default_frontend_origins + _parse_csv_env("CORS_ALLOWED_ORIGINS")
 )
+CORS_ALLOW_HEADERS = (*default_headers, "idempotency-key")
 CSRF_TRUSTED_ORIGINS = _dedupe(
     default_frontend_origins + _parse_csv_env("CSRF_TRUSTED_ORIGINS")
 )
