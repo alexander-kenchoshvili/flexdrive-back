@@ -45,6 +45,7 @@ class PageAdmin(admin.ModelAdmin):
         'url',
         'seo_noindex',
     )
+    list_select_related = ("parent",)
     prepopulated_fields = {"slug": ("name",)}
     fields = (
         'name',
@@ -194,6 +195,7 @@ class ContactInquiryAdmin(admin.ModelAdmin):
 @admin.register(Component)
 class ComponentAdmin(admin.ModelAdmin):
     list_display = ('page', 'position', 'component_type', 'title', 'content', 'enabled')
+    list_select_related = ("page", "component_type", "content")
     list_filter = ('page', 'component_type', 'enabled')
     search_fields = ('title', 'component_type__name', 'content__name', 'page__name')
     ordering = ('page', 'position', 'id')
@@ -313,6 +315,7 @@ class ContentItemAdmin(admin.ModelAdmin):
     form = ContentItemAdminForm
     inlines = [BlogPostInline]
     list_display = ("content", "title", "content_type", "catalog_category", "position", "singlePageRoute")
+    list_select_related = ("content", "catalog_category", "singlePageRoute")
     list_filter = ("content", "content_type", "catalog_category")
     search_fields = ("title", "description", "content_type")
     ordering = ("content", "position", "id")
@@ -356,6 +359,7 @@ class BlogPostAdmin(admin.ModelAdmin):
         "category",
         "read_time_minutes",
     )
+    list_select_related = ("content_item", "content_item__content")
     list_filter = ("status", "is_featured", "category")
     search_fields = (
         "content_item__title",

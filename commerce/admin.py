@@ -202,6 +202,14 @@ class OrderAdmin(admin.ModelAdmin):
     def customer_name(self, obj):
         return f"{obj.first_name} {obj.last_name}".strip()
 
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        actions.pop("delete_selected", None)
+        return actions
+
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         extra_context = extra_context or {}
 
@@ -313,6 +321,17 @@ class PaymentTransactionAdmin(admin.ModelAdmin):
         "cancelled_at",
         "refunded_at",
     )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        actions.pop("delete_selected", None)
+        return actions
 
 
 @admin.register(CheckoutAttempt)

@@ -6,7 +6,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Q
 from django.db.models.functions import Upper
 
 from common.image_processing import (
@@ -94,6 +94,15 @@ class Category(TimeStampedModel):
 
     class Meta:
         ordering = ("sort_order", "name")
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(
+                    markup_percent__gte=Decimal("0.00"),
+                    markup_percent__lte=Decimal("1000.00"),
+                ),
+                name="catalog_category_markup_range",
+            ),
+        ]
         indexes = [
             models.Index(fields=["is_active", "sort_order"]),
         ]
@@ -398,6 +407,33 @@ class Product(TimeStampedModel):
 
     class Meta:
         ordering = ("-created_at", "id")
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(price__gte=Decimal("0.00")),
+                name="catalog_product_price_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(supplier_price__isnull=True)
+                    | Q(supplier_price__gte=Decimal("0.00"))
+                ),
+                name="catalog_product_supplier_price_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(markup_percent_override__isnull=True)
+                    | Q(
+                        markup_percent_override__gte=Decimal("0.00"),
+                        markup_percent_override__lte=Decimal("1000.00"),
+                    )
+                ),
+                name="catalog_product_markup_range",
+            ),
+            models.CheckConstraint(
+                condition=Q(old_price__isnull=True) | Q(old_price__gt=F("price")),
+                name="catalog_product_old_price_above_price",
+            ),
+        ]
         indexes = [
             models.Index(fields=["category", "status"]),
             models.Index(fields=["brand", "status"]),

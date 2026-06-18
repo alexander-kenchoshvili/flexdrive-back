@@ -158,23 +158,62 @@ class ContentSerializer(serializers.ModelSerializer):
         model = Content
         fields = ["id", "name", "listcount", "list"]
 
-    def get_listcount(self, obj):
-        queryset = obj.items.all()
-        if (obj.name or "").lower() == "bloglist":
-            queryset = queryset.filter(blog_post__status=BlogStatus.PUBLISHED)
-        return queryset.count()
+    def _get_items(self, obj):
+        items_cache = getattr(self, "_items_cache", None)
+        if items_cache is None:
+            items_cache = {}
+            self._items_cache = items_cache
 
-    def get_list(self, obj):
-        items = obj.items.select_related("blog_post", "catalog_category")
-        if (obj.name or "").lower() == "bloglist":
-            items = items.filter(blog_post__status=BlogStatus.PUBLISHED).order_by(
-                "-blog_post__is_featured",
-                "-blog_post__published_at",
-                "position",
-                "id",
+        cache_key = id(obj)
+        if cache_key in items_cache:
+            return items_cache[cache_key]
+
+        prefetched_items = getattr(obj, "prefetched_items", None)
+        if prefetched_items is None:
+            items = list(
+                obj.items
+                .select_related("blog_post", "catalog_category")
+                .order_by("position", "id")
             )
         else:
-            items = items.order_by("position", "id")
+            items = list(prefetched_items)
+
+        if (obj.name or "").lower() == "bloglist":
+            published_items = []
+            for item in items:
+                try:
+                    blog_post = item.blog_post
+                except BlogPost.DoesNotExist:
+                    continue
+
+                if blog_post.status == BlogStatus.PUBLISHED:
+                    published_items.append(item)
+
+            items = sorted(published_items, key=lambda item: (item.position, item.id))
+            items = sorted(
+                items,
+                key=lambda item: (
+                    item.blog_post.published_at is not None,
+                    item.blog_post.published_at,
+                ),
+                reverse=True,
+            )
+            items = sorted(
+                items,
+                key=lambda item: item.blog_post.is_featured,
+                reverse=True,
+            )
+        else:
+            items = sorted(items, key=lambda item: (item.position, item.id))
+
+        items_cache[cache_key] = items
+        return items
+
+    def get_listcount(self, obj):
+        return len(self._get_items(obj))
+
+    def get_list(self, obj):
+        items = self._get_items(obj)
         return ContentItemSerializer(items, many=True, context=self.context).data
 
 
@@ -228,12 +267,14 @@ class PageSerializer(serializers.ModelSerializer):
         ]
 
     def get_components(self, obj):
-        components = (
-            obj.components
-            .filter(enabled=True)
-            .select_related("component_type", "content")
-            .order_by("position", "id")
-        )
+        components = getattr(obj, "enabled_components", None)
+        if components is None:
+            components = (
+                obj.components
+                .filter(enabled=True)
+                .select_related("component_type", "content")
+                .order_by("position", "id")
+            )
         return ComponentSerializer(components, many=True, context=self.context).data
 
 

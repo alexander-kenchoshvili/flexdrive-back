@@ -12,7 +12,8 @@ from django.contrib.admin.sites import site
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.db import close_old_connections
+from django.db import IntegrityError, close_old_connections, transaction
+from django.db.models.deletion import ProtectedError
 from django.test import (
     Client,
     TestCase,
@@ -107,14 +108,14 @@ def _generate_test_image(filename="sample.jpg", color=(255, 0, 0)):
 class CommerceAPITests(APITestCase):
     def setUp(self):
         WishlistItem.objects.all().delete()
-        PaymentTransaction.objects.all().delete()
+        PaymentTransaction.objects.all().hard_delete()
         StockReservationItem.objects.all().delete()
         StockReservation.objects.all().delete()
         CheckoutAttempt.objects.all().delete()
         CartItem.objects.all().delete()
         Cart.objects.all().delete()
-        OrderItem.objects.all().delete()
-        Order.objects.all().delete()
+        OrderItem.objects.all().hard_delete()
+        Order.objects.all().hard_delete()
         Product.objects.all().delete()
         Category.objects.all().delete()
         get_user_model().objects.filter(
@@ -2224,13 +2225,13 @@ class CommerceAPITests(APITestCase):
 
 class CommerceLifecycleServiceTests(TestCase):
     def setUp(self):
-        PaymentTransaction.objects.all().delete()
+        PaymentTransaction.objects.all().hard_delete()
         StockReservationItem.objects.all().delete()
         StockReservation.objects.all().delete()
         Category.objects.all().delete()
         Product.objects.all().delete()
-        OrderItem.objects.all().delete()
-        Order.objects.all().delete()
+        OrderItem.objects.all().hard_delete()
+        Order.objects.all().hard_delete()
         get_user_model().objects.filter(
             email__in=["buyer@example.com", "other@example.com"],
         ).delete()
@@ -2300,6 +2301,209 @@ class CommerceLifecycleServiceTests(TestCase):
             quantity=quantity,
         )
         return cart
+
+    def assert_database_rejects(self, operation):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                operation()
+
+    def test_database_rejects_zero_checkout_quantities(self):
+        cart = self._create_cart(user=self.user, quantity=1)
+        cart_item = cart.items.get()
+        buy_now_session = BuyNowSession.objects.create(
+            user=self.user,
+            product=self.product,
+            unit_price_snapshot=self.product.price,
+            quantity=1,
+        )
+
+        self.assert_database_rejects(
+            lambda: CartItem.objects.filter(pk=cart_item.pk).update(quantity=0)
+        )
+        self.assert_database_rejects(
+            lambda: CartItem.objects.filter(pk=cart_item.pk).update(
+                unit_price_snapshot=Decimal("-0.01")
+            )
+        )
+        self.assert_database_rejects(
+            lambda: BuyNowSession.objects.filter(
+                pk=buy_now_session.pk
+            ).update(quantity=0)
+        )
+        self.assert_database_rejects(
+            lambda: BuyNowSession.objects.filter(
+                pk=buy_now_session.pk
+            ).update(unit_price_snapshot=Decimal("-0.01"))
+        )
+
+    def test_database_rejects_negative_order_amounts_and_zero_item_quantity(self):
+        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+        order_item = order.items.get()
+
+        self.assert_database_rejects(
+            lambda: Order.objects.filter(pk=order.pk).update(
+                subtotal=Decimal("-0.01")
+            )
+        )
+        self.assert_database_rejects(
+            lambda: Order.objects.filter(pk=order.pk).update(
+                total=Decimal("-0.01")
+            )
+        )
+        self.assert_database_rejects(
+            lambda: OrderItem.objects.filter(pk=order_item.pk).update(
+                quantity=0
+            )
+        )
+        self.assert_database_rejects(
+            lambda: OrderItem.objects.filter(pk=order_item.pk).update(
+                unit_price=Decimal("-0.01")
+            )
+        )
+        self.assert_database_rejects(
+            lambda: OrderItem.objects.filter(pk=order_item.pk).update(
+                line_total=Decimal("-0.01")
+            )
+        )
+
+    def test_database_rejects_invalid_reservation_item_values(self):
+        cart = self._create_cart(user=self.user, quantity=1)
+        reservation = create_stock_reservation_from_cart(
+            cart=cart,
+            user=self.user,
+        )
+        reservation_item = reservation.items.get()
+
+        self.assert_database_rejects(
+            lambda: StockReservationItem.objects.filter(
+                pk=reservation_item.pk
+            ).update(quantity=0)
+        )
+        self.assert_database_rejects(
+            lambda: StockReservationItem.objects.filter(
+                pk=reservation_item.pk
+            ).update(unit_price_snapshot=Decimal("-0.01"))
+        )
+
+    def test_database_rejects_negative_payment_amount(self):
+        payment_transaction = create_payment_transaction(
+            order=self._create_order(status=OrderStatus.NEW, quantity=1),
+            amount=Decimal("120.00"),
+        )
+
+        self.assert_database_rejects(
+            lambda: PaymentTransaction.objects.filter(
+                pk=payment_transaction.pk
+            ).update(amount=Decimal("-0.01"))
+        )
+
+    def test_order_instance_and_queryset_hard_delete_are_disabled(self):
+        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+
+        with self.assertRaisesMessage(
+            DjangoValidationError,
+            "Hard deletion is disabled for orders. Cancel the order instead.",
+        ):
+            order.delete()
+
+        with self.assertRaisesMessage(
+            DjangoValidationError,
+            "Hard deletion is disabled for financial records.",
+        ):
+            Order.objects.filter(pk=order.pk).delete()
+
+        self.assertTrue(Order.objects.filter(pk=order.pk).exists())
+
+    def test_order_database_relations_protect_financial_history(self):
+        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+
+        with self.assertRaises(ProtectedError):
+            Order.objects.filter(pk=order.pk).hard_delete()
+
+        self.assertTrue(Order.objects.filter(pk=order.pk).exists())
+        self.assertEqual(order.items.count(), 1)
+
+    def test_order_item_hard_delete_is_disabled(self):
+        order_item = self._create_order(
+            status=OrderStatus.NEW,
+            quantity=1,
+        ).items.get()
+
+        with self.assertRaisesMessage(
+            DjangoValidationError,
+            "Hard deletion is disabled for order items.",
+        ):
+            order_item.delete()
+
+        with self.assertRaisesMessage(
+            DjangoValidationError,
+            "Hard deletion is disabled for financial records.",
+        ):
+            OrderItem.objects.filter(pk=order_item.pk).delete()
+
+        self.assertTrue(OrderItem.objects.filter(pk=order_item.pk).exists())
+
+    def test_payment_transaction_hard_delete_is_disabled(self):
+        payment_transaction = create_payment_transaction(
+            order=self._create_order(status=OrderStatus.NEW, quantity=1),
+            amount=Decimal("120.00"),
+        )
+
+        with self.assertRaisesMessage(
+            DjangoValidationError,
+            "Hard deletion is disabled for payment transactions.",
+        ):
+            payment_transaction.delete()
+
+        with self.assertRaisesMessage(
+            DjangoValidationError,
+            "Hard deletion is disabled for financial records.",
+        ):
+            PaymentTransaction.objects.filter(
+                pk=payment_transaction.pk
+            ).delete()
+
+        self.assertTrue(
+            PaymentTransaction.objects.filter(pk=payment_transaction.pk).exists()
+        )
+
+    def test_payment_transaction_protects_order_and_reservation(self):
+        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+        cart = self._create_cart(user=self.user, quantity=1)
+        reservation = create_stock_reservation_from_cart(
+            cart=cart,
+            user=self.user,
+        )
+        create_payment_transaction(
+            order=order,
+            reservation=reservation,
+            amount=order.total,
+        )
+        order.items.all().hard_delete()
+        reservation.items.all().delete()
+
+        with self.assertRaises(ProtectedError):
+            Order.objects.filter(pk=order.pk).hard_delete()
+        with self.assertRaises(ProtectedError):
+            reservation.delete()
+
+        self.assertTrue(Order.objects.filter(pk=order.pk).exists())
+        self.assertTrue(StockReservation.objects.filter(pk=reservation.pk).exists())
+
+    def test_completed_reservation_protects_order_history(self):
+        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+        cart = self._create_cart(user=self.user, quantity=1)
+        reservation = create_stock_reservation_from_cart(
+            cart=cart,
+            user=self.user,
+        )
+        complete_stock_reservation(reservation=reservation, order=order)
+        order.items.all().hard_delete()
+
+        with self.assertRaises(ProtectedError):
+            Order.objects.filter(pk=order.pk).hard_delete()
+
+        self.assertTrue(Order.objects.filter(pk=order.pk).exists())
 
     def test_cart_stock_reservation_creates_active_items_without_reducing_stock(self):
         cart = self._create_cart(user=self.user, quantity=1)
@@ -2933,13 +3137,13 @@ class PaymentStatusConcurrencyTests(TransactionTestCase):
 )
 class CommerceAdminTests(TestCase):
     def setUp(self):
-        PaymentTransaction.objects.all().delete()
+        PaymentTransaction.objects.all().hard_delete()
         StockReservationItem.objects.all().delete()
         StockReservation.objects.all().delete()
         Category.objects.all().delete()
         Product.objects.all().delete()
-        OrderItem.objects.all().delete()
-        Order.objects.all().delete()
+        OrderItem.objects.all().hard_delete()
+        Order.objects.all().hard_delete()
         get_user_model().objects.filter(email="admin@example.com").delete()
 
         self.client = Client()
@@ -3108,16 +3312,24 @@ class CommerceAdminTests(TestCase):
         self.assertIn(StockReservation, site._registry)
         self.assertIn(PaymentTransaction, site._registry)
 
+    def test_admin_disables_financial_record_deletion(self):
+        order_admin = site._registry[Order]
+        payment_admin = site._registry[PaymentTransaction]
+
+        self.assertFalse(order_admin.has_delete_permission(None))
+        self.assertFalse(payment_admin.has_add_permission(None))
+        self.assertFalse(payment_admin.has_delete_permission(None))
+
 
 class CommerceAdminFormTests(TestCase):
     def setUp(self):
-        PaymentTransaction.objects.all().delete()
+        PaymentTransaction.objects.all().hard_delete()
         StockReservationItem.objects.all().delete()
         StockReservation.objects.all().delete()
         Category.objects.all().delete()
         Product.objects.all().delete()
-        OrderItem.objects.all().delete()
-        Order.objects.all().delete()
+        OrderItem.objects.all().hard_delete()
+        Order.objects.all().hard_delete()
         self.category = Category.objects.create(name="Interior", slug="interior", sort_order=1)
         self.product = Product.objects.create(
             category=self.category,

@@ -1781,7 +1781,7 @@ def apply_payment_provider_response(payment_transaction, provider_response):
                     "Provider transaction ID is already linked to another payment."
                 )
 
-            payment_transaction.delete()
+            payment_transaction.delete(allow_hard_delete=True)
             return existing_transaction
 
     now = timezone.now()

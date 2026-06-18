@@ -1,10 +1,11 @@
 from decimal import Decimal
 from io import BytesIO
+from unittest import skipUnless
 
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
-from django.db import connection
+from django.db import IntegrityError, connection, transaction
 from django.db.models import Q
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -1125,6 +1126,64 @@ class CatalogSearchPerformanceTests(TestCase):
 
         self.assertEqual(len(queries), 3)
         self.assertIsNotNone(context["search_parts"]["vehicle_filter"])
+
+
+@skipUnless(
+    connection.vendor == "postgresql",
+    "Catalog DB constraints are installed on PostgreSQL.",
+)
+class CatalogDatabaseConstraintTests(TestCase):
+    def setUp(self):
+        self.category = Category.objects.create(
+            name="Constraint Category",
+            slug="constraint-category",
+            markup_percent=Decimal("10.00"),
+        )
+        self.product = Product.objects.create(
+            category=self.category,
+            name="Constraint Product",
+            slug="constraint-product",
+            sku="CONSTRAINT-1",
+            price=Decimal("100.00"),
+            stock_qty=1,
+            status=ProductStatus.PUBLISHED,
+        )
+
+    def assert_database_rejects(self, operation):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                operation()
+
+    def test_database_rejects_invalid_category_markup(self):
+        self.assert_database_rejects(
+            lambda: Category.objects.filter(pk=self.category.pk).update(
+                markup_percent=Decimal("1000.01")
+            )
+        )
+
+    def test_database_rejects_negative_product_prices(self):
+        self.assert_database_rejects(
+            lambda: Product.objects.filter(pk=self.product.pk).update(
+                price=Decimal("-0.01")
+            )
+        )
+        self.assert_database_rejects(
+            lambda: Product.objects.filter(pk=self.product.pk).update(
+                supplier_price=Decimal("-0.01")
+            )
+        )
+
+    def test_database_rejects_invalid_product_markup_and_old_price(self):
+        self.assert_database_rejects(
+            lambda: Product.objects.filter(pk=self.product.pk).update(
+                markup_percent_override=Decimal("1000.01")
+            )
+        )
+        self.assert_database_rejects(
+            lambda: Product.objects.filter(pk=self.product.pk).update(
+                old_price=Decimal("100.00")
+            )
+        )
 
 
 class SeedCatalogCommandTests(TestCase):

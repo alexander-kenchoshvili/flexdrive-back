@@ -2,12 +2,27 @@ import uuid
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
 from catalog.models import Product, TimeStampedModel
+
+
+class ProtectedFinancialQuerySet(models.QuerySet):
+    def delete(self):
+        raise ValidationError(
+            "Hard deletion is disabled for financial records."
+        )
+
+    def hard_delete(self):
+        return super().delete()
+
+
+class ProtectedFinancialManager(models.Manager.from_queryset(ProtectedFinancialQuerySet)):
+    pass
 
 
 class OrderPaymentMethod(models.TextChoices):
@@ -150,7 +165,15 @@ class CartItem(TimeStampedModel):
             models.UniqueConstraint(
                 fields=["cart", "product"],
                 name="commerce_unique_product_per_cart",
-            )
+            ),
+            models.CheckConstraint(
+                condition=Q(unit_price_snapshot__gte=Decimal("0.00")),
+                name="commerce_cart_item_price_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(quantity__gte=1),
+                name="commerce_cart_item_quantity_positive",
+            ),
         ]
 
     def __str__(self):
@@ -218,6 +241,14 @@ class BuyNowSession(TimeStampedModel):
                 fields=["guest_token"],
                 condition=Q(guest_token__isnull=False),
                 name="commerce_one_buy_now_session_per_guest",
+            ),
+            models.CheckConstraint(
+                condition=Q(unit_price_snapshot__gte=Decimal("0.00")),
+                name="commerce_buy_now_price_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(quantity__gte=1),
+                name="commerce_buy_now_quantity_positive",
             ),
         ]
 
@@ -302,6 +333,8 @@ class WishlistItem(TimeStampedModel):
 
 
 class Order(TimeStampedModel):
+    objects = ProtectedFinancialManager()
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         related_name="orders",
@@ -363,6 +396,16 @@ class Order(TimeStampedModel):
 
     class Meta:
         ordering = ("-created_at", "-id")
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(subtotal__gte=Decimal("0.00")),
+                name="commerce_order_subtotal_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(total__gte=Decimal("0.00")),
+                name="commerce_order_total_nonnegative",
+            ),
+        ]
         indexes = [
             models.Index(fields=["status", "created_at"]),
             models.Index(fields=["payment_method", "created_at"]),
@@ -371,6 +414,13 @@ class Order(TimeStampedModel):
 
     def __str__(self):
         return self.order_number or f"Order {self.pk}"
+
+    def delete(self, *args, allow_hard_delete=False, **kwargs):
+        if not allow_hard_delete:
+            raise ValidationError(
+                "Hard deletion is disabled for orders. Cancel the order instead."
+            )
+        return super().delete(*args, **kwargs)
 
 
 class CheckoutAttempt(TimeStampedModel):
@@ -397,10 +447,12 @@ class CheckoutAttempt(TimeStampedModel):
 
 
 class OrderItem(TimeStampedModel):
+    objects = ProtectedFinancialManager()
+
     order = models.ForeignKey(
         Order,
         related_name="items",
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
     )
     product = models.ForeignKey(
         Product,
@@ -426,9 +478,30 @@ class OrderItem(TimeStampedModel):
 
     class Meta:
         ordering = ("id",)
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(unit_price__gte=Decimal("0.00")),
+                name="commerce_order_item_price_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(line_total__gte=Decimal("0.00")),
+                name="commerce_order_item_total_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(quantity__gte=1),
+                name="commerce_order_item_quantity_positive",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.product_name} x {self.quantity}"
+
+    def delete(self, *args, allow_hard_delete=False, **kwargs):
+        if not allow_hard_delete:
+            raise ValidationError(
+                "Hard deletion is disabled for order items."
+            )
+        return super().delete(*args, **kwargs)
 
 
 class StockReservation(TimeStampedModel):
@@ -457,7 +530,7 @@ class StockReservation(TimeStampedModel):
     completed_order = models.ForeignKey(
         Order,
         related_name="stock_reservations",
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
     )
@@ -523,7 +596,15 @@ class StockReservationItem(TimeStampedModel):
             models.UniqueConstraint(
                 fields=["reservation", "product"],
                 name="commerce_unique_product_per_stock_reservation",
-            )
+            ),
+            models.CheckConstraint(
+                condition=Q(unit_price_snapshot__gte=Decimal("0.00")),
+                name="commerce_reservation_item_price_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(quantity__gte=1),
+                name="commerce_reservation_item_quantity_positive",
+            ),
         ]
 
     def __str__(self):
@@ -535,17 +616,19 @@ class StockReservationItem(TimeStampedModel):
 
 
 class PaymentTransaction(TimeStampedModel):
+    objects = ProtectedFinancialManager()
+
     order = models.ForeignKey(
         Order,
         related_name="payment_transactions",
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
     )
     reservation = models.ForeignKey(
         StockReservation,
         related_name="payment_transactions",
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
     )
@@ -595,6 +678,10 @@ class PaymentTransaction(TimeStampedModel):
                 condition=~Q(provider_transaction_id=""),
                 name="commerce_unique_provider_transaction_id",
             ),
+            models.CheckConstraint(
+                condition=Q(amount__gte=Decimal("0.00")),
+                name="commerce_payment_amount_nonnegative",
+            ),
         ]
         indexes = [
             models.Index(fields=["provider", "status", "created_at"]),
@@ -605,3 +692,10 @@ class PaymentTransaction(TimeStampedModel):
     def __str__(self):
         target = self.order_id or self.reservation_id or "unbound"
         return f"{self.provider}:{self.action}:{self.status} ({target})"
+
+    def delete(self, *args, allow_hard_delete=False, **kwargs):
+        if not allow_hard_delete:
+            raise ValidationError(
+                "Hard deletion is disabled for payment transactions."
+            )
+        return super().delete(*args, **kwargs)

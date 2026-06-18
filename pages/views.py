@@ -25,6 +25,7 @@ from .models import (
     FooterSettings,
     SiteSettings,
 )
+from .querysets import page_serialization_queryset
 from .serializers import (
     PageSerializer,
     MenuSerializer,
@@ -187,7 +188,7 @@ def _serialize_related_blog_posts(request, content_item, limit=3):
 
     base_queryset = (
         ContentItem.objects
-        .select_related("content", "blog_post")
+        .select_related("content", "blog_post", "catalog_category")
         .filter(
             content_id=content_item.content_id,
             blog_post__status=BlogStatus.PUBLISHED,
@@ -294,7 +295,7 @@ class BlogPostPagination(PageNumberPagination):
 
 
 class PageDetailAPIView(generics.RetrieveAPIView):
-    queryset = Page.objects.prefetch_related('components__component_type')
+    queryset = page_serialization_queryset()
     serializer_class = PageSerializer
     lookup_field = 'slug'
 
@@ -453,7 +454,7 @@ class BlogPostListAPIView(generics.ListAPIView):
     def _base_queryset(self):
         return (
             ContentItem.objects
-            .select_related("content", "blog_post")
+            .select_related("content", "blog_post", "catalog_category")
             .filter(
                 content__name__iexact="bloglist",
                 blog_post__status=BlogStatus.PUBLISHED,
@@ -555,7 +556,16 @@ class GetCurrentContentAPIView(APIView):
         if single_id:
             # SINGLE VIEW
             try:
-                content_item = ContentItem.objects.select_related("content", "blog_post").get(id=single_id)
+                content_item = (
+                    ContentItem.objects
+                    .select_related(
+                        "content",
+                        "blog_post",
+                        "catalog_category",
+                        "singlePageRoute",
+                    )
+                    .get(id=single_id)
+                )
             except ContentItem.DoesNotExist:
                 return Response(
                     {"error": "ContentItem not found"},
@@ -596,11 +606,10 @@ class GetCurrentContentAPIView(APIView):
             # Serialize ContentItem
             content_item_serializer = ContentItemSerializer(content_item, context={"request": request})
 
-            # Serialize Component - გამოვიყენებთ conf ნაწილისთვის
+            # Only the conf payload is used for single views. Serializing the full
+            # component here would also query and serialize every sibling item.
             component_serializer = SmartComponentSerializer(component, context={"request": request})
-            component_data = component_serializer.data
-
-            conf_data = component_data.get("conf", {})
+            conf_data = component_serializer.get_conf(component)
 
             content_name = getattr(content_item.content, "name", None)
 
@@ -646,18 +655,11 @@ class GetCurrentContentAPIView(APIView):
                 return Response({"error": "slug is required"}, status=status.HTTP_400_BAD_REQUEST)
 
             try:
-                page = Page.objects.get(slug=page_slug)
+                page = page_serialization_queryset().get(slug=page_slug)
             except Page.DoesNotExist:
                 return Response({"error": "Page not found"}, status=status.HTTP_404_NOT_FOUND)
 
-            components = (
-                page.components
-                .filter(enabled=True)
-                .select_related("component_type", "content")
-                .order_by("position", "id")
-            )
-
-            for comp in components:
+            for comp in page.enabled_components:
                 unic_id = f"{comp.component_type.name}_{comp.id}"
                 serializer = SmartComponentSerializer(comp, context={"request": request})
                 secondary_data[unic_id] = serializer.data

@@ -1,6 +1,8 @@
 from django.urls import reverse
 from django.core.cache import cache
 from django.test import override_settings
+from datetime import timedelta
+
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
@@ -428,6 +430,138 @@ class GetCurrentContentAPITests(APITestCase):
                 f"{type_a.name}_{Component.objects.get(component_type=type_a).id}",
             ],
         )
+
+    def test_bloglist_payload_keeps_published_filter_and_featured_order(self):
+        page = Page.objects.create(name="Blog CMS Page", slug="blog-cms-page")
+        component_type = ComponentType.objects.create(name="BlogCMSComponent")
+        blog_content, _ = Content.objects.get_or_create(name="bloglist")
+        blog_content.items.all().delete()
+        component = Component.objects.create(
+            page=page,
+            component_type=component_type,
+            content=blog_content,
+            enabled=True,
+        )
+
+        older_item = ContentItem.objects.create(
+            content=blog_content,
+            title="Older published",
+            position=1,
+        )
+        BlogPost.objects.create(
+            content_item=older_item,
+            status="published",
+            published_at=timezone.now() - timedelta(days=2),
+        )
+
+        featured_item = ContentItem.objects.create(
+            content=blog_content,
+            title="Featured published",
+            position=2,
+        )
+        BlogPost.objects.create(
+            content_item=featured_item,
+            status="published",
+            published_at=timezone.now() - timedelta(days=3),
+            is_featured=True,
+        )
+
+        draft_item = ContentItem.objects.create(
+            content=blog_content,
+            title="Draft item",
+            position=3,
+        )
+        BlogPost.objects.create(
+            content_item=draft_item,
+            status="draft",
+        )
+
+        response = self.client.post(
+            reverse("get-current-content"),
+            {"slug": page.slug},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        content_data = response.data["secondary"][
+            f"{component_type.name}_{component.id}"
+        ]["data"]["contentData"]
+        self.assertEqual(content_data["listcount"], 2)
+        self.assertEqual(
+            [item["title"] for item in content_data["list"]],
+            ["Featured published", "Older published"],
+        )
+
+
+@override_settings(CACHE_ENABLED=False)
+class CMSPageQueryBudgetTests(APITestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.page = Page.objects.create(
+            name="CMS Query Budget",
+            slug="cms-query-budget",
+        )
+        category = Category.objects.create(
+            name="CMS Query Budget Category",
+            slug="cms-query-budget-category",
+            is_active=True,
+        )
+
+        for index in range(12):
+            component_type = ComponentType.objects.create(
+                name=f"CMSQueryBudgetComponent{index}",
+            )
+            content = Content.objects.create(
+                name=f"cms_query_budget_content_{index}",
+            )
+            Component.objects.create(
+                page=cls.page,
+                component_type=component_type,
+                content=content,
+                position=index,
+                enabled=True,
+            )
+            ContentItem.objects.create(
+                content=content,
+                title=f"CMS query budget item {index}",
+                content_type="query_budget_item",
+                catalog_category=category,
+                position=index,
+            )
+
+        disabled_type = ComponentType.objects.create(
+            name="CMSQueryBudgetDisabledComponent",
+        )
+        disabled_content = Content.objects.create(
+            name="cms_query_budget_disabled_content",
+        )
+        Component.objects.create(
+            page=cls.page,
+            component_type=disabled_type,
+            content=disabled_content,
+            position=100,
+            enabled=False,
+        )
+
+    def test_get_current_content_query_count_is_constant_for_many_components(self):
+        with self.assertNumQueries(3):
+            response = self.client.post(
+                reverse("get-current-content"),
+                {"slug": self.page.slug},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["secondary"]), 12)
+
+    def test_page_detail_query_count_is_constant_for_many_components(self):
+        with self.assertNumQueries(3):
+            response = self.client.get(
+                reverse("page-detail", kwargs={"slug": self.page.slug}),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["components"]), 12)
 
 
 class SitemapEntriesAPITests(APITestCase):

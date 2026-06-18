@@ -169,6 +169,17 @@ class ContentItem(WebPImageMixin,models.Model):
     created_at = models.DateField(auto_now_add=True, blank=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["content", "position"],
+                name="pages_ci_content_pos_idx",
+            ),
+            models.Index(
+                fields=["content", "content_type", "slug"],
+                name="pages_ci_content_type_slug_idx",
+            ),
+        ]
 
 
 
@@ -448,6 +459,13 @@ class Component(WebPImageMixin,models.Model):
     created_at = models.DateField(auto_now_add=True, blank=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["page", "enabled", "position"],
+                name="pages_comp_page_en_pos_idx",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.component_type.name} - {self.title or 'No Title'}"
