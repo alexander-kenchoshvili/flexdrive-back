@@ -35,6 +35,7 @@ from .meta_conversions import (
     build_meta_purchase_payload,
     send_meta_purchase_event,
 )
+from .payment_providers import PaymentProviderResponse
 from .models import (
     BuyNowSession,
     Cart,
@@ -75,10 +76,12 @@ from .services import (
     CHECKOUT_STOCK_MISMATCH_DETAIL,
     WISHLIST_TOKEN_COOKIE_NAME,
     StockReservationError,
+    apply_payment_provider_response,
     authorize_payment,
     cancel_order_and_restore_stock,
     capture_payment,
     complete_stock_reservation,
+    create_payment_transaction,
     create_stock_reservation_from_buy_now_session,
     create_stock_reservation_from_cart,
     build_checkout_owner_fingerprint,
@@ -89,6 +92,7 @@ from .services import (
     refund_payment,
     release_stock_reservation,
     transition_order_status,
+    transition_order_payment_status,
 )
 
 
@@ -728,6 +732,101 @@ class CommerceAPITests(APITestCase):
         self.assertEqual(response.data["payment_status"], OrderPaymentStatus.PENDING)
         self.assertEqual(response.data["items"][0]["product_name"], "Car Vacuum 53")
         self.assertEqual(response.data["items"][0]["primary_image"]["alt_text"], "Vacuum image")
+
+    def test_cart_checkout_respects_other_owner_active_reservation(self):
+        reserved_cart = Cart.objects.create(user=self.other_user)
+        CartItem.objects.create(
+            cart=reserved_cart,
+            product=self.product,
+            unit_price_snapshot=self.product.price,
+            quantity=self.product.stock_qty,
+        )
+        create_stock_reservation_from_cart(
+            cart=reserved_cart,
+            user=self.other_user,
+        )
+        self.client.post(
+            reverse("commerce-cart-item-list"),
+            {"product_id": self.product.id, "quantity": 1},
+            format="json",
+        )
+
+        response = self.client.post(
+            reverse("commerce-order-checkout"),
+            self._checkout_payload(),
+            format="json",
+        )
+
+        self.product.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], CART_AVAILABILITY_CHANGED_CODE)
+        self.assertEqual(
+            response.data["cart_issues"][0]["issue_type"],
+            "out_of_stock",
+        )
+        self.assertEqual(
+            response.data["cart_issues"][0]["available_quantity"],
+            0,
+        )
+        self.assertEqual(Order.objects.count(), 0)
+        self.assertEqual(self.product.stock_qty, 5)
+
+    def test_cart_checkout_consumes_own_active_reservation(self):
+        self.client.force_authenticate(user=self.user)
+        self.client.post(
+            reverse("commerce-cart-item-list"),
+            {"product_id": self.product.id, "quantity": 2},
+            format="json",
+        )
+        cart = Cart.objects.get(user=self.user)
+        reservation = create_stock_reservation_from_cart(
+            cart=cart,
+            user=self.user,
+        )
+
+        response = self.client.post(
+            reverse("commerce-order-checkout"),
+            self._checkout_payload(),
+            format="json",
+        )
+
+        reservation.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(reservation.status, StockReservationStatus.COMPLETED)
+        self.assertEqual(reservation.completed_order, Order.objects.get())
+        self.assertIsNotNone(reservation.completed_at)
+        self.assertEqual(self.product.stock_qty, 3)
+
+    def test_cart_checkout_releases_stale_own_reservation(self):
+        self.client.force_authenticate(user=self.user)
+        self.client.post(
+            reverse("commerce-cart-item-list"),
+            {"product_id": self.product.id, "quantity": 1},
+            format="json",
+        )
+        cart = Cart.objects.get(user=self.user)
+        reservation = create_stock_reservation_from_cart(
+            cart=cart,
+            user=self.user,
+        )
+        cart_item = cart.items.get()
+        cart_item.quantity = 2
+        cart_item.save(update_fields=["quantity", "updated_at"])
+
+        response = self.client.post(
+            reverse("commerce-order-checkout"),
+            self._checkout_payload(),
+            format="json",
+        )
+
+        reservation.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(reservation.status, StockReservationStatus.RELEASED)
+        self.assertIsNone(reservation.completed_order)
+        self.assertIsNotNone(reservation.released_at)
+        self.assertEqual(self.product.stock_qty, 3)
 
     @patch("commerce.views.send_meta_purchase_event")
     def test_checkout_sends_meta_purchase_event_after_order_creation(self, send_meta_purchase_event):
@@ -1425,6 +1524,75 @@ class CommerceAPITests(APITestCase):
         self.assertEqual(Order.objects.count(), 0)
         self.assertEqual(BuyNowSession.objects.get().quantity, 2)
         self.assertEqual(self.second_product.stock_qty, 1)
+
+    def test_buy_now_checkout_respects_other_owner_active_reservation(self):
+        reserved_cart = Cart.objects.create(user=self.other_user)
+        CartItem.objects.create(
+            cart=reserved_cart,
+            product=self.product,
+            unit_price_snapshot=self.product.price,
+            quantity=self.product.stock_qty,
+        )
+        create_stock_reservation_from_cart(
+            cart=reserved_cart,
+            user=self.other_user,
+        )
+        create_response = self.client.post(
+            reverse("commerce-buy-now-session"),
+            {"product_id": self.product.id, "quantity": 1},
+            format="json",
+        )
+        self.client.cookies[BUY_NOW_TOKEN_COOKIE_NAME] = (
+            create_response.cookies[BUY_NOW_TOKEN_COOKIE_NAME].value
+        )
+
+        response = self.client.post(
+            reverse("commerce-buy-now-checkout"),
+            self._checkout_payload(),
+            format="json",
+        )
+
+        self.product.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], BUY_NOW_AVAILABILITY_CHANGED_CODE)
+        self.assertEqual(
+            response.data["buy_now_issues"][0]["issue_type"],
+            "out_of_stock",
+        )
+        self.assertEqual(
+            response.data["buy_now_issues"][0]["available_quantity"],
+            0,
+        )
+        self.assertEqual(Order.objects.count(), 0)
+        self.assertEqual(self.product.stock_qty, 5)
+
+    def test_buy_now_checkout_consumes_own_active_reservation(self):
+        self.client.force_authenticate(user=self.user)
+        create_response = self.client.post(
+            reverse("commerce-buy-now-session"),
+            {"product_id": self.product.id, "quantity": 2},
+            format="json",
+        )
+        session = BuyNowSession.objects.get(user=self.user)
+        reservation = create_stock_reservation_from_buy_now_session(
+            session=session,
+            user=self.user,
+        )
+
+        response = self.client.post(
+            reverse("commerce-buy-now-checkout"),
+            self._checkout_payload(),
+            format="json",
+        )
+
+        reservation.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual(create_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(reservation.status, StockReservationStatus.COMPLETED)
+        self.assertEqual(reservation.completed_order, Order.objects.get())
+        self.assertIsNotNone(reservation.completed_at)
+        self.assertEqual(self.product.stock_qty, 3)
 
     def test_buy_now_checkout_rejects_when_product_is_unavailable(self):
         create_response = self.client.post(
@@ -2254,6 +2422,102 @@ class CommerceLifecycleServiceTests(TestCase):
         self.assertEqual(refunded.status, PaymentTransactionStatus.REFUNDED)
         self.assertEqual(order.payment_status, OrderPaymentStatus.REFUNDED)
 
+    def test_stale_failed_response_cannot_regress_paid_order(self):
+        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+        capture_payment(order=order, amount=order.total)
+        stale_transaction = create_payment_transaction(
+            order=order,
+            amount=order.total,
+            action=PaymentTransactionAction.AUTHORIZE,
+        )
+
+        apply_payment_provider_response(
+            stale_transaction,
+            PaymentProviderResponse(
+                status=PaymentTransactionStatus.FAILED,
+                provider_transaction_id="stale-failed-1",
+                provider_reference={"event": "stale"},
+                error_code="declined",
+                error_message="Late failure",
+            ),
+        )
+
+        order.refresh_from_db()
+        stale_transaction.refresh_from_db()
+        self.assertEqual(stale_transaction.status, PaymentTransactionStatus.FAILED)
+        self.assertEqual(order.payment_status, OrderPaymentStatus.PAID)
+
+    def test_refunded_order_is_terminal_for_late_paid_response(self):
+        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+        capture_payment(order=order, amount=order.total)
+        refund_payment(order=order, amount=order.total)
+        stale_transaction = create_payment_transaction(
+            order=order,
+            amount=order.total,
+            action=PaymentTransactionAction.CAPTURE,
+        )
+
+        apply_payment_provider_response(
+            stale_transaction,
+            PaymentProviderResponse(
+                status=PaymentTransactionStatus.PAID,
+                provider_transaction_id="stale-paid-after-refund-1",
+                provider_reference={"event": "stale"},
+            ),
+        )
+
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, OrderPaymentStatus.REFUNDED)
+
+    def test_duplicate_provider_response_reuses_existing_transaction(self):
+        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+        first_transaction = create_payment_transaction(
+            order=order,
+            amount=order.total,
+            action=PaymentTransactionAction.CAPTURE,
+        )
+        response = PaymentProviderResponse(
+            status=PaymentTransactionStatus.PAID,
+            provider_transaction_id="provider-payment-1",
+            provider_reference={"event": "paid"},
+        )
+        applied_transaction = apply_payment_provider_response(
+            first_transaction,
+            response,
+        )
+        duplicate_transaction = create_payment_transaction(
+            order=order,
+            amount=order.total,
+            action=PaymentTransactionAction.CAPTURE,
+        )
+
+        replayed_transaction = apply_payment_provider_response(
+            duplicate_transaction,
+            response,
+        )
+
+        order.refresh_from_db()
+        self.assertEqual(replayed_transaction.pk, applied_transaction.pk)
+        self.assertEqual(PaymentTransaction.objects.count(), 1)
+        self.assertEqual(order.payment_status, OrderPaymentStatus.PAID)
+
+    def test_payment_status_transition_rejects_paid_to_failed(self):
+        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+        order.payment_status = OrderPaymentStatus.PAID
+        order.save(update_fields=["payment_status", "updated_at"])
+
+        with self.assertRaisesMessage(
+            DjangoValidationError,
+            "Cannot change payment status from 'Paid' to 'Failed'.",
+        ):
+            transition_order_payment_status(
+                order,
+                OrderPaymentStatus.FAILED,
+            )
+
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, OrderPaymentStatus.PAID)
+
     def test_cancel_order_and_restore_stock_updates_status_and_stock(self):
         order = self._create_order(status=OrderStatus.NEW, quantity=3)
 
@@ -2264,6 +2528,60 @@ class CommerceLifecycleServiceTests(TestCase):
         self.assertEqual(order.status, OrderStatus.CANCELLED)
         self.assertIsNotNone(order.stock_restored_at)
         self.assertEqual(self.product.stock_qty, 5)
+
+    def test_cancel_order_and_restore_stock_aggregates_duplicate_product_items(self):
+        order = self._create_order(status=OrderStatus.NEW, quantity=2)
+        OrderItem.objects.create(
+            order=order,
+            product=self.product,
+            product_name=self.product.name,
+            sku=self.product.sku,
+            unit_price=self.product.price,
+            quantity=3,
+            line_total=self.product.price * 3,
+            primary_image_snapshot=build_product_primary_image_snapshot(
+                self.product
+            ),
+        )
+
+        cancel_order_and_restore_stock(order)
+
+        self.product.refresh_from_db()
+        order.refresh_from_db()
+        self.assertEqual(self.product.stock_qty, 7)
+        self.assertEqual(order.status, OrderStatus.CANCELLED)
+        self.assertIsNotNone(order.stock_restored_at)
+
+    def test_cancel_order_and_restore_stock_restores_multiple_products(self):
+        second_product = Product.objects.create(
+            category=self.category,
+            name="Second Product",
+            slug="second-product",
+            sku="SECOND-1",
+            price=Decimal("80.00"),
+            stock_qty=4,
+            status=ProductStatus.PUBLISHED,
+        )
+        order = self._create_order(status=OrderStatus.PROCESSING, quantity=2)
+        OrderItem.objects.create(
+            order=order,
+            product=second_product,
+            product_name=second_product.name,
+            sku=second_product.sku,
+            unit_price=second_product.price,
+            quantity=3,
+            line_total=second_product.price * 3,
+            primary_image_snapshot=build_product_primary_image_snapshot(
+                second_product
+            ),
+        )
+
+        cancel_order_and_restore_stock(order)
+
+        self.product.refresh_from_db()
+        second_product.refresh_from_db()
+        self.assertEqual(self.product.stock_qty, 4)
+        self.assertEqual(second_product.stock_qty, 7)
 
     def test_cancel_order_and_restore_stock_rejects_shipped_order(self):
         order = self._create_order(status=OrderStatus.SHIPPED)
@@ -2430,6 +2748,183 @@ class CheckoutConcurrencyTests(TransactionTestCase):
         )
 
 
+@skipUnlessDBFeature("has_select_for_update")
+class OrderCancellationConcurrencyTests(TransactionTestCase):
+    reset_sequences = True
+
+    def setUp(self):
+        self.category = Category.objects.create(
+            name="Cancellation",
+            slug="cancellation",
+            sort_order=1,
+        )
+        self.product = Product.objects.create(
+            category=self.category,
+            name="Cancellation Product",
+            slug="cancellation-product",
+            sku="CANCEL-1",
+            price=Decimal("100.00"),
+            stock_qty=2,
+            status=ProductStatus.PUBLISHED,
+        )
+        self.orders = [
+            self._create_order(quantity=1, suffix="A"),
+            self._create_order(quantity=2, suffix="B"),
+        ]
+
+    def _create_order(self, *, quantity, suffix):
+        order = Order.objects.create(
+            order_number=f"ORD-CANCEL-{suffix}",
+            payment_method=OrderPaymentMethod.CASH_ON_DELIVERY,
+            status=OrderStatus.NEW,
+            subtotal=self.product.price * quantity,
+            total=self.product.price * quantity,
+            first_name="Concurrent",
+            last_name="Cancellation",
+            email="cancel@example.com",
+            phone="555123456",
+            city="Tbilisi",
+            address_line="Cancellation Street 1",
+            note="",
+        )
+        OrderItem.objects.create(
+            order=order,
+            product=self.product,
+            product_name=self.product.name,
+            sku=self.product.sku,
+            unit_price=self.product.price,
+            quantity=quantity,
+            line_total=self.product.price * quantity,
+        )
+        return order
+
+    def _cancel(self, *, order_id, barrier):
+        close_old_connections()
+        try:
+            order = Order.objects.get(pk=order_id)
+            barrier.wait(timeout=10)
+            cancelled_order = cancel_order_and_restore_stock(order)
+            return ("success", cancelled_order.pk)
+        except Exception as error:
+            return ("error", type(error).__name__, str(error))
+        finally:
+            close_old_connections()
+
+    def test_parallel_cancellations_restore_all_stock_without_lost_update(self):
+        barrier = Barrier(2)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(
+                executor.map(
+                    lambda order: self._cancel(
+                        order_id=order.pk,
+                        barrier=barrier,
+                    ),
+                    self.orders,
+                )
+            )
+
+        self.product.refresh_from_db()
+        self.assertEqual(
+            sorted(result[0] for result in results),
+            ["success", "success"],
+        )
+        self.assertEqual(self.product.stock_qty, 5)
+        self.assertEqual(
+            Order.objects.filter(status=OrderStatus.CANCELLED).count(),
+            2,
+        )
+
+
+@skipUnlessDBFeature("has_select_for_update")
+class PaymentStatusConcurrencyTests(TransactionTestCase):
+    reset_sequences = True
+
+    def setUp(self):
+        self.order = Order.objects.create(
+            order_number="ORD-PAYMENT-RACE-1",
+            payment_method=OrderPaymentMethod.CARD,
+            payment_status=OrderPaymentStatus.PENDING,
+            status=OrderStatus.NEW,
+            subtotal=Decimal("100.00"),
+            total=Decimal("100.00"),
+            first_name="Payment",
+            last_name="Race",
+            email="payment-race@example.com",
+            phone="555123456",
+            city="Tbilisi",
+            address_line="Payment Street 1",
+            note="",
+        )
+        self.paid_transaction = create_payment_transaction(
+            order=self.order,
+            amount=self.order.total,
+            action=PaymentTransactionAction.CAPTURE,
+        )
+        self.failed_transaction = create_payment_transaction(
+            order=self.order,
+            amount=self.order.total,
+            action=PaymentTransactionAction.AUTHORIZE,
+        )
+
+    def _apply_response(self, *, transaction_id, response, barrier):
+        close_old_connections()
+        try:
+            payment_transaction = PaymentTransaction.objects.get(
+                pk=transaction_id
+            )
+            barrier.wait(timeout=10)
+            applied = apply_payment_provider_response(
+                payment_transaction,
+                response,
+            )
+            return ("success", applied.status)
+        except Exception as error:
+            return ("error", type(error).__name__, str(error))
+        finally:
+            close_old_connections()
+
+    def test_parallel_paid_and_failed_responses_finish_paid(self):
+        barrier = Barrier(2)
+        operations = [
+            (
+                self.paid_transaction.pk,
+                PaymentProviderResponse(
+                    status=PaymentTransactionStatus.PAID,
+                    provider_transaction_id="race-paid-1",
+                    provider_reference={"event": "paid"},
+                ),
+            ),
+            (
+                self.failed_transaction.pk,
+                PaymentProviderResponse(
+                    status=PaymentTransactionStatus.FAILED,
+                    provider_transaction_id="race-failed-1",
+                    provider_reference={"event": "failed"},
+                ),
+            ),
+        ]
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(
+                executor.map(
+                    lambda operation: self._apply_response(
+                        transaction_id=operation[0],
+                        response=operation[1],
+                        barrier=barrier,
+                    ),
+                    operations,
+                )
+            )
+
+        self.order.refresh_from_db()
+        self.assertEqual(
+            sorted(result[0] for result in results),
+            ["success", "success"],
+        )
+        self.assertEqual(self.order.payment_status, OrderPaymentStatus.PAID)
+
+
 @override_settings(
     STORAGES={
         "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
@@ -2585,6 +3080,28 @@ class CommerceAdminTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(order.status, OrderStatus.NEW)
+        self.assertEqual(order.payment_status, OrderPaymentStatus.PAID)
+
+    def test_admin_rejects_invalid_payment_status_regression(self):
+        order = self._create_order(status=OrderStatus.NEW)
+        order.payment_status = OrderPaymentStatus.PAID
+        order.save(update_fields=["payment_status", "updated_at"])
+
+        response = self.client.post(
+            reverse("admin:commerce_order_change", args=[order.pk]),
+            self._build_admin_payload(
+                order,
+                payment_status=OrderPaymentStatus.FAILED,
+                _save="Save",
+            ),
+        )
+
+        order.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertContains(
+            response,
+            "Cannot change payment status from &#x27;Paid&#x27; to &#x27;Failed&#x27;.",
+        )
         self.assertEqual(order.payment_status, OrderPaymentStatus.PAID)
 
     def test_payment_safety_models_are_registered_in_admin(self):

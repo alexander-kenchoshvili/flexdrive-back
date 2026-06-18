@@ -589,6 +589,13 @@ class PaymentTransaction(TimeStampedModel):
 
     class Meta:
         ordering = ("-created_at", "-id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["provider", "provider_transaction_id"],
+                condition=~Q(provider_transaction_id=""),
+                name="commerce_unique_provider_transaction_id",
+            ),
+        ]
         indexes = [
             models.Index(fields=["provider", "status", "created_at"]),
             models.Index(fields=["order", "status"]),

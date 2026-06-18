@@ -9,6 +9,7 @@ from .models import (
     CheckoutAttempt,
     Order,
     OrderItem,
+    OrderPaymentStatus,
     OrderStatus,
     PaymentTransaction,
     StockReservation,
@@ -16,8 +17,10 @@ from .models import (
 )
 from .services import (
     can_cancel_order,
+    can_transition_order_payment_status,
     can_transition_order_status,
     cancel_order_and_restore_stock,
+    transition_order_payment_status,
     transition_order_status,
 )
 
@@ -75,26 +78,41 @@ class OrderAdminForm(forms.ModelForm):
             return cleaned_data
 
         next_status = cleaned_data.get("status")
-        if not next_status:
-            return cleaned_data
+        next_payment_status = cleaned_data.get("payment_status")
+        current_order = Order.objects.only("status", "payment_status").get(
+            pk=self.instance.pk
+        )
 
-        current_order = Order.objects.only("status").get(pk=self.instance.pk)
-        if current_order.status == next_status:
-            return cleaned_data
+        if next_status and current_order.status != next_status:
+            if next_status == OrderStatus.CANCELLED:
+                self.add_error(
+                    "status",
+                    "Use the 'Cancel and restore stock' button to cancel this order.",
+                )
+            elif not can_transition_order_status(current_order, next_status):
+                self.add_error(
+                    "status",
+                    (
+                        f"Cannot change status from "
+                        f"'{current_order.get_status_display()}' "
+                        f"to '{OrderStatus(next_status).label}'."
+                    ),
+                )
 
-        if next_status == OrderStatus.CANCELLED:
-            self.add_error(
-                "status",
-                "Use the 'Cancel and restore stock' button to cancel this order.",
+        if (
+            next_payment_status
+            and current_order.payment_status != next_payment_status
+            and not can_transition_order_payment_status(
+                current_order,
+                next_payment_status,
             )
-            return cleaned_data
-
-        if not can_transition_order_status(current_order, next_status):
+        ):
             self.add_error(
-                "status",
+                "payment_status",
                 (
-                    f"Cannot change status from '{current_order.get_status_display()}' "
-                    f"to '{OrderStatus(next_status).label}'."
+                    f"Cannot change payment status from "
+                    f"'{current_order.get_payment_status_display()}' "
+                    f"to '{OrderPaymentStatus(next_payment_status).label}'."
                 ),
             )
 
@@ -204,14 +222,15 @@ class OrderAdmin(admin.ModelAdmin):
 
         current_order = Order.objects.get(pk=obj.pk)
         requested_status = obj.status
-
-        if requested_status == current_order.status:
-            super().save_model(request, obj, form, change)
-            return
+        requested_payment_status = obj.payment_status
 
         obj.status = current_order.status
+        obj.payment_status = current_order.payment_status
         super().save_model(request, obj, form, change)
-        transition_order_status(obj, requested_status)
+        if requested_status != current_order.status:
+            transition_order_status(obj, requested_status)
+        if requested_payment_status != current_order.payment_status:
+            transition_order_payment_status(obj, requested_payment_status)
 
     def response_change(self, request, obj):
         if "_cancel_and_restore_stock" not in request.POST:

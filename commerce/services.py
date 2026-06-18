@@ -8,8 +8,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.db.models import Prefetch
-from django.db.models import Sum
+from django.db.models import Case, F, IntegerField, Prefetch, Sum, When
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import APIException, ValidationError
@@ -96,6 +95,39 @@ PAYMENT_TRANSACTION_ORDER_STATUS_MAP = {
     PaymentTransactionStatus.CANCELLED: OrderPaymentStatus.CANCELLED,
     PaymentTransactionStatus.REFUND_PENDING: OrderPaymentStatus.REFUND_PENDING,
     PaymentTransactionStatus.REFUNDED: OrderPaymentStatus.REFUNDED,
+}
+
+ALLOWED_ORDER_PAYMENT_STATUS_TRANSITIONS = {
+    OrderPaymentStatus.PENDING: {
+        OrderPaymentStatus.AUTHORIZED,
+        OrderPaymentStatus.PAID,
+        OrderPaymentStatus.FAILED,
+        OrderPaymentStatus.CANCELLED,
+    },
+    OrderPaymentStatus.AUTHORIZED: {
+        OrderPaymentStatus.PAID,
+        OrderPaymentStatus.FAILED,
+        OrderPaymentStatus.CANCELLED,
+    },
+    OrderPaymentStatus.PAID: {
+        OrderPaymentStatus.REFUND_PENDING,
+        OrderPaymentStatus.REFUNDED,
+    },
+    OrderPaymentStatus.FAILED: {
+        OrderPaymentStatus.PENDING,
+        OrderPaymentStatus.AUTHORIZED,
+        OrderPaymentStatus.PAID,
+    },
+    OrderPaymentStatus.CANCELLED: {
+        OrderPaymentStatus.PENDING,
+        OrderPaymentStatus.AUTHORIZED,
+        OrderPaymentStatus.PAID,
+    },
+    OrderPaymentStatus.REFUND_PENDING: {
+        OrderPaymentStatus.PAID,
+        OrderPaymentStatus.REFUNDED,
+    },
+    OrderPaymentStatus.REFUNDED: set(),
 }
 
 
@@ -755,9 +787,15 @@ def remove_product_from_wishlist(*, user=None, guest_token=None, product_id):
     WishlistItem.objects.filter(product_id=product_id, **owner_kwargs).delete()
 
 
-def _build_cart_availability_issues(*, cart_items, products_by_id):
+def _build_cart_availability_issues(
+    *,
+    cart_items,
+    products_by_id,
+    available_quantities=None,
+):
     issues = []
     detail = None
+    available_quantities = available_quantities or {}
 
     for item in cart_items:
         product = products_by_id.get(item.product_id)
@@ -791,28 +829,43 @@ def _build_cart_availability_issues(*, cart_items, products_by_id):
             )
             continue
 
-        if item.quantity <= product.stock_qty:
+        available_quantity = available_quantities.get(
+            product.pk,
+            product.stock_qty,
+        )
+        if item.quantity <= available_quantity:
             continue
 
         if detail is None:
             detail = CHECKOUT_STOCK_MISMATCH_DETAIL
 
-        issue_type = "quantity_adjusted" if product.stock_qty > 0 else "out_of_stock"
+        issue_type = (
+            "quantity_adjusted"
+            if available_quantity > 0
+            else "out_of_stock"
+        )
         issues.append(
             CartAvailabilityIssue(
                 cart_item_id=item.id,
                 product_id=item.product_id,
                 issue_type=issue_type,
                 requested_quantity=item.quantity,
-                available_quantity=product.stock_qty,
+                available_quantity=available_quantity,
             )
         )
 
     return issues, detail
 
 
-def _build_buy_now_session_issues(*, session, product=None):
+def _build_buy_now_session_issues(
+    *,
+    session,
+    product=None,
+    available_quantity=None,
+):
     current_product = product or session.product
+    if available_quantity is None:
+        available_quantity = current_product.stock_qty
     issues = []
     availability_issue = get_product_availability_issue(current_product)
 
@@ -828,14 +881,18 @@ def _build_buy_now_session_issues(*, session, product=None):
             )
         ]
 
-    if session.quantity > current_product.stock_qty:
-        issue_type = "quantity_adjusted" if current_product.stock_qty > 0 else "out_of_stock"
+    if session.quantity > available_quantity:
+        issue_type = (
+            "quantity_adjusted"
+            if available_quantity > 0
+            else "out_of_stock"
+        )
         issues.append(
             BuyNowIssue(
                 product_id=current_product.id,
                 issue_type=issue_type,
                 requested_quantity=session.quantity,
-                available_quantity=current_product.stock_qty,
+                available_quantity=available_quantity,
                 price_snapshot=session.unit_price_snapshot,
                 current_price=current_product.price,
             )
@@ -849,7 +906,7 @@ def _build_buy_now_session_issues(*, session, product=None):
                 product_id=current_product.id,
                 issue_type="price_changed",
                 requested_quantity=session.quantity,
-                available_quantity=current_product.stock_qty,
+                available_quantity=available_quantity,
                 price_snapshot=session.unit_price_snapshot,
                 current_price=current_product.price,
             )
@@ -918,10 +975,30 @@ def create_order_from_cart(
         .order_by("id")
     )
     products_by_id = {product.id: product for product in products}
+    reservation_owner = _get_reservation_owner_kwargs(
+        user=user,
+        guest_token=locked_cart.guest_token,
+    )
+    checkout_reservation_ids = _get_existing_active_reservation_ids(
+        source=OrderCheckoutSource.CART,
+        owner_kwargs=reservation_owner,
+    )
+    reserved_quantities = get_reserved_stock_quantities(
+        product_ids=product_ids,
+        exclude_reservation_ids=checkout_reservation_ids,
+    )
+    available_quantities = {
+        product_id: max(
+            product.stock_qty - reserved_quantities.get(product_id, 0),
+            0,
+        )
+        for product_id, product in products_by_id.items()
+    }
 
     availability_issues, availability_detail = _build_cart_availability_issues(
         cart_items=cart_items,
         products_by_id=products_by_id,
+        available_quantities=available_quantities,
     )
     if availability_issues:
         raise CartAvailabilityChangedError(
@@ -1005,6 +1082,14 @@ def create_order_from_cart(
 
     Product.objects.bulk_update(locked_products, ["stock_qty"])
     locked_cart.items.all().delete()
+    _finalize_checkout_reservations(
+        reservation_ids=checkout_reservation_ids,
+        order=order,
+        expected_quantities={
+            snapshot["product"].pk: snapshot["quantity"]
+            for snapshot in snapshots
+        },
+    )
 
     if checkout_attempt:
         checkout_attempt.order = order
@@ -1050,8 +1135,28 @@ def create_order_from_buy_now_session(
         .get(pk=locked_session.product_id)
     )
     locked_session.product = locked_product
+    reservation_owner = _get_reservation_owner_kwargs(
+        user=user if user is not None else locked_session.user,
+        guest_token=locked_session.guest_token,
+    )
+    checkout_reservation_ids = _get_existing_active_reservation_ids(
+        source=OrderCheckoutSource.BUY_NOW,
+        owner_kwargs=reservation_owner,
+    )
+    reserved_quantity = get_reserved_stock_quantities(
+        product_ids=[locked_product.pk],
+        exclude_reservation_ids=checkout_reservation_ids,
+    ).get(locked_product.pk, 0)
+    available_quantity = max(
+        locked_product.stock_qty - reserved_quantity,
+        0,
+    )
 
-    issues = _build_buy_now_session_issues(session=locked_session, product=locked_product)
+    issues = _build_buy_now_session_issues(
+        session=locked_session,
+        product=locked_product,
+        available_quantity=available_quantity,
+    )
     if issues:
         raise _build_buy_now_conflict_error(issues)
 
@@ -1095,6 +1200,13 @@ def create_order_from_buy_now_session(
     locked_product.stock_qty -= locked_session.quantity
     locked_product.save(update_fields=["stock_qty", "updated_at"])
     locked_session.delete()
+    _finalize_checkout_reservations(
+        reservation_ids=checkout_reservation_ids,
+        order=order,
+        expected_quantities={
+            locked_product.pk: locked_session.quantity,
+        },
+    )
 
     if checkout_attempt:
         checkout_attempt.order = order
@@ -1139,13 +1251,18 @@ def create_stock_reservation_from_cart(*, cart, user=None, guest_token=None, ttl
     if not cart_items:
         raise ValidationError({"detail": "Cart is empty."})
 
+    product_ids = [item.product_id for item in cart_items]
+    products = (
+        Product.objects.select_for_update()
+        .select_related("category")
+        .filter(id__in=product_ids)
+        .order_by("id")
+    )
+    products_by_id = {product.id: product for product in products}
     existing_reservation_ids = _get_existing_active_reservation_ids(
         source=OrderCheckoutSource.CART,
         owner_kwargs=owner_kwargs,
     )
-    product_ids = [item.product_id for item in cart_items]
-    products = Product.objects.select_for_update().select_related("category").filter(id__in=product_ids)
-    products_by_id = {product.id: product for product in products}
     reserved_quantities = get_reserved_stock_quantities(
         product_ids=product_ids,
         exclude_reservation_ids=existing_reservation_ids,
@@ -1207,14 +1324,14 @@ def create_stock_reservation_from_buy_now_session(*, session, user=None, guest_t
     if _is_buy_now_session_expired(locked_session):
         raise _build_buy_now_session_expired_error(clear_guest_token=locked_session.user_id is None)
 
-    existing_reservation_ids = _get_existing_active_reservation_ids(
-        source=OrderCheckoutSource.BUY_NOW,
-        owner_kwargs=owner_kwargs,
-    )
     product = (
         Product.objects.select_for_update()
         .select_related("category")
         .get(pk=locked_session.product_id)
+    )
+    existing_reservation_ids = _get_existing_active_reservation_ids(
+        source=OrderCheckoutSource.BUY_NOW,
+        owner_kwargs=owner_kwargs,
     )
     reserved_quantity = get_reserved_stock_quantities(
         product_ids=[product.pk],
@@ -1346,7 +1463,7 @@ def _process_payment_transaction(*, action, **kwargs):
     payment_transaction = create_payment_transaction(action=action, **kwargs)
     provider_method = get_provider_method_for_action(payment_transaction.provider, action)
     provider_response = provider_method(transaction=payment_transaction)
-    return _apply_payment_provider_response(payment_transaction, provider_response)
+    return apply_payment_provider_response(payment_transaction, provider_response)
 
 
 def can_cancel_order(order):
@@ -1382,6 +1499,39 @@ def validate_order_status_transition(order, next_status):
         )
 
 
+def can_transition_order_payment_status(order, next_status):
+    if next_status == order.payment_status:
+        return True
+    return next_status in ALLOWED_ORDER_PAYMENT_STATUS_TRANSITIONS.get(
+        order.payment_status,
+        set(),
+    )
+
+
+def validate_order_payment_status_transition(order, next_status):
+    if can_transition_order_payment_status(order, next_status):
+        return
+
+    raise DjangoValidationError(
+        f"Cannot change payment status from "
+        f"'{order.get_payment_status_display()}' to "
+        f"'{OrderPaymentStatus(next_status).label}'."
+    )
+
+
+@transaction.atomic
+def transition_order_payment_status(order, next_status):
+    locked_order = Order.objects.select_for_update().get(pk=order.pk)
+    validate_order_payment_status_transition(locked_order, next_status)
+
+    if next_status == locked_order.payment_status:
+        return locked_order
+
+    locked_order.payment_status = next_status
+    locked_order.save(update_fields=["payment_status", "updated_at"])
+    return locked_order
+
+
 @transaction.atomic
 def transition_order_status(order, next_status):
     locked_order = Order.objects.select_for_update().get(pk=order.pk)
@@ -1399,7 +1549,6 @@ def transition_order_status(order, next_status):
 def cancel_order_and_restore_stock(order):
     locked_order = (
         Order.objects.select_for_update()
-        .prefetch_related("items__product")
         .get(pk=order.pk)
     )
 
@@ -1408,20 +1557,41 @@ def cancel_order_and_restore_stock(order):
             "Only new, confirmed, or processing orders can be cancelled."
         )
 
-    products_to_update = {}
-    for item in locked_order.items.all():
-        if item.product is None:
-            raise DjangoValidationError(
-                "Cannot restore stock because one or more order items are no longer linked to a product."
-            )
+    stock_restoration_rows = list(
+        locked_order.items.order_by("product_id")
+        .values("product_id")
+        .annotate(quantity=Sum("quantity"))
+    )
+    if any(row["product_id"] is None for row in stock_restoration_rows):
+        raise DjangoValidationError(
+            "Cannot restore stock because one or more order items are no longer linked to a product."
+        )
 
-        product = item.product
-        if product.pk not in products_to_update:
-            products_to_update[product.pk] = product
-        products_to_update[product.pk].stock_qty += item.quantity
+    product_ids = [row["product_id"] for row in stock_restoration_rows]
+    locked_product_ids = list(
+        Product.objects.select_for_update()
+        .filter(pk__in=product_ids)
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
+    if locked_product_ids != product_ids:
+        raise DjangoValidationError(
+            "Cannot restore stock because one or more order items are no longer linked to a product."
+        )
 
-    if products_to_update:
-        Product.objects.bulk_update(products_to_update.values(), ["stock_qty"])
+    if stock_restoration_rows:
+        quantity_increment = Case(
+            *[
+                When(pk=row["product_id"], then=row["quantity"])
+                for row in stock_restoration_rows
+            ],
+            default=0,
+            output_field=IntegerField(),
+        )
+        Product.objects.filter(pk__in=product_ids).update(
+            stock_qty=F("stock_qty") + quantity_increment,
+            updated_at=timezone.now(),
+        )
 
     locked_order.status = OrderStatus.CANCELLED
     locked_order.stock_restored_at = timezone.now()
@@ -1458,6 +1628,59 @@ def _get_existing_active_reservation_ids(*, source, owner_kwargs):
         )
         .values_list("id", flat=True)
     )
+
+
+def _finalize_checkout_reservations(
+    *,
+    reservation_ids,
+    order,
+    expected_quantities,
+):
+    if not reservation_ids:
+        return
+
+    reservation_quantities = {}
+    for reservation_id, product_id, quantity in (
+        StockReservationItem.objects.filter(
+            reservation_id__in=reservation_ids,
+        )
+        .order_by("reservation_id", "product_id")
+        .values_list("reservation_id", "product_id", "quantity")
+    ):
+        reservation_quantities.setdefault(reservation_id, {})[product_id] = quantity
+
+    now = timezone.now()
+    matching_ids = [
+        reservation_id
+        for reservation_id in reservation_ids
+        if reservation_quantities.get(reservation_id, {}) == expected_quantities
+    ]
+    stale_ids = [
+        reservation_id
+        for reservation_id in reservation_ids
+        if reservation_id not in matching_ids
+    ]
+
+    if matching_ids:
+        StockReservation.objects.filter(
+            id__in=matching_ids,
+            status=StockReservationStatus.ACTIVE,
+        ).update(
+            status=StockReservationStatus.COMPLETED,
+            completed_order=order,
+            completed_at=now,
+            updated_at=now,
+        )
+
+    if stale_ids:
+        StockReservation.objects.filter(
+            id__in=stale_ids,
+            status=StockReservationStatus.ACTIVE,
+        ).update(
+            status=StockReservationStatus.RELEASED,
+            released_at=now,
+            updated_at=now,
+        )
 
 
 def _create_stock_reservation(*, source, owner_kwargs, snapshots, ttl_seconds=None, release_reservation_ids=None):
@@ -1521,10 +1744,49 @@ def _build_reservation_item_issue(*, product, requested_quantity, reserved_quant
     }
 
 
-def _apply_payment_provider_response(payment_transaction, provider_response):
+@transaction.atomic
+def apply_payment_provider_response(payment_transaction, provider_response):
+    locked_order = None
+    if payment_transaction.order_id:
+        locked_order = Order.objects.select_for_update().get(
+            pk=payment_transaction.order_id
+        )
+    elif payment_transaction.reservation_id:
+        StockReservation.objects.select_for_update().get(
+            pk=payment_transaction.reservation_id
+        )
+
+    provider_transaction_id = str(
+        provider_response.provider_transaction_id or ""
+    ).strip()
+    if provider_transaction_id:
+        existing_transaction = (
+            PaymentTransaction.objects.select_for_update()
+            .filter(
+                provider=payment_transaction.provider,
+                provider_transaction_id=provider_transaction_id,
+            )
+            .exclude(pk=payment_transaction.pk)
+            .first()
+        )
+        if existing_transaction:
+            if (
+                existing_transaction.order_id != payment_transaction.order_id
+                or existing_transaction.reservation_id
+                != payment_transaction.reservation_id
+                or existing_transaction.amount != payment_transaction.amount
+                or existing_transaction.currency != payment_transaction.currency
+            ):
+                raise DjangoValidationError(
+                    "Provider transaction ID is already linked to another payment."
+                )
+
+            payment_transaction.delete()
+            return existing_transaction
+
     now = timezone.now()
     payment_transaction.status = provider_response.status
-    payment_transaction.provider_transaction_id = provider_response.provider_transaction_id
+    payment_transaction.provider_transaction_id = provider_transaction_id
     payment_transaction.provider_reference = provider_response.provider_reference
     payment_transaction.error_code = provider_response.error_code
     payment_transaction.error_message = provider_response.error_message
@@ -1551,22 +1813,35 @@ def _apply_payment_provider_response(payment_transaction, provider_response):
         update_fields.append("refunded_at")
 
     payment_transaction.save(update_fields=update_fields)
-    _sync_order_payment_status(payment_transaction)
+    _sync_order_payment_status(
+        payment_transaction,
+        locked_order=locked_order,
+    )
     return payment_transaction
 
 
-def _sync_order_payment_status(payment_transaction):
+def _sync_order_payment_status(payment_transaction, *, locked_order=None):
     if not payment_transaction.order_id:
-        return
+        return False
 
     next_status = PAYMENT_TRANSACTION_ORDER_STATUS_MAP.get(payment_transaction.status)
     if not next_status:
-        return
+        return False
 
-    Order.objects.filter(pk=payment_transaction.order_id).update(
-        payment_status=next_status,
-        updated_at=timezone.now(),
-    )
+    if locked_order is None:
+        locked_order = Order.objects.select_for_update().get(
+            pk=payment_transaction.order_id
+        )
+
+    if not can_transition_order_payment_status(locked_order, next_status):
+        return False
+
+    if locked_order.payment_status == next_status:
+        return True
+
+    locked_order.payment_status = next_status
+    locked_order.save(update_fields=["payment_status", "updated_at"])
+    return True
 
 
 def _parse_guest_token(raw_token):
