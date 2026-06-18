@@ -33,6 +33,7 @@ from .serializers import (
     VehicleMakeSerializer,
     VehicleModelSerializer,
 )
+from .search_cache import get_vehicle_search_catalog
 
 
 _LATIN_GEORGIAN_DIGRAPHS = {
@@ -289,12 +290,16 @@ def _unique_search_terms(values):
     return terms
 
 
-def _search_relevance_terms(raw_query):
-    search_parts = _resolve_search_parts(raw_query)
+def _build_search_context(raw_query):
+    search_query = str(raw_query or "").strip()
+    if not search_query:
+        return None
+
+    search_parts = _resolve_search_parts(search_query)
     product_query = (
         search_parts["product_query"]
         if search_parts and search_parts["product_query"]
-        else str(raw_query or "").strip()
+        else search_query
     )
     phrase_terms = _unique_search_terms(_search_terms(product_query))
     token_terms = _unique_search_terms(
@@ -302,7 +307,12 @@ def _search_relevance_terms(raw_query):
         for token in _search_tokens(product_query)
         for term in _search_terms(token)
     )
-    return phrase_terms, token_terms
+    return {
+        "raw_query": search_query,
+        "search_parts": search_parts,
+        "phrase_terms": phrase_terms,
+        "token_terms": token_terms,
+    }
 
 
 def _name_boundary_whens(search_terms, score):
@@ -334,8 +344,9 @@ def _in_stock_order_annotation():
     )
 
 
-def _search_relevance_annotations(raw_query):
-    phrase_terms, token_terms = _search_relevance_terms(raw_query)
+def _search_relevance_annotations(search_context):
+    phrase_terms = search_context["phrase_terms"]
+    token_terms = search_context["token_terms"]
     relevance_terms = _unique_search_terms([*phrase_terms, *token_terms])
 
     identifier_match_whens = []
@@ -429,61 +440,63 @@ def _attribute_constraint(field, value, token, include_descriptions=False):
     return query
 
 
-def _vehicle_entity_filter(search_terms, prefix=False):
-    query = Q()
-    for term in search_terms:
-        if prefix:
-            query |= Q(name__istartswith=term) | Q(slug__istartswith=term)
-        else:
-            query |= Q(name__iexact=term) | Q(slug__iexact=term)
-    return query
+def _first_vehicle_entity_match(records, search_terms):
+    normalized_terms = {
+        _normalize_search_token(term)
+        for term in search_terms
+        if _normalize_search_token(term)
+    }
+    for record in records:
+        if (
+            _normalize_search_token(record["name"]) in normalized_terms
+            or _normalize_search_token(record["slug"]) in normalized_terms
+        ):
+            return record
 
-
-def _first_vehicle_entity_match(queryset, search_terms):
-    exact_match = queryset.filter(_vehicle_entity_filter(search_terms)).first()
-    if exact_match:
-        return exact_match
-
-    prefix_terms = [
-        term for term in search_terms if len(term.strip()) >= _VEHICLE_PREFIX_MIN_LENGTH
-    ]
+    prefix_terms = tuple(
+        _normalize_search_token(term)
+        for term in search_terms
+        if len(_normalize_search_token(term)) >= _VEHICLE_PREFIX_MIN_LENGTH
+    )
     if not prefix_terms:
         return None
 
-    return queryset.filter(_vehicle_entity_filter(prefix_terms, prefix=True)).first()
+    for record in records:
+        name = _normalize_search_token(record["name"])
+        slug = _normalize_search_token(record["slug"])
+        if any(name.startswith(term) or slug.startswith(term) for term in prefix_terms):
+            return record
+    return None
 
 
-def _vehicle_search_match(value):
+def _vehicle_search_match(value, vehicle_catalog):
     search_terms = _vehicle_search_terms(value)
     if not search_terms:
         return None
 
-    make = _first_vehicle_entity_match(
-        VehicleMake.objects.filter(is_active=True),
-        search_terms,
-    )
+    make = _first_vehicle_entity_match(vehicle_catalog["makes"], search_terms)
     if make:
-        return {"make": make, "model": None, "engine": None}
+        return {
+            "make_id": make["id"],
+            "model_id": None,
+            "engine_id": None,
+        }
 
-    model = _first_vehicle_entity_match(
-        VehicleModel.objects.filter(is_active=True, make__is_active=True)
-        .select_related("make"),
-        search_terms,
-    )
+    model = _first_vehicle_entity_match(vehicle_catalog["models"], search_terms)
     if model:
-        return {"make": model.make, "model": model, "engine": None}
+        return {
+            "make_id": model["make_id"],
+            "model_id": model["id"],
+            "engine_id": None,
+        }
 
-    engine = _first_vehicle_entity_match(
-        VehicleEngine.objects.filter(
-            is_active=True,
-            model__is_active=True,
-            model__make__is_active=True,
-        )
-        .select_related("model__make", "model"),
-        search_terms,
-    )
+    engine = _first_vehicle_entity_match(vehicle_catalog["engines"], search_terms)
     if engine:
-        return {"make": engine.model.make, "model": engine.model, "engine": engine}
+        return {
+            "make_id": engine["model__make_id"],
+            "model_id": engine["model_id"],
+            "engine_id": engine["id"],
+        }
 
     return None
 
@@ -492,25 +505,25 @@ def _merge_vehicle_search_match(current, match):
     if current is None:
         return match
 
-    if current["make"] != match["make"]:
+    if current["make_id"] != match["make_id"]:
         return None
 
     merged = {
-        "make": current["make"],
-        "model": current.get("model"),
-        "engine": current.get("engine"),
+        "make_id": current["make_id"],
+        "model_id": current.get("model_id"),
+        "engine_id": current.get("engine_id"),
     }
 
-    if match.get("model"):
-        if merged["model"] and merged["model"] != match["model"]:
+    if match.get("model_id"):
+        if merged["model_id"] and merged["model_id"] != match["model_id"]:
             return None
-        merged["model"] = match["model"]
+        merged["model_id"] = match["model_id"]
 
-    if match.get("engine"):
-        if merged["engine"] and merged["engine"] != match["engine"]:
+    if match.get("engine_id"):
+        if merged["engine_id"] and merged["engine_id"] != match["engine_id"]:
             return None
-        merged["engine"] = match["engine"]
-        merged["model"] = match["model"]
+        merged["engine_id"] = match["engine_id"]
+        merged["model_id"] = match["model_id"]
 
     return merged
 
@@ -520,6 +533,7 @@ def _resolve_search_parts(raw_query):
     if not tokens:
         return None
 
+    vehicle_catalog = get_vehicle_search_catalog()
     vehicle_filter = None
     attribute_filters = {}
     product_tokens = []
@@ -531,7 +545,7 @@ def _resolve_search_parts(raw_query):
 
         for size in range(max_size, 0, -1):
             phrase = " ".join(tokens[index : index + size])
-            match = _vehicle_search_match(phrase)
+            match = _vehicle_search_match(phrase, vehicle_catalog)
             if not match:
                 continue
 
@@ -571,12 +585,12 @@ def _resolve_search_parts(raw_query):
     }
 
 
-def _apply_catalog_search(queryset, raw_query, include_descriptions=False):
-    search_query = str(raw_query or "").strip()
-    if not search_query:
+def _apply_catalog_search(queryset, search_context, include_descriptions=False):
+    if not search_context:
         return queryset
 
-    search_parts = _resolve_search_parts(search_query)
+    search_query = search_context["raw_query"]
+    search_parts = search_context["search_parts"]
     if search_parts:
         vehicle_filter = search_parts["vehicle_filter"]
         if vehicle_filter:
@@ -690,26 +704,37 @@ def _validate_choice(value, choices, field_name):
 
 
 def _matching_fitment_filter(vehicle_filter):
-    make = vehicle_filter["make"]
-    vehicle_model = vehicle_filter.get("model")
+    make_id = vehicle_filter.get("make_id")
+    if make_id is None:
+        make_id = vehicle_filter["make"].pk
+
+    vehicle_model_id = vehicle_filter.get("model_id")
+    if vehicle_model_id is None and vehicle_filter.get("model"):
+        vehicle_model_id = vehicle_filter["model"].pk
+
     year = vehicle_filter.get("year")
-    engine = vehicle_filter.get("engine")
+    engine_id = vehicle_filter.get("engine_id")
+    if engine_id is None and vehicle_filter.get("engine"):
+        engine_id = vehicle_filter["engine"].pk
 
     base_filter = Q(
         vehicle_model__is_active=True,
         vehicle_model__make__is_active=True,
     )
 
-    if vehicle_model:
-        base_filter &= Q(vehicle_model=vehicle_model, vehicle_model__make=make)
+    if vehicle_model_id:
+        base_filter &= Q(
+            vehicle_model_id=vehicle_model_id,
+            vehicle_model__make_id=make_id,
+        )
     else:
-        base_filter &= Q(vehicle_model__make=make)
+        base_filter &= Q(vehicle_model__make_id=make_id)
 
     if year is not None:
         base_filter &= Q(year_from__lte=year, year_to__gte=year)
 
-    if engine:
-        return base_filter & (Q(engine=engine) | Q(engine__isnull=True))
+    if engine_id:
+        return base_filter & (Q(engine_id=engine_id) | Q(engine__isnull=True))
 
     return base_filter & (Q(engine__isnull=True) | Q(engine__is_active=True))
 
@@ -870,9 +895,10 @@ class ProductListAPIView(generics.ListAPIView):
         if side:
             queryset = queryset.filter(side=side)
 
+        search_context = _build_search_context(params.get("q"))
         queryset = _apply_catalog_search(
             queryset,
-            params.get("q"),
+            search_context,
             include_descriptions=True,
         )
 
@@ -907,11 +933,10 @@ class ProductListAPIView(generics.ListAPIView):
         elif on_sale is False:
             queryset = queryset.filter(Q(old_price__isnull=True) | Q(old_price__lte=F("price")))
 
-        search_query = str(params.get("q") or "").strip()
         ordering_param = params.get("ordering")
-        if search_query and not ordering_param:
+        if search_context and not ordering_param:
             return queryset.annotate(
-                **_search_relevance_annotations(search_query),
+                **_search_relevance_annotations(search_context),
             ).order_by(
                 "-in_stock_order",
                 "-search_identifier_match",
@@ -1061,10 +1086,11 @@ class ProductSuggestionAPIView(generics.ListAPIView):
                 ),
             )
         )
+        search_context = _build_search_context(search_query)
         queryset = (
-            _apply_catalog_search(queryset, search_query)
+            _apply_catalog_search(queryset, search_context)
             .annotate(
-                **_search_relevance_annotations(search_query),
+                **_search_relevance_annotations(search_context),
             )
             .order_by(
                 "-in_stock_order",

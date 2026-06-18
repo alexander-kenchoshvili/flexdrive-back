@@ -4,8 +4,10 @@ from io import BytesIO
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
+from django.db import connection
 from django.db.models import Q
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from PIL import Image
 from rest_framework import status
@@ -25,6 +27,8 @@ from .models import (
     VehicleMake,
     VehicleModel,
 )
+from .search_cache import VEHICLE_SEARCH_CACHE_KEY
+from .views import _build_search_context
 
 
 def _generate_test_image(filename="sample.jpg", color=(255, 0, 0), size=(100, 100)):
@@ -336,6 +340,16 @@ class CatalogAPITests(APITestCase):
         self.assertEqual(response.data["results"][0]["slug"], "product-0")
         self.assertEqual(response.data["results"][0]["manufacturer_part_number"], "MPN-0")
 
+    def test_product_search_query_count_stays_bounded_for_unknown_phrase(self):
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(
+                reverse("catalog-product-list"),
+                {"q": "unknown vehicle brake pads"},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual(len(queries), 15)
+
     def test_products_search_matches_georgian_name_from_latin_transliteration(self):
         Product.objects.create(
             category=self.interior,
@@ -507,6 +521,7 @@ class CatalogAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["count"], 1)
         self.assertEqual(response.data["results"][0]["slug"], "mercedes-glc-hood")
+
 
     def test_product_suggestions_require_minimum_query_length(self):
         response = self.client.get(reverse("catalog-product-suggestions"), {"q": "c"})
@@ -1038,6 +1053,78 @@ class CatalogAPITests(APITestCase):
         slugs = {row["slug"] for row in response.data}
         self.assertEqual(slugs, {"25-hybrid", "25-gas"})
         self.assertNotIn("inactive-engine", slugs)
+
+
+@override_settings(
+    CACHE_ENABLED=True,
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "catalog-search-performance-tests",
+            "TIMEOUT": None,
+        }
+    },
+)
+class CatalogSearchPerformanceTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.make = VehicleMake.objects.create(
+            name="Toyota",
+            slug="toyota",
+            sort_order=1,
+        )
+        self.model = VehicleModel.objects.create(
+            make=self.make,
+            name="Camry",
+            slug="camry",
+            sort_order=1,
+        )
+        VehicleEngine.objects.create(
+            model=self.model,
+            name="2.5 Hybrid",
+            slug="25-hybrid",
+            sort_order=1,
+        )
+        cache.delete(VEHICLE_SEARCH_CACHE_KEY)
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_search_context_loads_vehicle_catalog_once_on_cold_cache(self):
+        with CaptureQueriesContext(connection) as queries:
+            context = _build_search_context("unknown vehicle brake pads")
+
+        self.assertIsNotNone(context)
+        self.assertEqual(len(queries), 3)
+
+    def test_search_context_uses_cached_vehicle_catalog_without_queries(self):
+        _build_search_context("toyota camry brake pads")
+
+        with self.assertNumQueries(0):
+            context = _build_search_context("toyota camry brake pads")
+
+        self.assertEqual(
+            context["search_parts"]["vehicle_filter"]["make_id"],
+            self.make.id,
+        )
+        self.assertEqual(
+            context["search_parts"]["vehicle_filter"]["model_id"],
+            self.model.id,
+        )
+
+    def test_vehicle_catalog_cache_invalidates_after_vehicle_change(self):
+        _build_search_context("toyota")
+        self.assertIsNotNone(cache.get(VEHICLE_SEARCH_CACHE_KEY))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            VehicleMake.objects.create(name="Honda", slug="honda", sort_order=2)
+
+        self.assertIsNone(cache.get(VEHICLE_SEARCH_CACHE_KEY))
+        with CaptureQueriesContext(connection) as queries:
+            context = _build_search_context("honda")
+
+        self.assertEqual(len(queries), 3)
+        self.assertIsNotNone(context["search_parts"]["vehicle_filter"])
 
 
 class SeedCatalogCommandTests(TestCase):

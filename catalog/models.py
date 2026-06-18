@@ -4,8 +4,10 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models
 from django.db.models import Q
+from django.db.models.functions import Upper
 
 from common.image_processing import (
     build_contained_webp_content,
@@ -403,6 +405,17 @@ class Product(TimeStampedModel):
             models.Index(fields=["is_featured", "is_new"]),
             models.Index(fields=["placement", "side"]),
             models.Index(fields=["is_universal_fitment", "status"]),
+            GinIndex(
+                OpClass(Upper("name"), name="gin_trgm_ops"),
+                name="catalog_product_name_trgm",
+            ),
+            GinIndex(
+                OpClass(
+                    Upper("manufacturer_part_number"),
+                    name="gin_trgm_ops",
+                ),
+                name="catalog_product_mpn_trgm",
+            ),
         ]
 
     def clean(self):

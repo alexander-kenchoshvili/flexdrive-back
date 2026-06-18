@@ -232,6 +232,7 @@ INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
+    'django.contrib.postgres',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
@@ -301,6 +302,7 @@ CACHE_TTL_SITE_SETTINGS = _parse_int_env("CACHE_TTL_SITE_SETTINGS", 60 * 60)
 CACHE_TTL_PAGE_CONTENT = _parse_int_env("CACHE_TTL_PAGE_CONTENT", 15 * 60)
 CACHE_TTL_BLOG_LIST = _parse_int_env("CACHE_TTL_BLOG_LIST", 5 * 60)
 CACHE_TTL_CATALOG_CATEGORIES = _parse_int_env("CACHE_TTL_CATALOG_CATEGORIES", 10 * 60)
+CACHE_TTL_CATALOG_VEHICLES = _parse_int_env("CACHE_TTL_CATALOG_VEHICLES", 60 * 60)
 
 if CACHE_ENABLED and not CACHE_REDIS_URL:
     raise ImproperlyConfigured(
