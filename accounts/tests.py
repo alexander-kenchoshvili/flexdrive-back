@@ -275,6 +275,21 @@ class AuthCsrfFlowAPITests(APITestCase):
         self.assertIn("csrftoken", response.cookies)
         self.assertTrue(response.cookies["csrftoken"].value)
 
+    def test_login_rejects_missing_csrf_token(self):
+        with patch("accounts.views.validate_recaptcha", return_value=True):
+            response = self.client.post(
+                reverse("login"),
+                {
+                    "email": self.user.email,
+                    "password": "Password123!",
+                    "recaptcha_token": "test-token",
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "csrf_failed")
+
     def test_login_succeeds_with_csrf_cookie_seeded_from_session_status(self):
         session_response = self.client.get(reverse("session-status"))
         csrf_token = session_response.cookies["csrftoken"].value
@@ -294,6 +309,73 @@ class AuthCsrfFlowAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("access_token", response.cookies)
         self.assertIn("refresh_token", response.cookies)
+
+    def test_authenticated_profile_update_rejects_missing_csrf_token(self):
+        refresh_token = RefreshToken.for_user(self.user)
+        self.client.cookies["access_token"] = str(refresh_token.access_token)
+
+        response = self.client.patch(
+            reverse("profile"),
+            {"first_name": "Forged"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "csrf_failed")
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, "")
+
+    def test_authenticated_profile_update_accepts_valid_csrf_token(self):
+        session_response = self.client.get(reverse("session-status"))
+        csrf_token = session_response.cookies["csrftoken"].value
+        refresh_token = RefreshToken.for_user(self.user)
+        self.client.cookies["access_token"] = str(refresh_token.access_token)
+
+        response = self.client.patch(
+            reverse("profile"),
+            {"first_name": "Protected"},
+            format="json",
+            HTTP_X_CSRFTOKEN=csrf_token,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, "Protected")
+
+    def test_guest_cart_mutation_rejects_missing_csrf_token(self):
+        response = self.client.post(
+            reverse("commerce-cart-item-list"),
+            {"product_id": 1, "quantity": 1},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "csrf_failed")
+
+    def test_guest_cart_mutation_passes_csrf_before_payload_validation(self):
+        session_response = self.client.get(reverse("session-status"))
+        csrf_token = session_response.cookies["csrftoken"].value
+
+        response = self.client.post(
+            reverse("commerce-cart-item-list"),
+            {"product_id": 999999, "quantity": 1},
+            format="json",
+            HTTP_X_CSRFTOKEN=csrf_token,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertNotEqual(response.json().get("code"), "csrf_failed")
+
+    def test_read_only_cms_post_does_not_require_csrf_token(self):
+        response = self.client.post(
+            reverse("get-current-content"),
+            {"slug": "missing-page"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertNotEqual(response.json().get("code"), "csrf_failed")
 
 
 class GoogleAuthAPITests(APITestCase):
