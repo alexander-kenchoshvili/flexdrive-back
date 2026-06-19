@@ -1215,6 +1215,52 @@ class AuthEmailFormattingTests(SimpleTestCase):
         )
 
     @override_settings(
+        BREVO_API_KEY="test-key",
+        BREVO_API_TIMEOUT=10,
+        DEFAULT_FROM_EMAIL="noreply@example.com",
+        EMAIL_DELIVERY_MAX_ATTEMPTS=3,
+        EMAIL_DELIVERY_RETRY_DELAY_SECONDS=0,
+    )
+    @patch("accounts.email_delivery.requests.post")
+    def test_send_auth_email_retries_temporary_brevo_failure(self, mock_post):
+        temporary_failure = type(
+            "Response",
+            (),
+            {"status_code": 503, "text": "Unavailable"},
+        )()
+        success = type("Response", (), {"status_code": 201, "text": ""})()
+        mock_post.side_effect = [temporary_failure, success]
+
+        send_auth_email(
+            subject="Activate your account",
+            text_content="Plain text body",
+            recipients=["user@example.com"],
+        )
+
+        self.assertEqual(mock_post.call_count, 2)
+
+    @override_settings(
+        BREVO_API_KEY="test-key",
+        BREVO_API_TIMEOUT=10,
+        DEFAULT_FROM_EMAIL="noreply@example.com",
+        EMAIL_DELIVERY_MAX_ATTEMPTS=3,
+        EMAIL_DELIVERY_RETRY_DELAY_SECONDS=0,
+    )
+    @patch("accounts.email_delivery.requests.post")
+    def test_send_auth_email_does_not_retry_permanent_brevo_failure(self, mock_post):
+        mock_post.return_value.status_code = 400
+        mock_post.return_value.text = "Invalid recipient"
+
+        with self.assertRaises(EmailDeliveryError):
+            send_auth_email(
+                subject="Activate your account",
+                text_content="Plain text body",
+                recipients=["invalid@example.com"],
+            )
+
+        self.assertEqual(mock_post.call_count, 1)
+
+    @override_settings(
         BREVO_API_KEY="",
         EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
         DEFAULT_FROM_EMAIL="noreply@example.com",

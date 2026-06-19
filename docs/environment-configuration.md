@@ -49,12 +49,8 @@ No code changes should be required when production is introduced.
 
 Never commit environment files, passwords, private URLs or API tokens.
 
-## Outbound task worker
+## Meta Purchase delivery
 
-Meta Purchase tasks are stored in the database and retried automatically by:
-
-```bash
-python manage.py process_outbound_tasks --limit 100
-```
-
-Configure this as a Render Cron Job that runs every minute.
+Eligible Meta Purchase events are sent directly after the related database
+transaction commits. Meta delivery failures are logged and never roll back or
+break the order update. No Meta worker or Cron Job is required.

@@ -39,7 +39,7 @@ from .models import (
     WishlistItem,
 )
 from .payment_providers import get_provider_method_for_action
-from common.outbox import enqueue_outbound_task
+from .meta_conversions import send_meta_purchase_event
 
 logger = logging.getLogger(__name__)
 
@@ -1582,7 +1582,8 @@ def transition_order_payment_status(order, next_status):
 
     locked_order.payment_status = next_status
     locked_order.save(update_fields=["payment_status", "updated_at"])
-    _queue_purchase_event_if_eligible(locked_order)
+    if next_status == OrderPaymentStatus.PAID:
+        _send_purchase_event_if_eligible(locked_order)
     return locked_order
 
 
@@ -1596,11 +1597,15 @@ def transition_order_status(order, next_status):
 
     locked_order.status = next_status
     locked_order.save(update_fields=["status", "updated_at"])
-    _queue_purchase_event_if_eligible(locked_order)
+    if (
+        locked_order.payment_method == OrderPaymentMethod.CASH_ON_DELIVERY
+        and next_status == OrderStatus.DELIVERED
+    ):
+        _send_purchase_event_if_eligible(locked_order)
     return locked_order
 
 
-def _queue_purchase_event_if_eligible(order):
+def _send_purchase_event_if_eligible(order):
     if (
         not order.marketing_consent
         or not settings.META_CAPI_ENABLED
@@ -1618,11 +1623,7 @@ def _queue_purchase_event_if_eligible(order):
     )
     if not (is_cod_purchase or is_online_purchase):
         return
-    enqueue_outbound_task(
-        task_type="meta_purchase",
-        payload={"order_id": order.pk},
-        unique_key=f"meta-purchase:{order.pk}",
-    )
+    transaction.on_commit(lambda: send_meta_purchase_event(order=order))
 
 
 @transaction.atomic

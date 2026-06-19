@@ -2904,7 +2904,8 @@ class CommerceLifecycleServiceTests(TestCase):
         META_PIXEL_ID="pixel-id",
         META_CAPI_ACCESS_TOKEN="access-token",
     )
-    def test_cod_purchase_is_queued_once_when_order_is_delivered(self):
+    @patch("commerce.services.send_meta_purchase_event", return_value=True)
+    def test_cod_purchase_is_sent_when_order_is_delivered(self, send_meta_event):
         order = self._create_order(status=OrderStatus.SHIPPED)
         order.marketing_consent = True
         order.save(update_fields=["marketing_consent", "updated_at"])
@@ -2912,13 +2913,8 @@ class CommerceLifecycleServiceTests(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             transition_order_status(order, OrderStatus.DELIVERED)
 
-        self.assertEqual(
-            OutboundTask.objects.filter(
-                task_type="meta_purchase",
-                unique_key=f"meta-purchase:{order.pk}",
-            ).count(),
-            1,
-        )
+        send_meta_event.assert_called_once()
+        self.assertEqual(send_meta_event.call_args.kwargs["order"].pk, order.pk)
 
     def test_cancel_order_and_restore_stock_fails_when_order_item_product_is_missing(self):
         order = self._create_order(status=OrderStatus.NEW, product=self.product)
