@@ -382,9 +382,9 @@ CACHE_ENABLED = _parse_bool_env("CACHE_ENABLED", False)
 CACHE_PREFIX = os.getenv("CACHE_PREFIX", "shopback").strip() or "shopback"
 CACHE_REDIS_URL = os.getenv("CACHE_REDIS_URL", "").strip()
 
-CACHE_TTL_MENU = _parse_int_env("CACHE_TTL_MENU", 60 * 60)
-CACHE_TTL_FOOTER = _parse_int_env("CACHE_TTL_FOOTER", 60 * 60)
-CACHE_TTL_SITE_SETTINGS = _parse_int_env("CACHE_TTL_SITE_SETTINGS", 60 * 60)
+CACHE_TTL_MENU = _parse_int_env("CACHE_TTL_MENU", 10 * 60)
+CACHE_TTL_FOOTER = _parse_int_env("CACHE_TTL_FOOTER", 10 * 60)
+CACHE_TTL_SITE_SETTINGS = _parse_int_env("CACHE_TTL_SITE_SETTINGS", 10 * 60)
 CACHE_TTL_PAGE_CONTENT = _parse_int_env("CACHE_TTL_PAGE_CONTENT", 15 * 60)
 CACHE_TTL_BLOG_LIST = _parse_int_env("CACHE_TTL_BLOG_LIST", 5 * 60)
 CACHE_TTL_CATALOG_CATEGORIES = _parse_int_env("CACHE_TTL_CATALOG_CATEGORIES", 10 * 60)

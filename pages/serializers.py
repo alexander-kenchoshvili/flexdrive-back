@@ -11,7 +11,7 @@ from .models import (
     Page,
     SiteSettings,
 )
-from .svg_safety import is_safe_svg_markup
+from .svg_safety import sanitize_editor_html, sanitize_svg_markup
 
 
 class ComponentTypeSerializer(serializers.ModelSerializer):
@@ -135,19 +135,24 @@ class ContentItemSerializer(serializers.ModelSerializer):
             "slug": category.slug,
         }
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["icon_svg"] = sanitize_svg_markup(data.get("icon_svg")) or None
+        data["editor"] = sanitize_editor_html(data.get("editor")) or None
+        return data
+
     def validate_icon_svg(self, value):
-        if value and not is_safe_svg_markup(value):
+        if not value:
+            return value
+        sanitized = sanitize_svg_markup(value)
+        if not sanitized:
             raise serializers.ValidationError(
-                "Unsafe SVG is not allowed. Remove script/event-handler/javascript content."
+                "SVG markup is invalid or contains no supported SVG elements."
             )
-        return value
+        return sanitized
 
     def validate_editor(self, value):
-        if value and not is_safe_svg_markup(value):
-            raise serializers.ValidationError(
-                "Unsafe HTML is not allowed in editor content."
-            )
-        return value
+        return sanitize_editor_html(value) if value else value
 
 
 class ContentSerializer(serializers.ModelSerializer):

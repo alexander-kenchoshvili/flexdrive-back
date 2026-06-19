@@ -11,7 +11,7 @@ from .models import (
     ContactInquiry,
     SiteSettings,
 )
-from .svg_safety import is_safe_svg_markup
+from .svg_safety import sanitize_editor_html, sanitize_svg_markup
 
 class ComponentInline(admin.TabularInline):
     model = Component
@@ -205,19 +205,18 @@ class ComponentAdmin(admin.ModelAdmin):
 class ContentItemAdminForm(forms.ModelForm):
     def clean_icon_svg(self):
         value = self.cleaned_data.get("icon_svg")
-        if value and not is_safe_svg_markup(value):
+        if not value:
+            return value
+        sanitized = sanitize_svg_markup(value)
+        if not sanitized:
             raise forms.ValidationError(
-                "Unsafe SVG is not allowed. Remove script/event-handler/javascript content."
+                "SVG markup is invalid or contains no supported SVG elements."
             )
-        return value
+        return sanitized
 
     def clean_editor(self):
         value = self.cleaned_data.get("editor")
-        if value and not is_safe_svg_markup(value):
-            raise forms.ValidationError(
-                "Unsafe HTML is not allowed in editor content."
-            )
-        return value
+        return sanitize_editor_html(value) if value else value
 
     class Meta:
         model = ContentItem
