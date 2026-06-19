@@ -306,7 +306,11 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = _dedupe(
     default_frontend_origins + _parse_csv_env("CORS_ALLOWED_ORIGINS")
 )
-CORS_ALLOW_HEADERS = (*default_headers, "idempotency-key")
+CORS_ALLOW_HEADERS = (
+    *default_headers,
+    "idempotency-key",
+    "x-flexdrive-marketing-consent",
+)
 CSRF_TRUSTED_ORIGINS = _dedupe(
     default_frontend_origins + _parse_csv_env("CSRF_TRUSTED_ORIGINS")
 )
