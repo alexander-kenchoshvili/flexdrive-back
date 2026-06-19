@@ -19,7 +19,9 @@ from .search_cache import invalidate_vehicle_search_catalog
 @receiver([post_save, post_delete], sender=Product)
 @receiver([post_save, post_delete], sender=ProductImage)
 def invalidate_catalog_category_cache(**kwargs):
-    invalidate_groups(CACHE_GROUP_CATALOG_CATEGORIES)
+    transaction.on_commit(
+        lambda: invalidate_groups(CACHE_GROUP_CATALOG_CATEGORIES)
+    )
 
 
 @receiver([post_save, post_delete], sender=VehicleMake)

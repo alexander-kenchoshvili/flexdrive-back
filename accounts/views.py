@@ -26,6 +26,8 @@ from .serializers import (
     UserProfileSerializer,
     ForgotPasswordSerializer,
     ResetPasswordSerializer,
+    AccountDeletionSerializer,
+    ConfirmEmailChangeSerializer,
 )
 from .email_delivery import EmailDeliveryError
 from .facebook_auth import (
@@ -238,8 +240,6 @@ class RegisterAPIView(generics.CreateAPIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # მხოლოდ თუ ზედა პირობა გაიარა, ვაძახებთ Django-ს სტანდარტულ ფუნქციას
-        # ეს 'super()' სწორედ იმას აკეთებს, რასაც შენი ძველი კოდი აკეთებდა ავტომატურად
         try:
             return super().create(request, *args, **kwargs)
         except EmailDeliveryError as exc:
@@ -584,6 +584,11 @@ class ProfileAPIView(APIView):
         return Response(serializer.data)
 
     def delete(self, request):
+        serializer = AccountDeletionSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
         refresh_token = request.COOKIES.get("refresh_token")
 
         if refresh_token:
@@ -598,6 +603,19 @@ class ProfileAPIView(APIView):
             {"message": "Account deleted successfully."},
             status=status.HTTP_200_OK,
         )
+        response.delete_cookie("access_token", **_api_cookie_delete_kwargs())
+        response.delete_cookie("refresh_token", **_api_cookie_delete_kwargs())
+        return response
+
+
+class ConfirmEmailChangeAPIView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = ConfirmEmailChangeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        response = Response({"message": "Email changed successfully."})
         response.delete_cookie("access_token", **_api_cookie_delete_kwargs())
         response.delete_cookie("refresh_token", **_api_cookie_delete_kwargs())
         return response

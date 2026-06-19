@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import uuid
 from datetime import timedelta
 from dataclasses import asdict, dataclass
@@ -38,6 +39,9 @@ from .models import (
     WishlistItem,
 )
 from .payment_providers import get_provider_method_for_action
+from common.outbox import enqueue_outbound_task
+
+logger = logging.getLogger(__name__)
 
 CART_TOKEN_COOKIE_NAME = "cart_token"
 WISHLIST_TOKEN_COOKIE_NAME = "wishlist_token"
@@ -942,6 +946,7 @@ def create_order_from_cart(
     cart,
     user,
     validated_data,
+    terms_acceptance,
     idempotency_key=None,
     owner_fingerprint="",
     request_fingerprint="",
@@ -1033,6 +1038,7 @@ def create_order_from_cart(
             }
         )
 
+    terms_fields = terms_acceptance.to_order_fields()
     order = Order.objects.create(
         user=user if user and user.is_authenticated else None,
         buyer_type=validated_data.get("buyer_type", OrderBuyerType.INDIVIDUAL),
@@ -1052,6 +1058,7 @@ def create_order_from_cart(
         city=validated_data["city"],
         address_line=validated_data["address_line"],
         note=validated_data.get("note", ""),
+        **terms_fields,
     )
     order.order_number = build_order_number(order)
     order.save(update_fields=["order_number", "updated_at"])
@@ -1102,6 +1109,7 @@ def create_order_from_buy_now_session(
     session,
     user,
     validated_data,
+    terms_acceptance,
     idempotency_key=None,
     owner_fingerprint="",
     request_fingerprint="",
@@ -1160,6 +1168,7 @@ def create_order_from_buy_now_session(
 
     line_total = locked_product.price * locked_session.quantity
 
+    terms_fields = terms_acceptance.to_order_fields()
     order = Order.objects.create(
         user=user if user and user.is_authenticated else None,
         checkout_source=OrderCheckoutSource.BUY_NOW,
@@ -1180,6 +1189,7 @@ def create_order_from_buy_now_session(
         city=validated_data["city"],
         address_line=validated_data["address_line"],
         note=validated_data.get("note", ""),
+        **terms_fields,
     )
     order.order_number = build_order_number(order)
     order.save(update_fields=["order_number", "updated_at"])
@@ -1456,12 +1466,57 @@ def refund_payment(**kwargs):
     return _process_payment_transaction(action=PaymentTransactionAction.REFUND, **kwargs)
 
 
-@transaction.atomic
 def _process_payment_transaction(*, action, **kwargs):
     payment_transaction = create_payment_transaction(action=action, **kwargs)
     provider_method = get_provider_method_for_action(payment_transaction.provider, action)
-    provider_response = provider_method(transaction=payment_transaction)
-    return apply_payment_provider_response(payment_transaction, provider_response)
+    try:
+        provider_response = provider_method(transaction=payment_transaction)
+    except Exception as error:
+        try:
+            record_payment_processing_exception(
+                payment_transaction,
+                error,
+                error_code="provider_exception",
+            )
+        except Exception:
+            logger.exception(
+                "Failed to persist payment provider exception.",
+                extra={"payment_transaction_id": payment_transaction.pk},
+            )
+        raise
+    try:
+        return apply_payment_provider_response(payment_transaction, provider_response)
+    except Exception as error:
+        try:
+            record_payment_processing_exception(
+                payment_transaction,
+                error,
+                error_code="provider_response_apply_exception",
+            )
+        except Exception:
+            logger.exception(
+                "Failed to persist payment response application exception.",
+                extra={"payment_transaction_id": payment_transaction.pk},
+            )
+        raise
+
+
+@transaction.atomic
+def record_payment_processing_exception(
+    payment_transaction,
+    error,
+    *,
+    error_code,
+):
+    locked_transaction = PaymentTransaction.objects.select_for_update().get(
+        pk=payment_transaction.pk
+    )
+    locked_transaction.error_code = error_code
+    locked_transaction.error_message = str(error).strip()[:2000]
+    locked_transaction.save(
+        update_fields=["error_code", "error_message", "updated_at"]
+    )
+    return locked_transaction
 
 
 def can_cancel_order(order):
@@ -1527,6 +1582,7 @@ def transition_order_payment_status(order, next_status):
 
     locked_order.payment_status = next_status
     locked_order.save(update_fields=["payment_status", "updated_at"])
+    _queue_purchase_event_if_eligible(locked_order)
     return locked_order
 
 
@@ -1540,7 +1596,33 @@ def transition_order_status(order, next_status):
 
     locked_order.status = next_status
     locked_order.save(update_fields=["status", "updated_at"])
+    _queue_purchase_event_if_eligible(locked_order)
     return locked_order
+
+
+def _queue_purchase_event_if_eligible(order):
+    if (
+        not order.marketing_consent
+        or not settings.META_CAPI_ENABLED
+        or not settings.META_PIXEL_ID
+        or not settings.META_CAPI_ACCESS_TOKEN
+    ):
+        return
+    is_cod_purchase = (
+        order.payment_method == OrderPaymentMethod.CASH_ON_DELIVERY
+        and order.status == OrderStatus.DELIVERED
+    )
+    is_online_purchase = (
+        order.payment_method != OrderPaymentMethod.CASH_ON_DELIVERY
+        and order.payment_status == OrderPaymentStatus.PAID
+    )
+    if not (is_cod_purchase or is_online_purchase):
+        return
+    enqueue_outbound_task(
+        task_type="meta_purchase",
+        payload={"order_id": order.pk},
+        unique_key=f"meta-purchase:{order.pk}",
+    )
 
 
 @transaction.atomic
@@ -1744,6 +1826,9 @@ def _build_reservation_item_issue(*, product, requested_quantity, reserved_quant
 
 @transaction.atomic
 def apply_payment_provider_response(payment_transaction, provider_response):
+    payment_transaction = PaymentTransaction.objects.select_for_update().get(
+        pk=payment_transaction.pk
+    )
     locked_order = None
     if payment_transaction.order_id:
         locked_order = Order.objects.select_for_update().get(

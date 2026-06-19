@@ -40,7 +40,7 @@ Observed stack and patterns:
 - Cloudinary/Pillow for media-related behavior
 - Redis dependency present
 - PostgreSQL driver present, with local SQLite development database present in the repository root
-- Apps include areas such as `accounts`, `catalog`, `commerce`, `common`, `employees`, `pages`, and `projects`
+- Apps include areas such as `accounts`, `catalog`, `commerce`, `common`, and `pages`
 
 Use the existing Django app boundaries before adding new modules. Prefer extending the relevant existing app when the feature clearly belongs there.
 

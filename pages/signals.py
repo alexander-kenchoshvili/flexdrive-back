@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
@@ -20,27 +21,31 @@ def _is_blog_content_item(instance):
 
 @receiver([post_save, post_delete], sender=Page)
 def invalidate_page_caches(**kwargs):
-    invalidate_groups(
-        CACHE_GROUP_PAGES_MENU,
-        CACHE_GROUP_PAGES_FOOTER,
-        CACHE_GROUP_PAGES_CONTENT,
+    transaction.on_commit(
+        lambda: invalidate_groups(
+            CACHE_GROUP_PAGES_MENU,
+            CACHE_GROUP_PAGES_FOOTER,
+            CACHE_GROUP_PAGES_CONTENT,
+        )
     )
 
 
 @receiver([post_save, post_delete], sender=FooterSettings)
 def invalidate_footer_cache(**kwargs):
-    invalidate_groups(CACHE_GROUP_PAGES_FOOTER)
+    transaction.on_commit(lambda: invalidate_groups(CACHE_GROUP_PAGES_FOOTER))
 
 
 @receiver([post_save, post_delete], sender=SiteSettings)
 def invalidate_site_settings_cache(**kwargs):
-    invalidate_groups(CACHE_GROUP_PAGES_SITE_SETTINGS)
+    transaction.on_commit(
+        lambda: invalidate_groups(CACHE_GROUP_PAGES_SITE_SETTINGS)
+    )
 
 
 @receiver([post_save, post_delete], sender=Component)
 @receiver([post_save, post_delete], sender=Content)
 def invalidate_page_content_cache(**kwargs):
-    invalidate_groups(CACHE_GROUP_PAGES_CONTENT)
+    transaction.on_commit(lambda: invalidate_groups(CACHE_GROUP_PAGES_CONTENT))
 
 
 @receiver([post_save, post_delete], sender=ContentItem)
@@ -49,12 +54,14 @@ def invalidate_content_item_caches(sender, instance, **kwargs):
     if _is_blog_content_item(instance):
         groups.append(CACHE_GROUP_PAGES_BLOG_LIST)
 
-    invalidate_groups(*groups)
+    transaction.on_commit(lambda: invalidate_groups(*groups))
 
 
 @receiver([post_save, post_delete], sender=BlogPost)
 def invalidate_blog_caches(**kwargs):
-    invalidate_groups(
-        CACHE_GROUP_PAGES_CONTENT,
-        CACHE_GROUP_PAGES_BLOG_LIST,
+    transaction.on_commit(
+        lambda: invalidate_groups(
+            CACHE_GROUP_PAGES_CONTENT,
+            CACHE_GROUP_PAGES_BLOG_LIST,
+        )
     )

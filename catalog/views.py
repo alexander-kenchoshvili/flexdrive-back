@@ -36,6 +36,25 @@ from .serializers import (
 from .search_cache import get_vehicle_search_catalog
 
 
+SEARCH_QUERY_MIN_LENGTH = 2
+SEARCH_QUERY_MAX_LENGTH = 100
+
+
+def _validated_search_query(raw_query):
+    search_query = str(raw_query or "").strip()
+    if not search_query:
+        return ""
+    if len(search_query) < SEARCH_QUERY_MIN_LENGTH:
+        raise ValidationError(
+            {"q": f"Search query must contain at least {SEARCH_QUERY_MIN_LENGTH} characters."}
+        )
+    if len(search_query) > SEARCH_QUERY_MAX_LENGTH:
+        raise ValidationError(
+            {"q": f"Search query must contain at most {SEARCH_QUERY_MAX_LENGTH} characters."}
+        )
+    return search_query
+
+
 _LATIN_GEORGIAN_DIGRAPHS = {
     "ch": ("ჩ",),
     "dz": ("ძ",),
@@ -820,6 +839,14 @@ class ProductListAPIView(generics.ListAPIView):
     serializer_class = ProductListSerializer
     pagination_class = CatalogPagination
 
+    def get_throttles(self):
+        self.throttle_scope = (
+            "catalog_search"
+            if str(self.request.query_params.get("q", "")).strip()
+            else None
+        )
+        return super().get_throttles()
+
     ORDERING_MAP = {
         "newest": ("-created_at", "id"),
         "oldest": ("created_at", "id"),
@@ -895,7 +922,7 @@ class ProductListAPIView(generics.ListAPIView):
         if side:
             queryset = queryset.filter(side=side)
 
-        search_context = _build_search_context(params.get("q"))
+        search_context = _build_search_context(_validated_search_query(params.get("q")))
         queryset = _apply_catalog_search(
             queryset,
             search_context,
@@ -1052,14 +1079,14 @@ class ProductListAPIView(generics.ListAPIView):
 class ProductSuggestionAPIView(generics.ListAPIView):
     serializer_class = ProductSuggestionSerializer
     pagination_class = None
+    throttle_scope = "catalog_search"
     suggestion_limit = 5
 
     def get_queryset(self):
-        raw_query = self.request.query_params.get("q", "")
-        search_query = str(raw_query).strip()
-
-        if len(search_query) < 2:
+        raw_query = self.request.query_params.get("q")
+        if not str(raw_query or "").strip():
             return Product.objects.none()
+        search_query = _validated_search_query(raw_query)
 
         queryset = (
             Product.objects.filter(status=ProductStatus.PUBLISHED, category__is_active=True)

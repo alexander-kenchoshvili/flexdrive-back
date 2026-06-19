@@ -16,6 +16,7 @@ from .views import (
     LogoutAPIView,
     CustomTokenRefreshView,
     SessionStatusView,
+    ConfirmEmailChangeAPIView,
 )
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -33,6 +34,7 @@ urlpatterns = [
     path('facebook/callback/', FacebookOAuthCallbackAPIView.as_view(), name='facebook_auth_callback'),
     path('me/', MeAPIView.as_view(), name='me'),
     path('profile/', ProfileAPIView.as_view(), name='profile'),
+    path('email/confirm/', ConfirmEmailChangeAPIView.as_view(), name='email_change_confirm'),
     path('logout/', LogoutAPIView.as_view(), name='logout'),
     # path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("token/refresh/", CustomTokenRefreshView.as_view(), name="token_refresh"),

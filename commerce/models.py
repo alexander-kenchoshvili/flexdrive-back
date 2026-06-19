@@ -393,6 +393,15 @@ class Order(TimeStampedModel):
     city = models.CharField(max_length=120)
     address_line = models.CharField(max_length=255)
     note = models.TextField(blank=True)
+    terms_accepted_at = models.DateTimeField(null=True, blank=True)
+    terms_version = models.CharField(max_length=80, blank=True, default="")
+    terms_content_hash = models.CharField(max_length=64, blank=True, default="")
+    terms_content_snapshot = models.JSONField(default=dict, blank=True)
+    terms_url = models.CharField(max_length=500, blank=True, default="")
+    terms_ip_address = models.GenericIPAddressField(null=True, blank=True)
+    terms_user_agent = models.TextField(blank=True, default="")
+    marketing_consent = models.BooleanField(default=False)
+    marketing_context = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ("-created_at", "-id")

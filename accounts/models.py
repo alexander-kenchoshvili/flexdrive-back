@@ -10,6 +10,9 @@ class CustomUser(AbstractUser):
     reset_password_token = models.UUIDField(null=True, blank=True)
     reset_password_token_created_at = models.DateTimeField(null=True, blank=True)
     auth_token_version = models.PositiveIntegerField(default=0)
+    pending_email = models.EmailField(blank=True, default="")
+    email_change_token = models.UUIDField(null=True, blank=True)
+    email_change_token_created_at = models.DateTimeField(null=True, blank=True)
 
     """
     Custom User model.

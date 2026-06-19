@@ -85,6 +85,8 @@ class UserProfileSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=50, allow_blank=True, required=False)
     city = serializers.CharField(max_length=120, allow_blank=True, required=False)
     address_line = serializers.CharField(max_length=255, allow_blank=True, required=False)
+    current_password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    pending_email = serializers.EmailField(read_only=True)
 
     def to_representation(self, instance):
         profile, _ = UserProfile.objects.get_or_create(user=instance)
@@ -96,6 +98,7 @@ class UserProfileSerializer(serializers.Serializer):
             "phone": profile.phone,
             "city": profile.city,
             "address_line": profile.address_line,
+            "pending_email": instance.pending_email,
         }
 
     def validate_email(self, value):
@@ -108,10 +111,42 @@ class UserProfileSerializer(serializers.Serializer):
         return normalized
 
     def update(self, instance, validated_data):
+        current_password = validated_data.pop("current_password", "")
+        requested_email = validated_data.pop("email", instance.email)
+        if requested_email != instance.email:
+            if instance.has_usable_password() and not instance.check_password(current_password):
+                raise serializers.ValidationError(
+                    {"current_password": "Current password is incorrect."}
+                )
+            instance.pending_email = requested_email
+            instance.email_change_token = uuid.uuid4()
+            instance.email_change_token_created_at = timezone.now()
+            instance.save(
+                update_fields=[
+                    "pending_email",
+                    "email_change_token",
+                    "email_change_token_created_at",
+                ]
+            )
+            confirmation_link = (
+                f"{settings.FRONTEND_BASE_URL}/confirm-email/"
+                f"{instance.email_change_token}/"
+            )
+            send_auth_email(
+                subject="Confirm your new email",
+                text_content=f"Confirm your new email: {confirmation_link}",
+                html_content=_build_link_email_html(
+                    intro_text="Confirm your new email address.",
+                    action_label="Confirm email",
+                    url=confirmation_link,
+                ),
+                recipients=[requested_email],
+            )
+
         profile, _ = UserProfile.objects.get_or_create(user=instance)
 
         user_fields = {
-            "email": validated_data.get("email", instance.email),
+            "email": instance.email,
             "first_name": validated_data.get("first_name", instance.first_name),
             "last_name": validated_data.get("last_name", instance.last_name),
         }
@@ -568,6 +603,57 @@ class ForgotPasswordSerializer(serializers.Serializer):
             )
         except EmailDeliveryError:
             return
+
+
+class AccountDeletionSerializer(serializers.Serializer):
+    current_password = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        user = self.context["request"].user
+        if user.has_usable_password() and not user.check_password(
+            attrs.get("current_password", "")
+        ):
+            raise serializers.ValidationError(
+                {"current_password": "Current password is incorrect."}
+            )
+        return attrs
+
+
+class ConfirmEmailChangeSerializer(serializers.Serializer):
+    token = serializers.UUIDField()
+
+    def save(self):
+        token = self.validated_data["token"]
+        user = User.objects.filter(email_change_token=token).first()
+        if (
+            not user
+            or not user.pending_email
+            or not user.email_change_token_created_at
+            or timezone.now() - user.email_change_token_created_at > TOKEN_TTL
+        ):
+            raise serializers.ValidationError("Invalid or expired token.")
+
+        if User.objects.filter(email__iexact=user.pending_email).exclude(pk=user.pk).exists():
+            raise serializers.ValidationError("This email is already in use.")
+
+        user.email = user.pending_email
+        user.username = build_unique_username(user.pending_email)
+        user.pending_email = ""
+        user.email_change_token = None
+        user.email_change_token_created_at = None
+        user.auth_token_version = get_auth_token_version(user) + 1
+        user.save(
+            update_fields=[
+                "email",
+                "username",
+                "pending_email",
+                "email_change_token",
+                "email_change_token_created_at",
+                "auth_token_version",
+            ]
+        )
+        revoke_user_refresh_tokens(user)
+        return user
 
 
 class ResetPasswordSerializer(serializers.Serializer):

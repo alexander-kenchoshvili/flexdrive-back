@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.db import transaction
 from django.db.models import F, Q
 
 from common.cache_utils import CACHE_GROUP_CATALOG_CATEGORIES, invalidate_groups
@@ -389,14 +390,20 @@ class ProductAdmin(admin.ModelAdmin):
     @admin.action(description="Publish selected products")
     def action_publish(self, request, queryset):
         queryset.update(status=ProductStatus.PUBLISHED)
-        invalidate_groups(CACHE_GROUP_CATALOG_CATEGORIES)
+        transaction.on_commit(
+            lambda: invalidate_groups(CACHE_GROUP_CATALOG_CATEGORIES)
+        )
 
     @admin.action(description="Move selected products to draft")
     def action_unpublish(self, request, queryset):
         queryset.update(status=ProductStatus.DRAFT)
-        invalidate_groups(CACHE_GROUP_CATALOG_CATEGORIES)
+        transaction.on_commit(
+            lambda: invalidate_groups(CACHE_GROUP_CATALOG_CATEGORIES)
+        )
 
     @admin.action(description="Mark selected products as featured")
     def action_mark_featured(self, request, queryset):
         queryset.update(is_featured=True)
-        invalidate_groups(CACHE_GROUP_CATALOG_CATEGORIES)
+        transaction.on_commit(
+            lambda: invalidate_groups(CACHE_GROUP_CATALOG_CATEGORIES)
+        )

@@ -14,8 +14,22 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.13.5
+      - key: APP_ENV
+        value: staging
       - key: DJANGO_DEBUG
         value: "False"
+      - key: CACHE_ENABLED
+        value: "True"
+      - key: CACHE_REDIS_URL
+        sync: false
+      - key: FRONTEND_BASE_URL
+        value: https://flexdrive-front.vercel.app
+      - key: DJANGO_ALLOWED_HOSTS
+        value: flexdrive-back.onrender.com
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://flexdrive-front.vercel.app
+      - key: CSRF_TRUSTED_ORIGINS
+        value: https://flexdrive-front.vercel.app
       - key: DJANGO_SECRET_KEY
         generateValue: true
       - key: DATABASE_URL

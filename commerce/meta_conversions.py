@@ -27,7 +27,9 @@ def send_meta_purchase_event(*, order, request=None):
     if not _is_meta_capi_enabled():
         return False
 
-    if not _has_meta_marketing_consent(request):
+    if request is not None and not _has_meta_marketing_consent(request):
+        return False
+    if request is None and not order.marketing_consent:
         return False
 
     payload = build_meta_purchase_payload(order=order, request=request)
@@ -46,6 +48,17 @@ def send_meta_purchase_event(*, order, request=None):
         return False
 
     return True
+
+
+def build_marketing_context(request):
+    return {
+        "client_ip_address": _get_client_ip(request),
+        "client_user_agent": request.META.get("HTTP_USER_AGENT", "").strip(),
+    }
+
+
+def has_marketing_consent(request):
+    return _has_meta_marketing_consent(request)
 
 
 def build_meta_purchase_payload(*, order, request=None):
@@ -134,6 +147,13 @@ def _build_user_data(*, order, request=None):
         client_ip_address = _get_client_ip(request)
         client_user_agent = request.META.get("HTTP_USER_AGENT", "").strip()
 
+        if client_ip_address:
+            user_data["client_ip_address"] = client_ip_address
+        if client_user_agent:
+            user_data["client_user_agent"] = client_user_agent
+    elif order.marketing_context:
+        client_ip_address = order.marketing_context.get("client_ip_address")
+        client_user_agent = order.marketing_context.get("client_user_agent")
         if client_ip_address:
             user_data["client_ip_address"] = client_ip_address
         if client_user_agent:

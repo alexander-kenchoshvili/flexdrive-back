@@ -844,7 +844,8 @@ class PublicPagesCacheTests(APITestCase):
         second_response = self.client.get(reverse("menu"))
 
         page.name = "Updated Catalog"
-        page.save()
+        with self.captureOnCommitCallbacks(execute=True):
+            page.save()
 
         third_response = self.client.get(reverse("menu"))
 
@@ -885,7 +886,8 @@ class PublicPagesCacheTests(APITestCase):
         )
 
         item.title = "Updated item"
-        item.save()
+        with self.captureOnCommitCallbacks(execute=True):
+            item.save()
 
         third_response = self.client.post(
             reverse("get-current-content"),

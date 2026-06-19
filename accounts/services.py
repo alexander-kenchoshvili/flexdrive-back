@@ -1,7 +1,7 @@
 from django.db import transaction
 from django.utils import timezone
 
-from commerce.models import StockReservation, StockReservationStatus
+from commerce.models import Order, StockReservation, StockReservationStatus
 
 
 @transaction.atomic
@@ -28,5 +28,21 @@ def delete_user_account(user):
             released_at=now,
             updated_at=now,
         )
+
+    Order.objects.filter(user=locked_user).update(
+        user=None,
+        first_name="Deleted",
+        last_name="User",
+        email="",
+        phone="",
+        city="",
+        address_line="",
+        note="",
+        company_name="",
+        company_identification_code="",
+        terms_ip_address=None,
+        terms_user_agent="",
+        updated_at=timezone.now(),
+    )
 
     return locked_user.delete()

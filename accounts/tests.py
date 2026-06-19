@@ -101,7 +101,11 @@ class ProfileAPITests(APITestCase):
         self.client.cookies["access_token"] = str(access_token)
         self.client.cookies["refresh_token"] = str(refresh_token)
 
-        response = self.client.delete(reverse("profile"))
+        response = self.client.delete(
+            reverse("profile"),
+            {"current_password": "Password123!"},
+            format="json",
+        )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["message"], "Account deleted successfully.")
@@ -132,7 +136,11 @@ class ProfileAPITests(APITestCase):
         )
         self.client.force_authenticate(user=self.user)
 
-        response = self.client.delete(reverse("profile"))
+        response = self.client.delete(
+            reverse("profile"),
+            {"current_password": "Password123!"},
+            format="json",
+        )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         active_reservation.refresh_from_db()
@@ -376,6 +384,54 @@ class AuthCsrfFlowAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertNotEqual(response.json().get("code"), "csrf_failed")
+
+
+class SensitiveAccountActionsAPITests(APITestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="sensitive@example.com",
+            email="sensitive@example.com",
+            password="Password123!",
+            is_active=True,
+        )
+        self.client.force_authenticate(self.user)
+
+    def test_account_deletion_requires_current_password(self):
+        response = self.client.delete(
+            reverse("profile"),
+            {"current_password": "wrong"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(get_user_model().objects.filter(pk=self.user.pk).exists())
+
+    def test_email_change_is_pending_until_token_confirmation(self):
+        with patch("accounts.serializers.send_auth_email"):
+            response = self.client.patch(
+                reverse("profile"),
+                {
+                    "email": "new-sensitive@example.com",
+                    "current_password": "Password123!",
+                },
+                format="json",
+            )
+
+        self.user.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.user.email, "sensitive@example.com")
+        self.assertEqual(self.user.pending_email, "new-sensitive@example.com")
+
+        confirm_response = self.client.post(
+            reverse("email_change_confirm"),
+            {"token": str(self.user.email_change_token)},
+            format="json",
+        )
+
+        self.user.refresh_from_db()
+        self.assertEqual(confirm_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.user.email, "new-sensitive@example.com")
+        self.assertEqual(self.user.pending_email, "")
 
 
 class GoogleAuthAPITests(APITestCase):

@@ -12,7 +12,7 @@ from django.contrib.admin.sites import site
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.db import IntegrityError, close_old_connections, transaction
+from django.db import IntegrityError, close_old_connections, connection, transaction
 from django.db.models.deletion import ProtectedError
 from django.test import (
     Client,
@@ -28,8 +28,11 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from catalog.models import Category, Product, ProductImage, ProductStatus
+from pages.models import ContentItem
+from common.models import OutboundTask
 
 from .images import build_product_primary_image_snapshot
+from .legal import TermsAcceptanceSnapshot
 from .meta_conversions import (
     MARKETING_CONSENT_HEADER,
     build_meta_purchase_event_id,
@@ -713,6 +716,8 @@ class CommerceAPITests(APITestCase):
                 "payment_method": OrderPaymentMethod.CASH_ON_DELIVERY,
             },
             format="json",
+            REMOTE_ADDR="203.0.113.15",
+            HTTP_USER_AGENT="FlexDrive checkout test",
         )
 
         self.product.refresh_from_db()
@@ -726,6 +731,13 @@ class CommerceAPITests(APITestCase):
         self.assertEqual(order.payment_status, OrderPaymentStatus.PENDING)
         self.assertEqual(order.subtotal, Decimal("540.00"))
         self.assertEqual(order.total, Decimal("540.00"))
+        self.assertIsNotNone(order.terms_accepted_at)
+        self.assertEqual(order.terms_version, settings.TERMS_DOCUMENT_VERSION)
+        self.assertEqual(len(order.terms_content_hash), 64)
+        self.assertEqual(order.terms_url, f"{settings.FRONTEND_BASE_URL}/terms")
+        self.assertEqual(order.terms_ip_address, "203.0.113.15")
+        self.assertEqual(order.terms_user_agent, "FlexDrive checkout test")
+        self.assertTrue(order.terms_content_snapshot["components"])
         self.assertTrue(order.order_number.startswith("ORD-"))
         self.assertEqual(order.items.count(), 2)
         self.assertEqual(self.product.stock_qty, 3)
@@ -830,8 +842,7 @@ class CommerceAPITests(APITestCase):
         self.assertIsNotNone(reservation.released_at)
         self.assertEqual(self.product.stock_qty, 3)
 
-    @patch("commerce.views.send_meta_purchase_event")
-    def test_checkout_sends_meta_purchase_event_after_order_creation(self, send_meta_purchase_event):
+    def test_checkout_does_not_queue_purchase_before_cod_delivery(self):
         self.client.post(
             reverse("commerce-cart-item-list"),
             {"product_id": self.product.id, "quantity": 1},
@@ -845,10 +856,9 @@ class CommerceAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        send_meta_purchase_event.assert_called_once()
-        call_kwargs = send_meta_purchase_event.call_args.kwargs
-        self.assertEqual(call_kwargs["order"], Order.objects.get())
-        self.assertIsNotNone(call_kwargs["request"])
+        self.assertFalse(
+            OutboundTask.objects.filter(task_type="meta_purchase").exists()
+        )
 
     def test_cart_checkout_replays_same_order_for_same_idempotency_key(self):
         self.client.post(
@@ -981,11 +991,7 @@ class CommerceAPITests(APITestCase):
         }
         self.assertIn("idempotency-key", allowed_headers)
 
-    @patch("commerce.views.send_meta_purchase_event")
-    def test_cart_checkout_replay_does_not_send_duplicate_purchase_event(
-        self,
-        send_meta_purchase_event,
-    ):
+    def test_cart_checkout_replay_does_not_queue_purchase_event(self):
         self.client.post(
             reverse("commerce-cart-item-list"),
             {"product_id": self.product.id, "quantity": 1},
@@ -1006,7 +1012,9 @@ class CommerceAPITests(APITestCase):
             HTTP_IDEMPOTENCY_KEY=idempotency_key,
         )
 
-        send_meta_purchase_event.assert_called_once()
+        self.assertFalse(
+            OutboundTask.objects.filter(task_type="meta_purchase").exists()
+        )
 
     @override_settings(
         FRONTEND_BASE_URL="https://flexdrive.ge",
@@ -1377,6 +1385,10 @@ class CommerceAPITests(APITestCase):
         self.assertIsNone(order.user)
         self.assertEqual(order.checkout_source, OrderCheckoutSource.BUY_NOW)
         self.assertEqual(order.payment_status, OrderPaymentStatus.PENDING)
+        self.assertIsNotNone(order.terms_accepted_at)
+        self.assertEqual(order.terms_version, settings.TERMS_DOCUMENT_VERSION)
+        self.assertEqual(len(order.terms_content_hash), 64)
+        self.assertTrue(order.terms_content_snapshot["components"])
         self.assertEqual(order.total, Decimal("240.00"))
         self.assertEqual(order.items.get().quantity, 2)
         self.assertEqual(self.product.stock_qty, 3)
@@ -1385,11 +1397,7 @@ class CommerceAPITests(APITestCase):
         self.assertIn(BUY_NOW_TOKEN_COOKIE_NAME, response.cookies)
         self.assertEqual(response.cookies[BUY_NOW_TOKEN_COOKIE_NAME].value, "")
 
-    @patch("commerce.views.send_meta_purchase_event")
-    def test_buy_now_checkout_sends_meta_purchase_event_after_order_creation(
-        self,
-        send_meta_purchase_event,
-    ):
+    def test_buy_now_checkout_does_not_queue_purchase_before_cod_delivery(self):
         create_response = self.client.post(
             reverse("commerce-buy-now-session"),
             {"product_id": self.product.id, "quantity": 1},
@@ -1405,10 +1413,8 @@ class CommerceAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        send_meta_purchase_event.assert_called_once()
-        self.assertEqual(
-            send_meta_purchase_event.call_args.kwargs["order"],
-            Order.objects.get(),
+        self.assertFalse(
+            OutboundTask.objects.filter(task_type="meta_purchase").exists()
         )
 
     def test_buy_now_checkout_replays_order_after_session_is_consumed(self):
@@ -1500,6 +1506,48 @@ class CommerceAPITests(APITestCase):
         self.assertEqual(BuyNowSession.objects.count(), 1)
         self.assertEqual(BuyNowSession.objects.get().unit_price_snapshot, Decimal("120.00"))
         self.assertEqual(self.product.stock_qty, 5)
+
+    def test_checkout_terms_hash_tracks_current_cms_content(self):
+        self.client.post(
+            reverse("commerce-cart-item-list"),
+            {"product_id": self.product.id, "quantity": 1},
+            format="json",
+        )
+        first_response = self.client.post(
+            reverse("commerce-order-checkout"),
+            self._checkout_payload(),
+            format="json",
+        )
+
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+        first_order = Order.objects.get(public_token=first_response.data["public_token"])
+
+        terms_item = (
+            ContentItem.objects.filter(content__name="terms_sections")
+            .order_by("position", "id")
+            .first()
+        )
+        self.assertIsNotNone(terms_item)
+        terms_item.description = f"{terms_item.description or ''} Updated terms."
+        terms_item.save(update_fields=["description", "updated_at"])
+
+        self.client.post(
+            reverse("commerce-cart-item-list"),
+            {"product_id": self.product.id, "quantity": 1},
+            format="json",
+        )
+        second_response = self.client.post(
+            reverse("commerce-order-checkout"),
+            self._checkout_payload(),
+            format="json",
+        )
+
+        self.assertEqual(second_response.status_code, status.HTTP_201_CREATED)
+        second_order = Order.objects.get(public_token=second_response.data["public_token"])
+        self.assertNotEqual(
+            second_order.terms_content_hash,
+            first_order.terms_content_hash,
+        )
 
     def test_buy_now_checkout_rejects_when_quantity_exceeds_current_stock(self):
         create_response = self.client.post(
@@ -1768,6 +1816,18 @@ class CommerceAPITests(APITestCase):
         self.assertEqual(response.data["payment_status"], OrderPaymentStatus.PENDING)
         self.assertEqual(len(response.data["items"]), 1)
         self.assertEqual(response.data["items"][0]["primary_image"]["alt_text"], "Vacuum image")
+        for private_key in (
+            "first_name",
+            "last_name",
+            "email",
+            "phone",
+            "city",
+            "address_line",
+            "note",
+            "company_name",
+            "company_identification_code",
+        ):
+            self.assertNotIn(private_key, response.data)
 
     def test_order_summary_keeps_image_snapshot_after_product_image_changes(self):
         self.client.post(
@@ -2839,6 +2899,27 @@ class CommerceLifecycleServiceTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(order.status, OrderStatus.DELIVERED)
 
+    @override_settings(
+        META_CAPI_ENABLED=True,
+        META_PIXEL_ID="pixel-id",
+        META_CAPI_ACCESS_TOKEN="access-token",
+    )
+    def test_cod_purchase_is_queued_once_when_order_is_delivered(self):
+        order = self._create_order(status=OrderStatus.SHIPPED)
+        order.marketing_consent = True
+        order.save(update_fields=["marketing_consent", "updated_at"])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            transition_order_status(order, OrderStatus.DELIVERED)
+
+        self.assertEqual(
+            OutboundTask.objects.filter(
+                task_type="meta_purchase",
+                unique_key=f"meta-purchase:{order.pk}",
+            ).count(),
+            1,
+        )
+
     def test_cancel_order_and_restore_stock_fails_when_order_item_product_is_missing(self):
         order = self._create_order(status=OrderStatus.NEW, product=self.product)
         order_item = order.items.get()
@@ -2854,6 +2935,136 @@ class CommerceLifecycleServiceTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(order.status, OrderStatus.NEW)
         self.assertIsNone(order.stock_restored_at)
+
+
+class PaymentProviderTransactionBoundaryTests(TransactionTestCase):
+    reset_sequences = True
+
+    def setUp(self):
+        self.category = Category.objects.create(
+            name="Payment boundary",
+            slug="payment-boundary",
+            sort_order=1,
+        )
+        self.product = Product.objects.create(
+            category=self.category,
+            name="Payment Boundary Product",
+            slug="payment-boundary-product",
+            sku="PAYMENT-BOUNDARY-1",
+            price=Decimal("100.00"),
+            stock_qty=1,
+            status=ProductStatus.PUBLISHED,
+        )
+        self.order = Order.objects.create(
+            order_number="ORD-PAYMENT-BOUNDARY",
+            payment_method=OrderPaymentMethod.CARD,
+            payment_status=OrderPaymentStatus.PENDING,
+            status=OrderStatus.NEW,
+            subtotal=self.product.price,
+            total=self.product.price,
+            first_name="Payment",
+            last_name="Boundary",
+            email="payment-boundary@example.com",
+            phone="555123456",
+            city="Tbilisi",
+            address_line="Payment Street 1",
+            note="",
+        )
+
+    @patch("commerce.services.get_provider_method_for_action")
+    def test_provider_call_runs_after_pending_transaction_is_committed(
+        self,
+        get_provider_method_for_action,
+    ):
+        def provider_call(*, transaction):
+            self.assertFalse(connection.in_atomic_block)
+            persisted = PaymentTransaction.objects.get(pk=transaction.pk)
+            self.assertEqual(persisted.status, PaymentTransactionStatus.PENDING)
+            return PaymentProviderResponse(
+                status=PaymentTransactionStatus.AUTHORIZED,
+                provider_transaction_id="provider-authorized-boundary-1",
+                provider_reference={"result": "authorized"},
+            )
+
+        get_provider_method_for_action.return_value = provider_call
+
+        payment_transaction = authorize_payment(
+            order=self.order,
+            amount=self.order.total,
+        )
+
+        self.assertEqual(
+            payment_transaction.status,
+            PaymentTransactionStatus.AUTHORIZED,
+        )
+
+    @patch("commerce.services.get_provider_method_for_action")
+    def test_provider_exception_keeps_pending_transaction_for_reconciliation(
+        self,
+        get_provider_method_for_action,
+    ):
+        def provider_call(*, transaction):
+            self.assertFalse(connection.in_atomic_block)
+            raise TimeoutError("Provider timed out")
+
+        get_provider_method_for_action.return_value = provider_call
+
+        with self.assertRaisesMessage(TimeoutError, "Provider timed out"):
+            authorize_payment(
+                order=self.order,
+                amount=self.order.total,
+            )
+
+        payment_transaction = PaymentTransaction.objects.get()
+        self.assertEqual(
+            payment_transaction.status,
+            PaymentTransactionStatus.PENDING,
+        )
+        self.assertEqual(
+            payment_transaction.error_code,
+            "provider_exception",
+        )
+        self.assertEqual(
+            payment_transaction.error_message,
+            "Provider timed out",
+        )
+
+    @patch("commerce.services.apply_payment_provider_response")
+    @patch("commerce.services.get_provider_method_for_action")
+    def test_response_apply_exception_keeps_pending_transaction_for_reconciliation(
+        self,
+        get_provider_method_for_action,
+        apply_payment_provider_response,
+    ):
+        get_provider_method_for_action.return_value = lambda *, transaction: (
+            PaymentProviderResponse(
+                status=PaymentTransactionStatus.AUTHORIZED,
+                provider_transaction_id="provider-authorized-apply-failure-1",
+                provider_reference={"result": "authorized"},
+            )
+        )
+        apply_payment_provider_response.side_effect = RuntimeError(
+            "Database response apply failed"
+        )
+
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "Database response apply failed",
+        ):
+            authorize_payment(
+                order=self.order,
+                amount=self.order.total,
+            )
+
+        payment_transaction = PaymentTransaction.objects.get()
+        self.assertEqual(
+            payment_transaction.status,
+            PaymentTransactionStatus.PENDING,
+        )
+        self.assertEqual(
+            payment_transaction.error_code,
+            "provider_response_apply_exception",
+        )
 
 
 @skipUnlessDBFeature("has_select_for_update")
@@ -2902,6 +3113,15 @@ class CheckoutConcurrencyTests(TransactionTestCase):
             "terms_accepted": True,
             "payment_method": OrderPaymentMethod.CASH_ON_DELIVERY,
         }
+        self.terms_acceptance = TermsAcceptanceSnapshot(
+            accepted_at=timezone.now(),
+            version="test-version",
+            content_hash="a" * 64,
+            content_snapshot={"page": {"slug": "terms"}, "components": []},
+            url="https://example.test/terms",
+            ip_address="127.0.0.1",
+            user_agent="test-agent",
+        )
 
     def _checkout(self, *, idempotency_key, barrier):
         close_old_connections()
@@ -2918,6 +3138,7 @@ class CheckoutConcurrencyTests(TransactionTestCase):
                 cart=cart,
                 user=user,
                 validated_data=self.validated_data,
+                terms_acceptance=self.terms_acceptance,
                 idempotency_key=idempotency_key,
                 owner_fingerprint=owner_fingerprint,
                 request_fingerprint=request_fingerprint,
@@ -2972,6 +3193,7 @@ class CheckoutConcurrencyTests(TransactionTestCase):
             session=session,
             user=None,
             validated_data=self.validated_data,
+            terms_acceptance=self.terms_acceptance,
             idempotency_key=uuid.uuid4(),
             owner_fingerprint=owner_fingerprint,
             request_fingerprint=request_fingerprint,
@@ -3300,7 +3522,7 @@ class CommerceAdminTests(TestCase):
         )
         self.assertEqual(order.status, OrderStatus.NEW)
 
-    def test_admin_allows_payment_status_update_without_order_status_change(self):
+    def test_admin_keeps_payment_status_read_only(self):
         order = self._create_order(status=OrderStatus.NEW)
 
         response = self.client.post(
@@ -3315,9 +3537,9 @@ class CommerceAdminTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(order.status, OrderStatus.NEW)
-        self.assertEqual(order.payment_status, OrderPaymentStatus.PAID)
+        self.assertEqual(order.payment_status, OrderPaymentStatus.PENDING)
 
-    def test_admin_rejects_invalid_payment_status_regression(self):
+    def test_admin_ignores_manual_payment_status_regression(self):
         order = self._create_order(status=OrderStatus.NEW)
         order.payment_status = OrderPaymentStatus.PAID
         order.save(update_fields=["payment_status", "updated_at"])
@@ -3332,11 +3554,7 @@ class CommerceAdminTests(TestCase):
         )
 
         order.refresh_from_db()
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertContains(
-            response,
-            "Cannot change payment status from &#x27;Paid&#x27; to &#x27;Failed&#x27;.",
-        )
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(order.payment_status, OrderPaymentStatus.PAID)
 
     def test_payment_safety_models_are_registered_in_admin(self):

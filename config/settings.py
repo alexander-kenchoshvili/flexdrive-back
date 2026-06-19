@@ -13,11 +13,17 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 from datetime import timedelta
 import os
+import sys
 from urllib.parse import parse_qs, unquote, urlparse
 from corsheaders.defaults import default_headers
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 load_dotenv()
+
+SUPPORTED_APP_ENVIRONMENTS = frozenset({"development", "staging", "production"})
+DEVELOPMENT_SECRET_KEY = (
+    "django-insecure--_bfns!nr^c#*c+ivlubs!ekah4ppv8yn24hflx56=b1wg4x_+"
+)
 
 
 def _parse_bool_env(name, default=False):
@@ -67,6 +73,75 @@ def _dedupe(values):
         result.append(normalized)
 
     return result
+
+
+def _parse_app_environment():
+    raw_app_env = os.getenv("APP_ENV")
+    if raw_app_env is None:
+        if os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"):
+            raise ImproperlyConfigured(
+                "APP_ENV must be explicitly configured on Render."
+            )
+        return "development"
+
+    app_env = raw_app_env.strip().lower()
+    if app_env not in SUPPORTED_APP_ENVIRONMENTS:
+        supported = ", ".join(sorted(SUPPORTED_APP_ENVIRONMENTS))
+        raise ImproperlyConfigured(
+            f"APP_ENV must be one of: {supported}."
+        )
+    return app_env
+
+
+def _validate_deployed_environment(
+    *,
+    app_env,
+    debug,
+    secret_key,
+    cache_enabled,
+    cache_redis_url,
+    frontend_base_url,
+    allowed_hosts,
+    cors_allowed_origins,
+    csrf_trusted_origins,
+    session_cookie_secure,
+    csrf_cookie_secure,
+    api_cookie_secure,
+    secure_ssl_redirect,
+):
+    if app_env == "development":
+        return
+
+    errors = []
+    if debug:
+        errors.append("DJANGO_DEBUG must be false")
+    if not secret_key or secret_key == DEVELOPMENT_SECRET_KEY:
+        errors.append("DJANGO_SECRET_KEY must be explicitly configured")
+    if not cache_enabled:
+        errors.append("CACHE_ENABLED must be true")
+    if not cache_redis_url:
+        errors.append("CACHE_REDIS_URL must be configured")
+    if not frontend_base_url.startswith("https://"):
+        errors.append("FRONTEND_BASE_URL must use https")
+    if not allowed_hosts:
+        errors.append("DJANGO_ALLOWED_HOSTS must be configured")
+    if not cors_allowed_origins:
+        errors.append("CORS_ALLOWED_ORIGINS must be configured")
+    if not csrf_trusted_origins:
+        errors.append("CSRF_TRUSTED_ORIGINS must be configured")
+    if not session_cookie_secure:
+        errors.append("SESSION_COOKIE_SECURE must be true")
+    if not csrf_cookie_secure:
+        errors.append("CSRF_COOKIE_SECURE must be true")
+    if not api_cookie_secure:
+        errors.append("API_COOKIE_SECURE must be true")
+    if not secure_ssl_redirect:
+        errors.append("SECURE_SSL_REDIRECT must be true")
+
+    if errors:
+        raise ImproperlyConfigured(
+            f"Invalid {app_env} configuration: {'; '.join(errors)}."
+        )
 
 
 def _sqlite_database_config(base_dir):
@@ -162,10 +237,17 @@ STORAGES = {
 }
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv(
-    "DJANGO_SECRET_KEY",
-    "django-insecure--_bfns!nr^c#*c+ivlubs!ekah4ppv8yn24hflx56=b1wg4x_+",
+APP_ENV = _parse_app_environment()
+IS_DEVELOPMENT = APP_ENV == "development"
+IS_STAGING = APP_ENV == "staging"
+IS_PRODUCTION = APP_ENV == "production"
+TESTING = "test" in sys.argv
+DRF_NUM_PROXIES = max(
+    _parse_int_env("DRF_NUM_PROXIES", 0 if IS_DEVELOPMENT else 1),
+    0,
 )
+
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", DEVELOPMENT_SECRET_KEY)
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = _parse_bool_env("DJANGO_DEBUG", True)
@@ -201,6 +283,10 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = _parse_bool_env("SECURE_HSTS_INCLUDE_SUBDOMAINS
 SECURE_HSTS_PRELOAD = _parse_bool_env("SECURE_HSTS_PRELOAD", False)
 
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "https://localhost:3000").strip().rstrip("/")
+TERMS_DOCUMENT_VERSION = os.getenv(
+    "TERMS_DOCUMENT_VERSION",
+    "2026-05-15",
+).strip()
 default_allowed_hosts = ["localhost", "127.0.0.1"]
 render_external_hostname = os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip()
 if render_external_hostname:
@@ -229,6 +315,7 @@ CSRF_TRUSTED_ORIGINS = _dedupe(
 # Application definition
 
 INSTALLED_APPS = [
+    'common.apps.CommonConfig',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -237,8 +324,6 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'catalog.apps.CatalogConfig',
-    'employees',
-    'projects',
     'pages.apps.PagesConfig',
     'accounts',
     'commerce',
@@ -317,15 +402,47 @@ if CACHE_ENABLED:
             "LOCATION": CACHE_REDIS_URL,
             "KEY_PREFIX": CACHE_PREFIX,
             "TIMEOUT": None,
-        }
+        },
+        "throttling": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": CACHE_REDIS_URL,
+            "KEY_PREFIX": f"{CACHE_PREFIX}:throttling",
+            "TIMEOUT": None,
+        },
     }
 else:
     CACHES = {
         "default": {
-            "BACKEND": "django.core.cache.backends.dummy.DummyCache",
+            "BACKEND": (
+                "django.core.cache.backends.dummy.DummyCache"
+                if TESTING
+                else "django.core.cache.backends.locmem.LocMemCache"
+            ),
+            "LOCATION": f"{CACHE_PREFIX}:default",
             "TIMEOUT": None,
-        }
+        },
+        "throttling": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": f"{CACHE_PREFIX}:throttling",
+            "TIMEOUT": None,
+        },
     }
+
+_validate_deployed_environment(
+    app_env=APP_ENV,
+    debug=DEBUG,
+    secret_key=SECRET_KEY,
+    cache_enabled=CACHE_ENABLED,
+    cache_redis_url=CACHE_REDIS_URL,
+    frontend_base_url=FRONTEND_BASE_URL,
+    allowed_hosts=_parse_csv_env("DJANGO_ALLOWED_HOSTS"),
+    cors_allowed_origins=_parse_csv_env("CORS_ALLOWED_ORIGINS"),
+    csrf_trusted_origins=_parse_csv_env("CSRF_TRUSTED_ORIGINS"),
+    session_cookie_secure=SESSION_COOKIE_SECURE,
+    csrf_cookie_secure=CSRF_COOKIE_SECURE,
+    api_cookie_secure=API_COOKIE_SECURE,
+    secure_ssl_redirect=SECURE_SSL_REDIRECT,
+)
 
 
 # Password validation
@@ -402,6 +519,7 @@ BREVO_API_TIMEOUT = int(os.getenv("BREVO_API_TIMEOUT", "10"))
 #     ],
 # }
 REST_FRAMEWORK = {
+    'NUM_PROXIES': DRF_NUM_PROXIES,
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'accounts.authenticate.CustomAuthentication', # áƒ”áƒ¡ áƒ£áƒœáƒ“áƒ áƒ˜áƒ§áƒáƒ¡ áƒžáƒ˜áƒ áƒ•áƒ”áƒšáƒ˜!
         # 'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -411,21 +529,22 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.AllowAny', # áƒ áƒáƒ’áƒáƒ áƒª áƒ¨áƒ”áƒ•áƒ—áƒáƒœáƒ®áƒ›áƒ“áƒ˜áƒ—, áƒ“áƒ áƒáƒ”áƒ‘áƒ˜áƒ— áƒ¦áƒ˜áƒáƒ
     ],
     'DEFAULT_THROTTLE_CLASSES': [
-        'rest_framework.throttling.ScopedRateThrottle',
-        'rest_framework.throttling.AnonRateThrottle',
-        'rest_framework.throttling.UserRateThrottle'
+        'common.throttling.CachedScopedRateThrottle',
+        'common.throttling.CachedAnonRateThrottle',
+        'common.throttling.CachedUserRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '100/min',
-        'user': '120/min',
-        'login': '5/min',
-        'register': '10/min',
-        'checkout': '10/min',
-        'google_auth': '10/min',
-        'facebook_auth': '10/min',
-        'order_lookup': '10/min',
-        'password_reset': '5/min',
-        'activation_resend': '5/hour',
+        'anon': '100000/min' if TESTING else '100/min',
+        'user': '100000/min' if TESTING else '120/min',
+        'login': '100000/min' if TESTING else '5/min',
+        'register': '100000/min' if TESTING else '10/min',
+        'checkout': '100000/min' if TESTING else '10/min',
+        'google_auth': '100000/min' if TESTING else '10/min',
+        'facebook_auth': '100000/min' if TESTING else '10/min',
+        'order_lookup': '100000/min' if TESTING else '10/min',
+        'password_reset': '100000/min' if TESTING else '5/min',
+        'activation_resend': '100000/hour' if TESTING else '5/hour',
+        'catalog_search': '100000/min' if TESTING else '30/min',
     }
 }
 

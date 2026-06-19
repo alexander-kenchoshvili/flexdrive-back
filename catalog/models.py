@@ -572,6 +572,10 @@ class ProductFitment(TimeStampedModel):
             "engine__name",
         )
         constraints = [
+            models.CheckConstraint(
+                condition=Q(year_to__gte=F("year_from")),
+                name="catalog_fitment_year_range_valid",
+            ),
             models.UniqueConstraint(
                 fields=["product", "vehicle_model", "engine", "year_from", "year_to"],
                 name="catalog_unique_product_fitment",
@@ -602,6 +606,10 @@ class ProductFitment(TimeStampedModel):
             raise ValidationError(
                 {"engine": "Engine must belong to the selected vehicle model."}
             )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         year_range = (

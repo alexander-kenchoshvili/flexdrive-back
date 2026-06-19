@@ -9,7 +9,6 @@ from .models import (
     CheckoutAttempt,
     Order,
     OrderItem,
-    OrderPaymentStatus,
     OrderStatus,
     PaymentTransaction,
     StockReservation,
@@ -17,10 +16,8 @@ from .models import (
 )
 from .services import (
     can_cancel_order,
-    can_transition_order_payment_status,
     can_transition_order_status,
     cancel_order_and_restore_stock,
-    transition_order_payment_status,
     transition_order_status,
 )
 
@@ -78,8 +75,7 @@ class OrderAdminForm(forms.ModelForm):
             return cleaned_data
 
         next_status = cleaned_data.get("status")
-        next_payment_status = cleaned_data.get("payment_status")
-        current_order = Order.objects.only("status", "payment_status").get(
+        current_order = Order.objects.only("status").get(
             pk=self.instance.pk
         )
 
@@ -98,23 +94,6 @@ class OrderAdminForm(forms.ModelForm):
                         f"to '{OrderStatus(next_status).label}'."
                     ),
                 )
-
-        if (
-            next_payment_status
-            and current_order.payment_status != next_payment_status
-            and not can_transition_order_payment_status(
-                current_order,
-                next_payment_status,
-            )
-        ):
-            self.add_error(
-                "payment_status",
-                (
-                    f"Cannot change payment status from "
-                    f"'{current_order.get_payment_status_display()}' "
-                    f"to '{OrderPaymentStatus(next_payment_status).label}'."
-                ),
-            )
 
         return cleaned_data
 
@@ -157,6 +136,15 @@ class OrderAdmin(admin.ModelAdmin):
         "public_token",
         "subtotal",
         "total",
+        "payment_method",
+        "payment_status",
+        "terms_accepted_at",
+        "terms_version",
+        "terms_content_hash",
+        "terms_content_snapshot",
+        "terms_url",
+        "terms_ip_address",
+        "terms_user_agent",
         "stock_restored_at",
         "created_at",
         "updated_at",
@@ -189,6 +177,21 @@ class OrderAdmin(admin.ModelAdmin):
         ("Customer", {"fields": ("first_name", "last_name", "email", "phone")}),
         ("Delivery", {"fields": ("city", "address_line", "note")}),
         ("Totals", {"fields": ("subtotal", "total")}),
+        (
+            "Legal acceptance",
+            {
+                "fields": (
+                    "terms_accepted_at",
+                    "terms_version",
+                    "terms_content_hash",
+                    "terms_url",
+                    "terms_ip_address",
+                    "terms_user_agent",
+                    "terms_content_snapshot",
+                ),
+                "classes": ("collapse",),
+            },
+        ),
         (
             "Timestamps",
             {
@@ -230,15 +233,11 @@ class OrderAdmin(admin.ModelAdmin):
 
         current_order = Order.objects.get(pk=obj.pk)
         requested_status = obj.status
-        requested_payment_status = obj.payment_status
 
         obj.status = current_order.status
-        obj.payment_status = current_order.payment_status
         super().save_model(request, obj, form, change)
         if requested_status != current_order.status:
             transition_order_status(obj, requested_status)
-        if requested_payment_status != current_order.payment_status:
-            transition_order_payment_status(obj, requested_payment_status)
 
     def response_change(self, request, obj):
         if "_cancel_and_restore_stock" not in request.POST:
@@ -313,13 +312,8 @@ class PaymentTransactionAdmin(admin.ModelAdmin):
         "reservation__token",
         "provider_transaction_id",
     )
-    readonly_fields = (
-        "created_at",
-        "updated_at",
-        "authorized_at",
-        "captured_at",
-        "cancelled_at",
-        "refunded_at",
+    readonly_fields = tuple(
+        field.name for field in PaymentTransaction._meta.fields
     )
 
     def has_add_permission(self, request):

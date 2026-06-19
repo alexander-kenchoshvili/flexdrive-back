@@ -4,6 +4,7 @@ from django.conf import settings
 from django.db.models import Count, DecimalField, IntegerField, Max, Q, Sum, Value
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import generics
 from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
@@ -14,7 +15,8 @@ from rest_framework.views import APIView
 from accounts.utils import validate_recaptcha
 
 from .models import Order, OrderCheckoutSource, OrderStatus
-from .meta_conversions import send_meta_purchase_event
+from .meta_conversions import build_marketing_context, has_marketing_consent
+from .legal import build_terms_acceptance_snapshot
 from .serializers import (
     BuyNowSessionCreateSerializer,
     BuyNowSessionSerializer,
@@ -26,6 +28,7 @@ from .serializers import (
     OrderListSummarySerializer,
     OrderLookupSerializer,
     OrderLookupSummarySerializer,
+    PublicOrderSummarySerializer,
     OrderSummarySerializer,
     WishlistItemCreateSerializer,
     WishlistItemSerializer,
@@ -331,6 +334,10 @@ class OrderCheckoutAPIView(APIView):
             source=OrderCheckoutSource.CART,
             validated_data=serializer.validated_data,
         )
+        terms_acceptance = build_terms_acceptance_snapshot(
+            request=request,
+            accepted_at=timezone.now(),
+        )
 
         try:
             result = create_order_from_cart(
@@ -340,6 +347,7 @@ class OrderCheckoutAPIView(APIView):
                 idempotency_key=idempotency_key,
                 owner_fingerprint=owner_fingerprint,
                 request_fingerprint=request_fingerprint,
+                terms_acceptance=terms_acceptance,
             )
         except CartAvailabilityChangedError as availability_error:
             sync_cart_availability_issues(
@@ -352,7 +360,11 @@ class OrderCheckoutAPIView(APIView):
             )
 
         if result.created:
-            send_meta_purchase_event(order=result.order, request=request)
+            Order.objects.filter(pk=result.order.pk).update(
+                marketing_consent=has_marketing_consent(request),
+                marketing_context=build_marketing_context(request),
+            )
+            result.order.refresh_from_db()
 
         response = Response(
             OrderSummarySerializer(
@@ -396,6 +408,10 @@ class BuyNowCheckoutAPIView(BuyNowSessionResponseMixin, APIView):
         request_fingerprint = build_checkout_request_fingerprint(
             source=OrderCheckoutSource.BUY_NOW,
             validated_data=serializer.validated_data,
+        )
+        terms_acceptance = build_terms_acceptance_snapshot(
+            request=request,
+            accepted_at=timezone.now(),
         )
         user = request.user if request.user.is_authenticated else None
         guest_token = None
@@ -464,6 +480,7 @@ class BuyNowCheckoutAPIView(BuyNowSessionResponseMixin, APIView):
                 idempotency_key=idempotency_key,
                 owner_fingerprint=owner_fingerprint,
                 request_fingerprint=request_fingerprint,
+                terms_acceptance=terms_acceptance,
             )
         except BuyNowSessionStateError as error:
             return self.build_buy_now_state_error_response(error)
@@ -471,7 +488,11 @@ class BuyNowCheckoutAPIView(BuyNowSessionResponseMixin, APIView):
             return self.build_buy_now_conflict_response(resolved_session, error)
 
         if result.created:
-            send_meta_purchase_event(order=result.order, request=request)
+            Order.objects.filter(pk=result.order.pk).update(
+                marketing_consent=has_marketing_consent(request),
+                marketing_context=build_marketing_context(request),
+            )
+            result.order.refresh_from_db()
 
         response = Response(
             OrderSummarySerializer(
@@ -492,7 +513,7 @@ class BuyNowCheckoutAPIView(BuyNowSessionResponseMixin, APIView):
 class OrderSummaryAPIView(APIView):
     def get(self, request, public_token):
         order = get_object_or_404(Order.objects.prefetch_related("items"), public_token=public_token)
-        serializer = OrderSummarySerializer(order, context={"request": request})
+        serializer = PublicOrderSummarySerializer(order, context={"request": request})
         return Response(serializer.data)
 
 

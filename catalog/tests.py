@@ -341,6 +341,18 @@ class CatalogAPITests(APITestCase):
         self.assertEqual(response.data["results"][0]["slug"], "product-0")
         self.assertEqual(response.data["results"][0]["manufacturer_part_number"], "MPN-0")
 
+    def test_product_search_rejects_too_short_query(self):
+        response = self.client.get(reverse("catalog-product-list"), {"q": "a"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("q", response.data)
+
+    def test_product_search_rejects_too_long_query(self):
+        response = self.client.get(reverse("catalog-product-list"), {"q": "a" * 101})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("q", response.data)
+
     def test_product_search_query_count_stays_bounded_for_unknown_phrase(self):
         with CaptureQueriesContext(connection) as queries:
             response = self.client.get(
@@ -1397,17 +1409,18 @@ class CategoryCacheTests(APITestCase):
         first_response = self.client.get(reverse("catalog-category-list"))
         second_response = self.client.get(reverse("catalog-category-list"))
 
-        Product.objects.create(
-            category=self.category,
-            name="Console Tray",
-            slug="console-tray",
-            sku="TRAY-1",
-            short_description="Console tray",
-            description="Console tray description",
-            price=Decimal("49.00"),
-            stock_qty=3,
-            status=ProductStatus.PUBLISHED,
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            Product.objects.create(
+                category=self.category,
+                name="Console Tray",
+                slug="console-tray",
+                sku="TRAY-1",
+                short_description="Console tray",
+                description="Console tray description",
+                price=Decimal("49.00"),
+                stock_qty=3,
+                status=ProductStatus.PUBLISHED,
+            )
 
         third_response = self.client.get(reverse("catalog-category-list"))
 
