@@ -259,12 +259,10 @@ def _lock_checkout_attempt(
             "request_fingerprint": request_fingerprint,
         },
     )
-    attempt = (
-        CheckoutAttempt.objects.select_for_update()
-        .select_related("order")
-        .prefetch_related("order__items")
-        .get(pk=attempt.pk)
-    )
+    # Lock only the checkout-attempt row. Joining the nullable order relation
+    # here makes PostgreSQL reject the query because FOR UPDATE cannot lock the
+    # nullable side of an outer join.
+    attempt = CheckoutAttempt.objects.select_for_update().get(pk=attempt.pk)
     _validate_checkout_attempt(
         attempt=attempt,
         source=source,

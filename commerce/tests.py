@@ -87,6 +87,7 @@ from .services import (
     create_stock_reservation_from_cart,
     build_checkout_owner_fingerprint,
     build_checkout_request_fingerprint,
+    create_order_from_buy_now_session,
     create_order_from_cart,
     expire_stock_reservations,
     get_available_stock_quantity,
@@ -2950,6 +2951,36 @@ class CheckoutConcurrencyTests(TransactionTestCase):
             sorted(result[1] for result in results if result[0] == "success"),
             [False, True],
         )
+
+    def test_buy_now_checkout_with_idempotency_key_supports_nullable_order(self):
+        guest_token = uuid.uuid4()
+        session = BuyNowSession.objects.create(
+            guest_token=guest_token,
+            product=self.product,
+            unit_price_snapshot=self.product.price,
+            quantity=1,
+        )
+        owner_fingerprint = build_checkout_owner_fingerprint(
+            guest_token=guest_token,
+        )
+        request_fingerprint = build_checkout_request_fingerprint(
+            source=OrderCheckoutSource.BUY_NOW,
+            validated_data=self.validated_data,
+        )
+
+        result = create_order_from_buy_now_session(
+            session=session,
+            user=None,
+            validated_data=self.validated_data,
+            idempotency_key=uuid.uuid4(),
+            owner_fingerprint=owner_fingerprint,
+            request_fingerprint=request_fingerprint,
+        )
+
+        self.assertTrue(result.created)
+        self.assertEqual(result.order.checkout_source, OrderCheckoutSource.BUY_NOW)
+        self.assertFalse(BuyNowSession.objects.filter(pk=session.pk).exists())
+        self.assertEqual(CheckoutAttempt.objects.get().order, result.order)
 
 
 @skipUnlessDBFeature("has_select_for_update")
