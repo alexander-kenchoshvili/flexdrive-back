@@ -2,6 +2,7 @@
 from unittest.mock import patch
 
 from django.core import mail
+from django.test import override_settings
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
@@ -75,6 +76,37 @@ class ContactPageAPITests(APITestCase):
         self.assertEqual(inquiry.status, "new")
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["support@automate.ge"])
+        self.assertEqual(mail.outbox[0].reply_to, ["ana@example.com"])
+        mocked_recaptcha.assert_called_once()
+
+    @override_settings(
+        DEFAULT_FROM_EMAIL="noreply@flexdrive.ge",
+        CONTACT_NOTIFICATION_EMAIL="support@flexdrive.ge",
+    )
+    @patch("pages.contact_views.validate_recaptcha", return_value=True)
+    def test_contact_inquiry_uses_support_fallback_when_footer_email_is_missing(
+        self,
+        mocked_recaptcha,
+    ):
+        FooterSettings.objects.all().delete()
+
+        response = self.client.post(
+            reverse("contact-inquiry-create"),
+            {
+                "full_name": "Ana Beridze",
+                "phone": "+995555123456",
+                "email": "ana@example.com",
+                "topic_slug": "delivery",
+                "order_number": "FD-1024",
+                "message": "Please clarify the delivery status.",
+                "recaptcha_token": "valid-token",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(mail.outbox[0].from_email, "noreply@flexdrive.ge")
+        self.assertEqual(mail.outbox[0].to, ["support@flexdrive.ge"])
         self.assertEqual(mail.outbox[0].reply_to, ["ana@example.com"])
         mocked_recaptcha.assert_called_once()
 

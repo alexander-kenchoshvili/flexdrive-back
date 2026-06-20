@@ -507,7 +507,11 @@ EMAIL_USE_TLS = _parse_bool_env('EMAIL_USE_TLS', True)
 EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', '10'))
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '91c063001@smtp-brevo.com')
 EMAIL_HOST_PASSWORD = os.getenv("BREVO_SMTP_KEY")
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'kenchoshvili.alexander1@gmail.com')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@flexdrive.ge')
+CONTACT_NOTIFICATION_EMAIL = os.getenv(
+    "CONTACT_NOTIFICATION_EMAIL",
+    "support@flexdrive.ge",
+).strip()
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
 BREVO_API_TIMEOUT = int(os.getenv("BREVO_API_TIMEOUT", "10"))
 EMAIL_DELIVERY_MAX_ATTEMPTS = _parse_int_env("EMAIL_DELIVERY_MAX_ATTEMPTS", 3)

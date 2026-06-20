@@ -55,6 +55,7 @@ class ContactInquiryCreateAPIView(APIView):
         footer_settings = FooterSettings.objects.first()
         recipient = (
             getattr(footer_settings, "email", None)
+            or getattr(settings, "CONTACT_NOTIFICATION_EMAIL", "")
             or getattr(settings, "DEFAULT_FROM_EMAIL", "")
         )
         if not recipient:
