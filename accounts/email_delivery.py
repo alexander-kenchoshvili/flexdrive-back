@@ -65,7 +65,14 @@ def _normalize_recipients(recipients):
     return normalized
 
 
-def _send_via_brevo_api(*, subject, text_content, html_content, recipients):
+def _send_via_brevo_api(
+    *,
+    subject,
+    text_content,
+    html_content,
+    recipients,
+    reply_to=None,
+):
     sender_email = str(settings.DEFAULT_FROM_EMAIL).strip()
     if not sender_email:
         raise EmailDeliveryError("The sender email is not configured.")
@@ -78,6 +85,8 @@ def _send_via_brevo_api(*, subject, text_content, html_content, recipients):
     }
     if html_content:
         payload["htmlContent"] = html_content
+    if reply_to:
+        payload["replyTo"] = {"email": reply_to}
 
     def send_once():
         try:
@@ -110,7 +119,14 @@ def _send_via_brevo_api(*, subject, text_content, html_content, recipients):
     _send_with_retry(send_once)
 
 
-def _send_via_django_mail(*, subject, text_content, html_content, recipients):
+def _send_via_django_mail(
+    *,
+    subject,
+    text_content,
+    html_content,
+    recipients,
+    reply_to=None,
+):
     def send_once():
         try:
             message = EmailMultiAlternatives(
@@ -118,6 +134,7 @@ def _send_via_django_mail(*, subject, text_content, html_content, recipients):
                 body=text_content,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 to=recipients,
+                reply_to=[reply_to] if reply_to else None,
             )
             if html_content:
                 message.attach_alternative(html_content, "text/html")
@@ -131,8 +148,16 @@ def _send_via_django_mail(*, subject, text_content, html_content, recipients):
     _send_with_retry(send_once)
 
 
-def send_auth_email(*, subject, text_content, recipients, html_content=None):
+def send_transactional_email(
+    *,
+    subject,
+    text_content,
+    recipients,
+    html_content=None,
+    reply_to=None,
+):
     normalized_recipients = _normalize_recipients(recipients)
+    normalized_reply_to = str(reply_to or "").strip() or None
 
     if getattr(settings, "BREVO_API_KEY", ""):
         _send_via_brevo_api(
@@ -140,6 +165,7 @@ def send_auth_email(*, subject, text_content, recipients, html_content=None):
             text_content=text_content,
             html_content=html_content,
             recipients=normalized_recipients,
+            reply_to=normalized_reply_to,
         )
         return
 
@@ -148,4 +174,14 @@ def send_auth_email(*, subject, text_content, recipients, html_content=None):
         text_content=text_content,
         html_content=html_content,
         recipients=normalized_recipients,
+        reply_to=normalized_reply_to,
+    )
+
+
+def send_auth_email(*, subject, text_content, recipients, html_content=None):
+    send_transactional_email(
+        subject=subject,
+        text_content=text_content,
+        html_content=html_content,
+        recipients=recipients,
     )

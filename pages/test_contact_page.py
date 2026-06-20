@@ -45,6 +45,7 @@ class ContactPageAPITests(APITestCase):
             ["product", "order-status", "delivery", "returns", "other"],
         )
 
+    @override_settings(BREVO_API_KEY="")
     @patch("pages.contact_views.validate_recaptcha", return_value=True)
     def test_contact_inquiry_create_saves_record_and_sends_email(self, mocked_recaptcha):
         FooterSettings.objects.update_or_create(
@@ -80,6 +81,45 @@ class ContactPageAPITests(APITestCase):
         mocked_recaptcha.assert_called_once()
 
     @override_settings(
+        BREVO_API_KEY="test-key",
+        BREVO_API_TIMEOUT=10,
+        DEFAULT_FROM_EMAIL="noreply@flexdrive.ge",
+        CONTACT_NOTIFICATION_EMAIL="support@flexdrive.ge",
+    )
+    @patch("accounts.email_delivery.requests.post")
+    @patch("pages.contact_views.validate_recaptcha", return_value=True)
+    def test_contact_inquiry_uses_brevo_api_when_configured(
+        self,
+        mocked_recaptcha,
+        mock_post,
+    ):
+        FooterSettings.objects.all().delete()
+        mock_post.return_value.status_code = 201
+
+        response = self.client.post(
+            reverse("contact-inquiry-create"),
+            {
+                "full_name": "Ana Beridze",
+                "phone": "+995555123456",
+                "email": "ana@example.com",
+                "topic_slug": "delivery",
+                "order_number": "FD-1024",
+                "message": "Please clarify the delivery status.",
+                "recaptcha_token": "valid-token",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertEqual(payload["sender"], {"email": "noreply@flexdrive.ge"})
+        self.assertEqual(payload["to"], [{"email": "support@flexdrive.ge"}])
+        self.assertEqual(payload["replyTo"], {"email": "ana@example.com"})
+        self.assertIn("ახალი საკონტაქტო მოთხოვნა", payload["subject"])
+        mocked_recaptcha.assert_called_once()
+
+    @override_settings(
+        BREVO_API_KEY="",
         DEFAULT_FROM_EMAIL="noreply@flexdrive.ge",
         CONTACT_NOTIFICATION_EMAIL="support@flexdrive.ge",
     )

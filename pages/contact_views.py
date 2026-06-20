@@ -1,13 +1,18 @@
+import logging
+
 from django.conf import settings
-from django.core.mail import EmailMessage
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.email_delivery import EmailDeliveryError, send_transactional_email
 from accounts.utils import validate_recaptcha
 
 from .contact_serializers import ContactInquiryCreateSerializer
 from .models import FooterSettings
+
+
+logger = logging.getLogger(__name__)
 
 
 class ContactInquiryCreateAPIView(APIView):
@@ -61,7 +66,6 @@ class ContactInquiryCreateAPIView(APIView):
         if not recipient:
             return
 
-        from_email = getattr(settings, "DEFAULT_FROM_EMAIL", recipient) or recipient
         subject = f"ახალი საკონტაქტო მოთხოვნა: {inquiry.topic_label}"
         body = "\n".join(
             [
@@ -78,15 +82,15 @@ class ContactInquiryCreateAPIView(APIView):
             ]
         )
 
-        email = EmailMessage(
-            subject=subject,
-            body=body,
-            from_email=from_email,
-            to=[recipient],
-            reply_to=[inquiry.email] if inquiry.email else None,
-        )
-
         try:
-            email.send(fail_silently=False)
-        except Exception:
-            return
+            send_transactional_email(
+                subject=subject,
+                text_content=body,
+                recipients=[recipient],
+                reply_to=inquiry.email,
+            )
+        except EmailDeliveryError:
+            logger.exception(
+                "Contact inquiry email delivery failed for inquiry %s.",
+                inquiry.pk,
+            )

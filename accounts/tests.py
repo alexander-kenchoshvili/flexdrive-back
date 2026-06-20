@@ -20,7 +20,11 @@ from commerce.models import StockReservation, StockReservationStatus
 
 from .google_auth import GoogleAuthError
 from .models import FacebookAccount, GoogleAccount, UserProfile
-from .email_delivery import EmailDeliveryError, send_auth_email
+from .email_delivery import (
+    EmailDeliveryError,
+    send_auth_email,
+    send_transactional_email,
+)
 from .services import delete_user_account
 
 
@@ -1279,3 +1283,25 @@ class AuthEmailFormattingTests(SimpleTestCase):
             mail.outbox[0].alternatives,
             [('<p><a href="https://example.com/activate/token/">Activate</a></p>', "text/html")],
         )
+
+    @override_settings(
+        BREVO_API_KEY="test-key",
+        BREVO_API_TIMEOUT=10,
+        DEFAULT_FROM_EMAIL="noreply@flexdrive.ge",
+    )
+    @patch("accounts.email_delivery.requests.post")
+    def test_send_transactional_email_includes_reply_to_for_brevo(self, mock_post):
+        mock_post.return_value.status_code = 201
+
+        send_transactional_email(
+            subject="New contact inquiry",
+            text_content="Contact message",
+            recipients=["support@flexdrive.ge"],
+            reply_to="customer@example.com",
+        )
+
+        payload = mock_post.call_args.kwargs["json"]
+
+        self.assertEqual(payload["sender"], {"email": "noreply@flexdrive.ge"})
+        self.assertEqual(payload["to"], [{"email": "support@flexdrive.ge"}])
+        self.assertEqual(payload["replyTo"], {"email": "customer@example.com"})
