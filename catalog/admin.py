@@ -379,7 +379,10 @@ class ProductAdmin(admin.ModelAdmin):
     def calculated_customer_price_readonly(self, obj):
         if not obj:
             return ""
-        return f"{obj.calculate_customer_price():.2f} GEL"
+        calculated_price = obj.calculate_customer_price()
+        if calculated_price is None:
+            return ""
+        return f"{calculated_price:.2f} GEL"
 
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = list(super().get_readonly_fields(request, obj))

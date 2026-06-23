@@ -2,6 +2,7 @@ from decimal import Decimal
 from io import BytesIO
 from unittest import skipUnless
 
+from django.contrib.admin.sites import site
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
@@ -38,6 +39,16 @@ def _generate_test_image(filename="sample.jpg", color=(255, 0, 0), size=(100, 10
     image.save(file_obj, format="JPEG")
     file_obj.seek(0)
     return SimpleUploadedFile(filename, file_obj.read(), content_type="image/jpeg")
+
+
+class CatalogAdminTests(TestCase):
+    def test_calculated_price_preview_handles_unsaved_product_without_price(self):
+        product_admin = site._registry[Product]
+
+        self.assertEqual(
+            product_admin.calculated_customer_price_readonly(Product()),
+            "",
+        )
 
 
 class CatalogAPITests(APITestCase):
