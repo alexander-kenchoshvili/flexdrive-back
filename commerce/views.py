@@ -7,6 +7,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -14,12 +15,29 @@ from rest_framework.views import APIView
 
 from accounts.utils import validate_recaptcha
 
+from .card_payments import (
+    ActiveCardPaymentExists,
+    CardPaymentError,
+    CardPaymentStartFailed,
+    ensure_card_payments_enabled,
+    get_public_card_payment,
+    start_buy_now_card_payment,
+    start_cart_card_payment,
+)
+from .bog_callbacks import (
+    BogCallbackError,
+    apply_bog_callback,
+    parse_bog_callback,
+    verify_bog_callback_signature,
+)
 from .models import Order, OrderCheckoutSource, OrderStatus
 from .meta_conversions import build_marketing_context, has_marketing_consent
 from .legal import build_terms_acceptance_snapshot
 from .serializers import (
     BuyNowSessionCreateSerializer,
     BuyNowSessionSerializer,
+    CardPaymentCheckoutSerializer,
+    CardPaymentSerializer,
     CartItemCreateSerializer,
     CartItemUpdateSerializer,
     CartSerializer,
@@ -36,6 +54,7 @@ from .serializers import (
 )
 from .services import (
     BUY_NOW_TOKEN_COOKIE_NAME,
+    CART_AVAILABILITY_CHANGED_CODE,
     CART_TOKEN_COOKIE_NAME,
     WISHLIST_TOKEN_COOKIE_NAME,
     add_product_to_cart,
@@ -63,9 +82,54 @@ from .services import (
     resolve_wishlist,
     parse_guest_token,
     parse_checkout_idempotency_key,
+    StockReservationError,
     sync_cart_availability_issues,
     update_cart_item_quantity,
 )
+
+
+def _required_checkout_idempotency_key(request):
+    idempotency_key = parse_checkout_idempotency_key(
+        request.headers.get("Idempotency-Key")
+    )
+    if idempotency_key is None:
+        raise ValidationError(
+            {
+                "idempotency_key": (
+                    "Idempotency-Key header is required for card payments."
+                )
+            }
+        )
+    if idempotency_key.version != 4:
+        raise ValidationError(
+            {
+                "idempotency_key": (
+                    "Idempotency-Key must be a UUID version 4."
+                )
+            }
+        )
+    return idempotency_key
+
+
+def _card_payment_error_response(request, error):
+    if isinstance(error, ActiveCardPaymentExists):
+        status_code = status.HTTP_409_CONFLICT
+    elif isinstance(error, CardPaymentStartFailed):
+        status_code = status.HTTP_502_BAD_GATEWAY
+    else:
+        status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
+    data = {
+        "detail": error.detail,
+        "code": error.code,
+        "retryable": error.retryable,
+    }
+    if error.payment is not None:
+        data["payment"] = CardPaymentSerializer(
+            error.payment,
+            context={"request": request},
+        ).data
+    return Response(data, status=status_code)
 
 
 def _api_cookie_kwargs(*, httponly=True, max_age=None):
@@ -92,14 +156,12 @@ def _api_cookie_delete_kwargs():
 
 
 class CartResponseMixin:
-    def build_cart_response(self, request, resolved_cart, *, status_code=status.HTTP_200_OK):
-        cart = get_cart_queryset().get(pk=resolved_cart.cart.pk)
-        response = Response(
-            CartSerializer(cart, context={"request": request}).data,
-            status=status_code,
-        )
+    def apply_cart_cookie(self, response, resolved_cart):
         if resolved_cart.clear_guest_token:
-            response.delete_cookie(CART_TOKEN_COOKIE_NAME, **_api_cookie_delete_kwargs())
+            response.delete_cookie(
+                CART_TOKEN_COOKIE_NAME,
+                **_api_cookie_delete_kwargs(),
+            )
         elif resolved_cart.guest_token:
             response.set_cookie(
                 key=CART_TOKEN_COOKIE_NAME,
@@ -107,6 +169,14 @@ class CartResponseMixin:
                 **_api_cookie_kwargs(max_age=60 * 60 * 24 * 30),
             )
         return response
+
+    def build_cart_response(self, request, resolved_cart, *, status_code=status.HTTP_200_OK):
+        cart = get_cart_queryset().get(pk=resolved_cart.cart.pk)
+        response = Response(
+            CartSerializer(cart, context={"request": request}).data,
+            status=status_code,
+        )
+        return self.apply_cart_cookie(response, resolved_cart)
 
 
 class WishlistResponseMixin:
@@ -303,6 +373,243 @@ class CartItemDetailAPIView(CartResponseMixin, APIView):
         cart_item = get_cart_item_for_update(resolved_cart.cart, pk)
         remove_cart_item(cart_item)
         return self.build_cart_response(request, resolved_cart)
+
+
+class CartCardPaymentStartAPIView(CartResponseMixin, APIView):
+    throttle_scope = "checkout"
+
+    def post(self, request):
+        try:
+            ensure_card_payments_enabled()
+        except CardPaymentError as error:
+            return _card_payment_error_response(request, error)
+
+        if not validate_recaptcha(
+            request.data.get("recaptcha_token"),
+            expected_action="checkout",
+            remote_ip=request.META.get("REMOTE_ADDR"),
+        ):
+            return Response(
+                {"detail": "უსაფრთხოების შემოწმება ვერ გაიარა."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        resolved_cart = resolve_cart(request)
+        serializer = CardPaymentCheckoutSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        idempotency_key = _required_checkout_idempotency_key(request)
+        user = request.user if request.user.is_authenticated else None
+        owner_fingerprint = build_checkout_owner_fingerprint(
+            user=user,
+            guest_token=resolved_cart.guest_token,
+        )
+        request_fingerprint = build_checkout_request_fingerprint(
+            source=OrderCheckoutSource.CART,
+            validated_data=serializer.validated_data,
+        )
+        terms_acceptance = build_terms_acceptance_snapshot(
+            request=request,
+            accepted_at=timezone.now(),
+        )
+
+        try:
+            result = start_cart_card_payment(
+                cart=resolved_cart.cart,
+                user=user,
+                validated_data=serializer.validated_data,
+                terms_acceptance=terms_acceptance,
+                idempotency_key=idempotency_key,
+                owner_fingerprint=owner_fingerprint,
+                request_fingerprint=request_fingerprint,
+                marketing_consent=has_marketing_consent(request),
+                marketing_context=build_marketing_context(request),
+            )
+        except StockReservationError as error:
+            response = Response(
+                {
+                    "detail": error.detail,
+                    "code": CART_AVAILABILITY_CHANGED_CODE,
+                    "cart_issues": error.issues,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+            return self.apply_cart_cookie(response, resolved_cart)
+        except CardPaymentError as error:
+            response = _card_payment_error_response(request, error)
+            return self.apply_cart_cookie(response, resolved_cart)
+
+        response = Response(
+            CardPaymentSerializer(
+                result.payment,
+                context={"request": request},
+            ).data,
+            status=(
+                status.HTTP_201_CREATED
+                if result.created
+                else status.HTTP_200_OK
+            ),
+        )
+        if not result.created:
+            response["Idempotency-Replayed"] = "true"
+        return self.apply_cart_cookie(response, resolved_cart)
+
+
+class CardPaymentAvailabilityAPIView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        response = Response(
+            {
+                "enabled": bool(settings.BOG_PAYMENTS_ENABLED),
+                "payment_method": "card",
+                "provider": "bog",
+                "currency": "GEL",
+                "capture": "automatic",
+                "redirect_checkout": True,
+            }
+        )
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class BuyNowCardPaymentStartAPIView(BuyNowSessionResponseMixin, APIView):
+    throttle_scope = "checkout"
+
+    def post(self, request):
+        try:
+            ensure_card_payments_enabled()
+        except CardPaymentError as error:
+            return _card_payment_error_response(request, error)
+
+        if not validate_recaptcha(
+            request.data.get("recaptcha_token"),
+            expected_action="checkout",
+            remote_ip=request.META.get("REMOTE_ADDR"),
+        ):
+            return Response(
+                {"detail": "უსაფრთხოების შემოწმება ვერ გაიარა."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = CardPaymentCheckoutSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        idempotency_key = _required_checkout_idempotency_key(request)
+        user = request.user if request.user.is_authenticated else None
+
+        try:
+            resolved_session = resolve_buy_now_session(request)
+        except BuyNowSessionStateError as error:
+            return self.build_buy_now_state_error_response(error)
+
+        owner_fingerprint = build_checkout_owner_fingerprint(
+            user=user,
+            guest_token=resolved_session.guest_token,
+        )
+        request_fingerprint = build_checkout_request_fingerprint(
+            source=OrderCheckoutSource.BUY_NOW,
+            validated_data=serializer.validated_data,
+        )
+        terms_acceptance = build_terms_acceptance_snapshot(
+            request=request,
+            accepted_at=timezone.now(),
+        )
+
+        try:
+            result = start_buy_now_card_payment(
+                session=resolved_session.session,
+                user=user,
+                validated_data=serializer.validated_data,
+                terms_acceptance=terms_acceptance,
+                idempotency_key=idempotency_key,
+                owner_fingerprint=owner_fingerprint,
+                request_fingerprint=request_fingerprint,
+                marketing_consent=has_marketing_consent(request),
+                marketing_context=build_marketing_context(request),
+            )
+        except BuyNowSessionStateError as error:
+            return self.build_buy_now_state_error_response(error)
+        except BuyNowConflictError as error:
+            return self.build_buy_now_conflict_response(
+                resolved_session,
+                error,
+            )
+        except CardPaymentError as error:
+            response = _card_payment_error_response(request, error)
+            return self.apply_buy_now_cookie(response, resolved_session)
+
+        response = Response(
+            CardPaymentSerializer(
+                result.payment,
+                context={"request": request},
+            ).data,
+            status=(
+                status.HTTP_201_CREATED
+                if result.created
+                else status.HTTP_200_OK
+            ),
+        )
+        if not result.created:
+            response["Idempotency-Replayed"] = "true"
+        return self.apply_buy_now_cookie(response, resolved_session)
+
+
+class CardPaymentStatusAPIView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, public_token):
+        payment = get_public_card_payment(public_token)
+        if payment is None:
+            return Response(
+                {"detail": "გადახდა ვერ მოიძებნა."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(
+            CardPaymentSerializer(
+                payment,
+                context={"request": request},
+            ).data
+        )
+
+
+class BogPaymentCallbackAPIView(APIView):
+    authentication_classes = ()
+    permission_classes = [AllowAny]
+    parser_classes = ()
+
+    def post(self, request):
+        raw_body = request.body
+        if len(raw_body) > settings.BOG_CALLBACK_MAX_BODY_BYTES:
+            return Response(
+                {
+                    "detail": "Callback body is too large.",
+                    "code": "bog_callback_body_too_large",
+                },
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
+        try:
+            verify_bog_callback_signature(
+                raw_body,
+                request.headers.get("Callback-Signature"),
+            )
+            callback = parse_bog_callback(raw_body)
+            result = apply_bog_callback(callback)
+        except BogCallbackError as error:
+            return Response(
+                {
+                    "detail": str(error),
+                    "code": error.code,
+                },
+                status=error.status_code,
+            )
+
+        return Response(
+            {
+                "status": "accepted",
+                "result": result.result,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class OrderCheckoutAPIView(APIView):

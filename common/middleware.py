@@ -27,6 +27,11 @@ class ApiCsrfProtectionMiddleware:
             "/api/pages/getCurrentContent/",
         }
     )
+    CSRF_EXEMPT_PATHS = frozenset(
+        {
+            "/api/commerce/payments/bog/callback/",
+        }
+    )
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -56,6 +61,7 @@ class ApiCsrfProtectionMiddleware:
             request.method.upper() not in SAFE_HTTP_METHODS
             and request.path.startswith(self.API_PREFIX)
             and request.path not in self.READ_ONLY_POST_PATHS
+            and request.path not in self.CSRF_EXEMPT_PATHS
         )
 
 

@@ -60,6 +60,7 @@ class StockReservationStatus(models.TextChoices):
 class PaymentProvider(models.TextChoices):
     MOCK = "mock", "Mock"
     MANUAL = "manual", "Manual"
+    BOG = "bog", "Bank of Georgia"
 
 
 class PaymentTransactionAction(models.TextChoices):
@@ -627,6 +628,16 @@ class StockReservationItem(TimeStampedModel):
 class PaymentTransaction(TimeStampedModel):
     objects = ProtectedFinancialManager()
 
+    public_token = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+    )
+    idempotency_key = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+    )
     order = models.ForeignKey(
         Order,
         related_name="payment_transactions",
@@ -667,11 +678,16 @@ class PaymentTransaction(TimeStampedModel):
     amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
-        validators=[MinValueValidator(Decimal("0.00"))],
+        validators=[MinValueValidator(Decimal("0.01"))],
     )
     currency = models.CharField(max_length=3, default="GEL")
+    provider_order_id = models.CharField(max_length=120, blank=True, db_index=True)
     provider_transaction_id = models.CharField(max_length=120, blank=True, db_index=True)
+    provider_action_id = models.CharField(max_length=120, blank=True, db_index=True)
     provider_reference = models.JSONField(default=dict, blank=True)
+    checkout_snapshot = models.JSONField(default=dict, blank=True)
+    redirect_url = models.URLField(max_length=500, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
     error_code = models.CharField(max_length=80, blank=True)
     error_message = models.TextField(blank=True)
     authorized_at = models.DateTimeField(null=True, blank=True)
@@ -682,18 +698,31 @@ class PaymentTransaction(TimeStampedModel):
     class Meta:
         ordering = ("-created_at", "-id")
         constraints = [
+            models.CheckConstraint(
+                condition=Q(order__isnull=False) | Q(reservation__isnull=False),
+                name="commerce_payment_requires_target",
+            ),
             models.UniqueConstraint(
                 fields=["provider", "provider_transaction_id"],
                 condition=~Q(provider_transaction_id=""),
                 name="commerce_unique_provider_transaction_id",
             ),
+            models.UniqueConstraint(
+                fields=["provider", "provider_action_id"],
+                condition=~Q(provider_action_id=""),
+                name="commerce_unique_provider_action_id",
+            ),
             models.CheckConstraint(
-                condition=Q(amount__gte=Decimal("0.00")),
-                name="commerce_payment_amount_nonnegative",
+                condition=Q(amount__gt=Decimal("0.00")),
+                name="commerce_payment_amount_positive",
             ),
         ]
         indexes = [
             models.Index(fields=["provider", "status", "created_at"]),
+            models.Index(
+                fields=["provider", "provider_order_id"],
+                name="commerce_pay_prov_order_idx",
+            ),
             models.Index(fields=["order", "status"]),
             models.Index(fields=["reservation", "status"]),
         ]

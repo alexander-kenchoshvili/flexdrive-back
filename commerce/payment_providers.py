@@ -12,6 +12,8 @@ class PaymentProviderResponse:
     status: str
     provider_transaction_id: str
     provider_reference: dict
+    provider_order_id: str = ""
+    provider_action_id: str = ""
     error_code: str = ""
     error_message: str = ""
 

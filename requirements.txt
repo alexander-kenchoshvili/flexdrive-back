@@ -1,6 +1,7 @@
 Django==6.0
 bleach==6.3.0
 cloudinary>=1.44,<2
+cryptography>=46,<49
 defusedxml==0.7.1
 django-ckeditor==6.7.3
 django-cors-headers==4.9.0

@@ -82,6 +82,7 @@ from .services import (
     StockReservationError,
     apply_payment_provider_response,
     authorize_payment,
+    cancel_payment,
     cancel_order_and_restore_stock,
     capture_payment,
     complete_stock_reservation,
@@ -2323,10 +2324,19 @@ class CommerceLifecycleServiceTests(TestCase):
             status=ProductStatus.PUBLISHED,
         )
 
-    def _create_order(self, *, status=OrderStatus.NEW, quantity=3, product=None):
+    def _create_order(
+        self,
+        *,
+        status=OrderStatus.NEW,
+        quantity=3,
+        product=None,
+        payment_method=OrderPaymentMethod.CASH_ON_DELIVERY,
+        payment_status=OrderPaymentStatus.PENDING,
+    ):
         order = Order.objects.create(
             order_number=f"ORD-20260316-{Order.objects.count() + 1:06d}",
-            payment_method=OrderPaymentMethod.CASH_ON_DELIVERY,
+            payment_method=payment_method,
+            payment_status=payment_status,
             status=status,
             subtotal=Decimal("120.00") * quantity,
             total=Decimal("120.00") * quantity,
@@ -2456,6 +2466,97 @@ class CommerceLifecycleServiceTests(TestCase):
             lambda: PaymentTransaction.objects.filter(
                 pk=payment_transaction.pk
             ).update(amount=Decimal("-0.01"))
+        )
+
+    def test_database_rejects_zero_payment_amount(self):
+        payment_transaction = create_payment_transaction(
+            order=self._create_order(status=OrderStatus.NEW, quantity=1),
+            amount=Decimal("120.00"),
+        )
+
+        self.assert_database_rejects(
+            lambda: PaymentTransaction.objects.filter(
+                pk=payment_transaction.pk
+            ).update(amount=Decimal("0.00"))
+        )
+
+    def test_database_rejects_payment_without_order_or_reservation(self):
+        self.assert_database_rejects(
+            lambda: PaymentTransaction.objects.create(
+                amount=Decimal("1.00"),
+            )
+        )
+
+    def test_database_rejects_duplicate_provider_action_id(self):
+        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+        create_payment_transaction(
+            order=order,
+            amount=order.total,
+            provider_action_id="provider-action-1",
+        )
+
+        self.assert_database_rejects(
+            lambda: create_payment_transaction(
+                order=order,
+                amount=order.total,
+                provider_action_id="provider-action-1",
+            )
+        )
+
+    def test_database_rejects_duplicate_payment_idempotency_key(self):
+        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+        idempotency_key = uuid.uuid4()
+        create_payment_transaction(
+            order=order,
+            amount=order.total,
+            idempotency_key=idempotency_key,
+        )
+
+        self.assert_database_rejects(
+            lambda: create_payment_transaction(
+                order=order,
+                amount=order.total,
+                idempotency_key=idempotency_key,
+            )
+        )
+
+    def test_database_allows_same_provider_order_id_for_sale_and_refund(self):
+        order = self._create_order(
+            status=OrderStatus.NEW,
+            quantity=1,
+            payment_method=OrderPaymentMethod.CARD,
+            payment_status=OrderPaymentStatus.PAID,
+        )
+
+        PaymentTransaction.objects.create(
+            order=order,
+            provider=PaymentProvider.BOG,
+            payment_method=OrderPaymentMethod.CARD,
+            action=PaymentTransactionAction.SALE,
+            status=PaymentTransactionStatus.PAID,
+            amount=order.total,
+            currency="GEL",
+            provider_order_id="bog-shared-order-1",
+            provider_transaction_id="bog-sale-transaction-1",
+        )
+        PaymentTransaction.objects.create(
+            order=order,
+            provider=PaymentProvider.BOG,
+            payment_method=OrderPaymentMethod.CARD,
+            action=PaymentTransactionAction.REFUND,
+            status=PaymentTransactionStatus.REFUND_PENDING,
+            amount=order.total,
+            currency="GEL",
+            provider_order_id="bog-shared-order-1",
+            provider_action_id="bog-refund-action-1",
+        )
+
+        self.assertEqual(
+            PaymentTransaction.objects.filter(
+                provider=PaymentProvider.BOG,
+                provider_order_id="bog-shared-order-1",
+            ).count(),
+            2,
         )
 
     def test_order_instance_and_queryset_hard_delete_are_disabled(self):
@@ -2648,6 +2749,23 @@ class CommerceLifecycleServiceTests(TestCase):
         self.assertEqual(reservation.completed_order, order)
         self.assertIsNotNone(reservation.completed_at)
 
+    def test_expired_stock_reservation_cannot_be_completed(self):
+        cart = self._create_cart(user=self.user, quantity=1)
+        reservation = create_stock_reservation_from_cart(cart=cart, user=self.user)
+        reservation.expires_at = timezone.now() - timedelta(seconds=1)
+        reservation.save(update_fields=["expires_at", "updated_at"])
+        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+
+        with self.assertRaisesMessage(
+            StockReservationError,
+            "Expired reservations cannot be completed.",
+        ):
+            complete_stock_reservation(reservation=reservation, order=order)
+
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.status, StockReservationStatus.ACTIVE)
+        self.assertIsNone(reservation.completed_order)
+
     def test_buy_now_stock_reservation_uses_session_snapshot(self):
         session = BuyNowSession.objects.create(
             user=self.user,
@@ -2662,7 +2780,11 @@ class CommerceLifecycleServiceTests(TestCase):
         self.assertEqual(reservation.items.get().quantity, 1)
 
     def test_mock_authorize_and_capture_create_transactions_and_update_order_payment_status(self):
-        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+        order = self._create_order(
+            status=OrderStatus.NEW,
+            quantity=1,
+            payment_method=OrderPaymentMethod.CARD,
+        )
 
         authorized = authorize_payment(order=order, amount=order.total)
         order.refresh_from_db()
@@ -2678,7 +2800,12 @@ class CommerceLifecycleServiceTests(TestCase):
         self.assertEqual(captured.status, PaymentTransactionStatus.PAID)
 
     def test_mock_refund_updates_order_payment_status(self):
-        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+        order = self._create_order(
+            status=OrderStatus.NEW,
+            quantity=1,
+            payment_method=OrderPaymentMethod.CARD,
+        )
+        authorize_payment(order=order, amount=order.total)
         capture_payment(order=order, amount=order.total)
 
         refunded = refund_payment(order=order, amount=order.total)
@@ -2688,7 +2815,12 @@ class CommerceLifecycleServiceTests(TestCase):
         self.assertEqual(order.payment_status, OrderPaymentStatus.REFUNDED)
 
     def test_stale_failed_response_cannot_regress_paid_order(self):
-        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+        order = self._create_order(
+            status=OrderStatus.NEW,
+            quantity=1,
+            payment_method=OrderPaymentMethod.CARD,
+        )
+        authorize_payment(order=order, amount=order.total)
         capture_payment(order=order, amount=order.total)
         stale_transaction = create_payment_transaction(
             order=order,
@@ -2713,7 +2845,12 @@ class CommerceLifecycleServiceTests(TestCase):
         self.assertEqual(order.payment_status, OrderPaymentStatus.PAID)
 
     def test_refunded_order_is_terminal_for_late_paid_response(self):
-        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+        order = self._create_order(
+            status=OrderStatus.NEW,
+            quantity=1,
+            payment_method=OrderPaymentMethod.CARD,
+        )
+        authorize_payment(order=order, amount=order.total)
         capture_payment(order=order, amount=order.total)
         refund_payment(order=order, amount=order.total)
         stale_transaction = create_payment_transaction(
@@ -2735,7 +2872,11 @@ class CommerceLifecycleServiceTests(TestCase):
         self.assertEqual(order.payment_status, OrderPaymentStatus.REFUNDED)
 
     def test_duplicate_provider_response_reuses_existing_transaction(self):
-        order = self._create_order(status=OrderStatus.NEW, quantity=1)
+        order = self._create_order(
+            status=OrderStatus.NEW,
+            quantity=1,
+            payment_method=OrderPaymentMethod.CARD,
+        )
         first_transaction = create_payment_transaction(
             order=order,
             amount=order.total,
@@ -2762,9 +2903,174 @@ class CommerceLifecycleServiceTests(TestCase):
         )
 
         order.refresh_from_db()
+        duplicate_transaction.refresh_from_db()
         self.assertEqual(replayed_transaction.pk, applied_transaction.pk)
-        self.assertEqual(PaymentTransaction.objects.count(), 1)
+        self.assertEqual(PaymentTransaction.objects.count(), 2)
+        self.assertEqual(
+            duplicate_transaction.status,
+            PaymentTransactionStatus.CANCELLED,
+        )
+        self.assertEqual(
+            duplicate_transaction.error_code,
+            "duplicate_provider_response",
+        )
         self.assertEqual(order.payment_status, OrderPaymentStatus.PAID)
+
+    def test_provider_order_id_can_be_shared_by_payment_and_refund_actions(self):
+        order = self._create_order(
+            status=OrderStatus.NEW,
+            quantity=1,
+            payment_method=OrderPaymentMethod.CARD,
+        )
+
+        payment = create_payment_transaction(
+            order=order,
+            amount=order.total,
+            provider=PaymentProvider.BOG,
+            action=PaymentTransactionAction.SALE,
+            provider_order_id="bog-order-1",
+            checkout_snapshot={"source": "cart"},
+        )
+        refund = create_payment_transaction(
+            order=order,
+            amount=order.total,
+            provider=PaymentProvider.BOG,
+            action=PaymentTransactionAction.REFUND,
+            provider_order_id="bog-order-1",
+            provider_action_id="bog-refund-action-1",
+        )
+
+        self.assertNotEqual(payment.pk, refund.pk)
+        self.assertEqual(payment.provider_order_id, refund.provider_order_id)
+        self.assertNotEqual(payment.public_token, refund.public_token)
+        self.assertNotEqual(payment.idempotency_key, refund.idempotency_key)
+        self.assertEqual(payment.checkout_snapshot["source"], "cart")
+
+    def test_second_active_payment_attempt_is_rejected(self):
+        order = self._create_order(
+            status=OrderStatus.NEW,
+            quantity=1,
+            payment_method=OrderPaymentMethod.CARD,
+        )
+        authorize_payment(order=order, amount=order.total)
+
+        with self.assertRaisesMessage(
+            DjangoValidationError,
+            "An active payment attempt already exists for this checkout.",
+        ):
+            authorize_payment(order=order, amount=order.total)
+
+    def test_successful_payment_cancel_allows_a_new_attempt(self):
+        order = self._create_order(
+            status=OrderStatus.NEW,
+            quantity=1,
+            payment_method=OrderPaymentMethod.CARD,
+        )
+        authorize_payment(order=order, amount=order.total)
+        cancel_payment(order=order, amount=order.total)
+
+        retried = authorize_payment(order=order, amount=order.total)
+
+        order.refresh_from_db()
+        self.assertEqual(
+            retried.status,
+            PaymentTransactionStatus.AUTHORIZED,
+        )
+        self.assertEqual(order.payment_status, OrderPaymentStatus.AUTHORIZED)
+
+    def test_capture_requires_matching_authorized_transaction(self):
+        order = self._create_order(
+            status=OrderStatus.NEW,
+            quantity=1,
+            payment_method=OrderPaymentMethod.CARD,
+            payment_status=OrderPaymentStatus.AUTHORIZED,
+        )
+
+        with self.assertRaisesMessage(
+            DjangoValidationError,
+            "Capture requires a matching authorized payment transaction.",
+        ):
+            capture_payment(order=order, amount=order.total)
+
+    def test_partial_refund_is_rejected_until_partial_state_is_supported(self):
+        order = self._create_order(
+            status=OrderStatus.NEW,
+            quantity=1,
+            payment_method=OrderPaymentMethod.CARD,
+        )
+        authorize_payment(order=order, amount=order.total)
+        capture_payment(order=order, amount=order.total)
+
+        with self.assertRaisesMessage(
+            DjangoValidationError,
+            "Partial refunds are not enabled for this payment flow.",
+        ):
+            refund_payment(order=order, amount=Decimal("10.00"))
+
+    def test_older_failed_response_cannot_regress_newer_authorized_transaction(self):
+        order = self._create_order(
+            status=OrderStatus.NEW,
+            quantity=1,
+            payment_method=OrderPaymentMethod.CARD,
+        )
+        older_transaction = create_payment_transaction(
+            order=order,
+            amount=order.total,
+            action=PaymentTransactionAction.AUTHORIZE,
+        )
+        newer_transaction = create_payment_transaction(
+            order=order,
+            amount=order.total,
+            action=PaymentTransactionAction.AUTHORIZE,
+            status=PaymentTransactionStatus.AUTHORIZED,
+        )
+        order.payment_status = OrderPaymentStatus.AUTHORIZED
+        order.save(update_fields=["payment_status", "updated_at"])
+
+        apply_payment_provider_response(
+            older_transaction,
+            PaymentProviderResponse(
+                status=PaymentTransactionStatus.FAILED,
+                provider_transaction_id="older-failed-transaction",
+                provider_reference={"event": "late_failure"},
+            ),
+        )
+
+        order.refresh_from_db()
+        newer_transaction.refresh_from_db()
+        self.assertEqual(
+            newer_transaction.status,
+            PaymentTransactionStatus.AUTHORIZED,
+        )
+        self.assertEqual(order.payment_status, OrderPaymentStatus.AUTHORIZED)
+
+    def test_unpaid_card_order_cannot_move_to_processing(self):
+        order = self._create_order(
+            status=OrderStatus.NEW,
+            quantity=1,
+            payment_method=OrderPaymentMethod.CARD,
+            payment_status=OrderPaymentStatus.PENDING,
+        )
+
+        with self.assertRaisesMessage(
+            DjangoValidationError,
+            "Cannot change status from 'New' to 'Processing'.",
+        ):
+            transition_order_status(order, OrderStatus.PROCESSING)
+
+    def test_paid_card_order_requires_refund_flow_before_cancellation(self):
+        order = self._create_order(
+            status=OrderStatus.NEW,
+            quantity=1,
+            payment_method=OrderPaymentMethod.CARD,
+            payment_status=OrderPaymentStatus.PAID,
+        )
+
+        with self.assertRaisesMessage(
+            DjangoValidationError,
+            "Authorized or paid card orders require the payment refund/cancel flow.",
+        ):
+            cancel_order_and_restore_stock(order)
 
     def test_payment_status_transition_rejects_paid_to_failed(self):
         order = self._create_order(status=OrderStatus.NEW, quantity=1)
@@ -3060,6 +3366,65 @@ class PaymentProviderTransactionBoundaryTests(TransactionTestCase):
         self.assertEqual(
             payment_transaction.error_code,
             "provider_response_apply_exception",
+        )
+
+
+@skipUnlessDBFeature("has_select_for_update")
+class PaymentAttemptConcurrencyTests(TransactionTestCase):
+    reset_sequences = True
+
+    def setUp(self):
+        self.order = Order.objects.create(
+            order_number="ORD-PAYMENT-ATTEMPT-RACE-1",
+            payment_method=OrderPaymentMethod.CARD,
+            payment_status=OrderPaymentStatus.PENDING,
+            status=OrderStatus.NEW,
+            subtotal=Decimal("100.00"),
+            total=Decimal("100.00"),
+            first_name="Payment",
+            last_name="Attempt Race",
+            email="payment-attempt-race@example.com",
+            phone="555123456",
+            city="Tbilisi",
+            address_line="Payment Street 2",
+            note="",
+        )
+
+    def _authorize(self, *, barrier):
+        close_old_connections()
+        try:
+            order = Order.objects.get(pk=self.order.pk)
+            barrier.wait(timeout=10)
+            payment_transaction = authorize_payment(
+                order=order,
+                amount=order.total,
+            )
+            return ("success", payment_transaction.pk)
+        except Exception as error:
+            return ("error", type(error).__name__, str(error))
+        finally:
+            close_old_connections()
+
+    def test_parallel_payment_starts_create_one_active_attempt(self):
+        barrier = Barrier(2)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(
+                executor.map(
+                    lambda _: self._authorize(barrier=barrier),
+                    range(2),
+                )
+            )
+
+        self.order.refresh_from_db()
+        self.assertEqual(
+            sorted(result[0] for result in results),
+            ["error", "success"],
+        )
+        self.assertEqual(PaymentTransaction.objects.count(), 1)
+        self.assertEqual(
+            self.order.payment_status,
+            OrderPaymentStatus.AUTHORIZED,
         )
 
 

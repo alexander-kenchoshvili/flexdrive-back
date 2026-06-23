@@ -9,7 +9,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.db.models import Case, F, IntegerField, Prefetch, Sum, When
+from django.db.models import Case, F, IntegerField, Prefetch, Q, Sum, When
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import APIException, ValidationError
@@ -101,6 +101,18 @@ PAYMENT_TRANSACTION_ORDER_STATUS_MAP = {
     PaymentTransactionStatus.REFUNDED: OrderPaymentStatus.REFUNDED,
 }
 
+ACTIVE_PAYMENT_ATTEMPT_STATUSES = {
+    PaymentTransactionStatus.PENDING,
+    PaymentTransactionStatus.AUTHORIZED,
+}
+
+STRONG_PAYMENT_STATUSES = {
+    PaymentTransactionStatus.AUTHORIZED,
+    PaymentTransactionStatus.PAID,
+    PaymentTransactionStatus.REFUND_PENDING,
+    PaymentTransactionStatus.REFUNDED,
+}
+
 ALLOWED_ORDER_PAYMENT_STATUS_TRANSITIONS = {
     OrderPaymentStatus.PENDING: {
         OrderPaymentStatus.AUTHORIZED,
@@ -152,6 +164,22 @@ class CheckoutIdempotencyConflict(APIException):
                 "detail": (
                     "ეს checkout მცდელობა სხვა შეკვეთის მონაცემებთან არის დაკავშირებული. "
                     "გთხოვთ, დაიწყოთ ახალი მცდელობა."
+                ),
+                "code": self.default_code,
+            }
+        )
+
+
+class CheckoutPaymentInProgress(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_code = "card_payment_already_active"
+
+    def __init__(self):
+        super().__init__(
+            {
+                "detail": (
+                    "ამ შეკვეთისთვის ონლაინ გადახდა უკვე დაწყებულია. "
+                    "დაასრულეთ არსებული გადახდა ან დაელოდეთ მის დასრულებას."
                 ),
                 "code": self.default_code,
             }
@@ -245,7 +273,7 @@ def get_completed_idempotent_order(
     return attempt.order
 
 
-def _lock_checkout_attempt(
+def lock_checkout_attempt(
     *,
     idempotency_key,
     source,
@@ -696,7 +724,10 @@ def confirm_cart_item_prices(cart):
 
 
 def get_buy_now_session_issue_data(session):
-    return [issue.to_response_data() for issue in _build_buy_now_session_issues(session=session)]
+    return [
+        issue.to_response_data()
+        for issue in build_buy_now_session_issues(session=session)
+    ]
 
 
 @transaction.atomic
@@ -753,12 +784,15 @@ def confirm_buy_now_session_updates(session):
     )
     locked_session.product = locked_product
 
-    issues = _build_buy_now_session_issues(session=locked_session, product=locked_product)
+    issues = build_buy_now_session_issues(
+        session=locked_session,
+        product=locked_product,
+    )
     if not issues:
         return locked_session
 
     if any(issue.issue_type in {"out_of_stock", "unavailable"} for issue in issues):
-        raise _build_buy_now_conflict_error(issues)
+        raise build_buy_now_conflict_error(issues)
 
     update_fields = []
     quantity_issue = next((issue for issue in issues if issue.issue_type == "quantity_adjusted"), None)
@@ -859,7 +893,7 @@ def _build_cart_availability_issues(
     return issues, detail
 
 
-def _build_buy_now_session_issues(
+def build_buy_now_session_issues(
     *,
     session,
     product=None,
@@ -951,7 +985,7 @@ def create_order_from_cart(
     owner_fingerprint="",
     request_fingerprint="",
 ):
-    checkout_attempt = _lock_checkout_attempt(
+    checkout_attempt = lock_checkout_attempt(
         idempotency_key=idempotency_key,
         source=OrderCheckoutSource.CART,
         owner_fingerprint=owner_fingerprint,
@@ -981,6 +1015,10 @@ def create_order_from_cart(
     reservation_owner = _get_reservation_owner_kwargs(
         user=user,
         guest_token=locked_cart.guest_token,
+    )
+    ensure_no_active_online_payment(
+        source=OrderCheckoutSource.CART,
+        owner_kwargs=reservation_owner,
     )
     checkout_reservation_ids = _get_existing_active_reservation_ids(
         source=OrderCheckoutSource.CART,
@@ -1114,7 +1152,7 @@ def create_order_from_buy_now_session(
     owner_fingerprint="",
     request_fingerprint="",
 ):
-    checkout_attempt = _lock_checkout_attempt(
+    checkout_attempt = lock_checkout_attempt(
         idempotency_key=idempotency_key,
         source=OrderCheckoutSource.BUY_NOW,
         owner_fingerprint=owner_fingerprint,
@@ -1145,6 +1183,10 @@ def create_order_from_buy_now_session(
         user=user if user is not None else locked_session.user,
         guest_token=locked_session.guest_token,
     )
+    ensure_no_active_online_payment(
+        source=OrderCheckoutSource.BUY_NOW,
+        owner_kwargs=reservation_owner,
+    )
     checkout_reservation_ids = _get_existing_active_reservation_ids(
         source=OrderCheckoutSource.BUY_NOW,
         owner_kwargs=reservation_owner,
@@ -1158,13 +1200,13 @@ def create_order_from_buy_now_session(
         0,
     )
 
-    issues = _build_buy_now_session_issues(
+    issues = build_buy_now_session_issues(
         session=locked_session,
         product=locked_product,
         available_quantity=available_quantity,
     )
     if issues:
-        raise _build_buy_now_conflict_error(issues)
+        raise build_buy_now_conflict_error(issues)
 
     line_total = locked_product.price * locked_session.quantity
 
@@ -1288,6 +1330,7 @@ def create_stock_reservation_from_cart(*, cart, user=None, guest_token=None, ttl
             reserved_quantity=reserved_quantities.get(item.product_id, 0),
         )
         if issue:
+            issue["cart_item_id"] = item.id
             issues.append(issue)
             continue
 
@@ -1355,7 +1398,7 @@ def create_stock_reservation_from_buy_now_session(*, session, user=None, guest_t
         raise StockReservationError(detail=CHECKOUT_AVAILABILITY_CHANGED_DETAIL, issues=[issue])
 
     if locked_session.unit_price_snapshot != product.price:
-        raise _build_buy_now_conflict_error(
+        raise build_buy_now_conflict_error(
             [
                 BuyNowIssue(
                     product_id=product.id,
@@ -1400,6 +1443,8 @@ def complete_stock_reservation(*, reservation, order):
     locked_reservation = StockReservation.objects.select_for_update().get(pk=reservation.pk)
     if locked_reservation.status != StockReservationStatus.ACTIVE:
         raise StockReservationError(detail="Only active reservations can be completed.")
+    if locked_reservation.expires_at <= timezone.now():
+        raise StockReservationError(detail="Expired reservations cannot be completed.")
 
     locked_reservation.status = StockReservationStatus.COMPLETED
     locked_reservation.completed_order = order
@@ -1430,19 +1475,61 @@ def create_payment_transaction(
     action=PaymentTransactionAction.AUTHORIZE,
     status=PaymentTransactionStatus.PENDING,
     currency="GEL",
+    public_token=None,
+    idempotency_key=None,
+    provider_order_id="",
+    provider_transaction_id="",
+    provider_action_id="",
+    provider_reference=None,
+    checkout_snapshot=None,
+    redirect_url="",
+    expires_at=None,
 ):
     if order is None and reservation is None:
         raise ValueError("Payment transaction must belong to an order or reservation.")
 
+    normalized_amount = Decimal(str(amount))
+    if normalized_amount <= Decimal("0.00"):
+        raise ValueError("Payment transaction amount must be greater than zero.")
+
+    normalized_currency = str(currency or "").strip().upper()
+    if normalized_currency != "GEL":
+        raise ValueError("Only GEL payment transactions are supported.")
+
+    PaymentProvider(provider)
+    OrderPaymentMethod(payment_method)
+    PaymentTransactionAction(action)
+    PaymentTransactionStatus(status)
+
+    if provider_reference is not None and not isinstance(provider_reference, dict):
+        raise ValueError("Provider reference must be an object.")
+    if checkout_snapshot is not None and not isinstance(checkout_snapshot, dict):
+        raise ValueError("Checkout snapshot must be an object.")
+
+    create_kwargs = {
+        "order": order,
+        "reservation": reservation,
+        "provider": provider,
+        "payment_method": payment_method,
+        "action": action,
+        "status": status,
+        "amount": normalized_amount,
+        "currency": normalized_currency,
+        "provider_order_id": str(provider_order_id or "").strip(),
+        "provider_transaction_id": str(provider_transaction_id or "").strip(),
+        "provider_action_id": str(provider_action_id or "").strip(),
+        "provider_reference": provider_reference or {},
+        "checkout_snapshot": checkout_snapshot or {},
+        "redirect_url": str(redirect_url or "").strip(),
+        "expires_at": expires_at,
+    }
+    if public_token is not None:
+        create_kwargs["public_token"] = public_token
+    if idempotency_key is not None:
+        create_kwargs["idempotency_key"] = idempotency_key
+
     return PaymentTransaction.objects.create(
-        order=order,
-        reservation=reservation,
-        provider=provider,
-        payment_method=payment_method,
-        action=action,
-        status=status,
-        amount=amount,
-        currency=currency,
+        **create_kwargs,
     )
 
 
@@ -1467,7 +1554,10 @@ def refund_payment(**kwargs):
 
 
 def _process_payment_transaction(*, action, **kwargs):
-    payment_transaction = create_payment_transaction(action=action, **kwargs)
+    payment_transaction = _create_validated_payment_transaction(
+        action=action,
+        **kwargs,
+    )
     provider_method = get_provider_method_for_action(payment_transaction.provider, action)
     try:
         provider_response = provider_method(transaction=payment_transaction)
@@ -1502,6 +1592,216 @@ def _process_payment_transaction(*, action, **kwargs):
 
 
 @transaction.atomic
+def _create_validated_payment_transaction(
+    *,
+    action,
+    order=None,
+    reservation=None,
+    **kwargs,
+):
+    locked_order = None
+    locked_reservation = None
+    if order is not None:
+        locked_order = Order.objects.select_for_update().get(pk=order.pk)
+    if reservation is not None:
+        locked_reservation = StockReservation.objects.select_for_update().get(
+            pk=reservation.pk
+        )
+
+    _validate_payment_operation(
+        action=action,
+        order=locked_order,
+        reservation=locked_reservation,
+        **kwargs,
+    )
+    return create_payment_transaction(
+        action=action,
+        order=locked_order,
+        reservation=locked_reservation,
+        **kwargs,
+    )
+
+
+def _validate_payment_operation(
+    *,
+    action,
+    order=None,
+    reservation=None,
+    amount,
+    provider=PaymentProvider.MOCK,
+    payment_method=OrderPaymentMethod.CARD,
+    currency="GEL",
+    **kwargs,
+):
+    normalized_amount = Decimal(str(amount))
+    if normalized_amount <= Decimal("0.00"):
+        raise DjangoValidationError("Payment amount must be greater than zero.")
+    if str(currency or "").strip().upper() != "GEL":
+        raise DjangoValidationError("Only GEL payments are supported.")
+    if payment_method != OrderPaymentMethod.CARD:
+        raise DjangoValidationError("Payment transactions require card payment.")
+    if order is None and reservation is None:
+        raise DjangoValidationError(
+            "Payment transaction must belong to an order or reservation."
+        )
+
+    active_target_filter = Q()
+    if order is not None:
+        active_target_filter |= Q(order=order)
+    if reservation is not None:
+        active_target_filter |= Q(reservation=reservation)
+
+    if action in {
+        PaymentTransactionAction.AUTHORIZE,
+        PaymentTransactionAction.SALE,
+    }:
+        if _has_active_payment_attempt(
+            target_filter=active_target_filter,
+            provider=provider,
+            payment_method=payment_method,
+        ):
+            raise DjangoValidationError(
+                "An active payment attempt already exists for this checkout."
+            )
+
+    if reservation is not None:
+        current_reservation = reservation
+        if (
+            current_reservation.status != StockReservationStatus.ACTIVE
+            or current_reservation.expires_at <= timezone.now()
+        ):
+            raise DjangoValidationError(
+                "Payment cannot start for an inactive or expired reservation."
+            )
+
+    if order is None:
+        if action in {
+            PaymentTransactionAction.CAPTURE,
+            PaymentTransactionAction.REFUND,
+        }:
+            raise DjangoValidationError(
+                "Capture and refund operations require an order."
+            )
+        return
+
+    current_order = order
+    if current_order.payment_method != OrderPaymentMethod.CARD:
+        raise DjangoValidationError(
+            "Payment operations require an order configured for card payment."
+        )
+    if normalized_amount > current_order.total:
+        raise DjangoValidationError(
+            "Payment amount cannot exceed the order total."
+        )
+
+    if action in {
+        PaymentTransactionAction.AUTHORIZE,
+        PaymentTransactionAction.SALE,
+    }:
+        if current_order.payment_status not in {
+            OrderPaymentStatus.PENDING,
+            OrderPaymentStatus.FAILED,
+            OrderPaymentStatus.CANCELLED,
+        }:
+            raise DjangoValidationError(
+                "A new payment attempt cannot start from the current payment status."
+            )
+    elif action == PaymentTransactionAction.CAPTURE:
+        if current_order.payment_status != OrderPaymentStatus.AUTHORIZED:
+            raise DjangoValidationError(
+                "Only an authorized payment can be captured."
+            )
+        matching_authorization_exists = PaymentTransaction.objects.filter(
+            order=current_order,
+            provider=provider,
+            payment_method=payment_method,
+            action=PaymentTransactionAction.AUTHORIZE,
+            status=PaymentTransactionStatus.AUTHORIZED,
+            amount__gte=normalized_amount,
+        ).exists()
+        if not matching_authorization_exists:
+            raise DjangoValidationError(
+                "Capture requires a matching authorized payment transaction."
+            )
+    elif action == PaymentTransactionAction.CANCEL:
+        if current_order.payment_status not in {
+            OrderPaymentStatus.PENDING,
+            OrderPaymentStatus.AUTHORIZED,
+        }:
+            raise DjangoValidationError(
+                "Only a pending or authorized payment can be cancelled."
+            )
+    elif action == PaymentTransactionAction.REFUND:
+        if current_order.payment_status not in {
+            OrderPaymentStatus.PAID,
+            OrderPaymentStatus.REFUND_PENDING,
+        }:
+            raise DjangoValidationError(
+                "Only a paid payment can be refunded."
+            )
+        refundable_amount = _get_order_refundable_amount(current_order)
+        if normalized_amount > refundable_amount:
+            raise DjangoValidationError(
+                "Refund amount cannot exceed the remaining refundable amount."
+            )
+        if normalized_amount != refundable_amount:
+            raise DjangoValidationError(
+                "Partial refunds are not enabled for this payment flow."
+            )
+
+
+def _get_order_refundable_amount(order):
+    reserved_refund_amount = (
+        PaymentTransaction.objects.filter(
+            order=order,
+            action=PaymentTransactionAction.REFUND,
+            status__in=(
+                PaymentTransactionStatus.REFUND_PENDING,
+                PaymentTransactionStatus.REFUNDED,
+            ),
+        ).aggregate(total=Sum("amount"))["total"]
+        or Decimal("0.00")
+    )
+    return max(order.total - reserved_refund_amount, Decimal("0.00"))
+
+
+def _has_active_payment_attempt(*, target_filter, provider, payment_method):
+    latest_attempt = (
+        PaymentTransaction.objects.filter(
+            target_filter,
+            provider=provider,
+            payment_method=payment_method,
+            action__in=(
+                PaymentTransactionAction.AUTHORIZE,
+                PaymentTransactionAction.SALE,
+            ),
+        )
+        .order_by("-created_at", "-pk")
+        .first()
+    )
+    if (
+        latest_attempt is None
+        or latest_attempt.status not in ACTIVE_PAYMENT_ATTEMPT_STATUSES
+    ):
+        return False
+
+    later_successful_cancel_exists = PaymentTransaction.objects.filter(
+        target_filter,
+        provider=provider,
+        payment_method=payment_method,
+        action=PaymentTransactionAction.CANCEL,
+        status=PaymentTransactionStatus.CANCELLED,
+    ).filter(
+        Q(created_at__gt=latest_attempt.created_at)
+        | Q(
+            created_at=latest_attempt.created_at,
+            pk__gt=latest_attempt.pk,
+        )
+    ).exists()
+    return not later_successful_cancel_exists
+
+
+@transaction.atomic
 def record_payment_processing_exception(
     payment_transaction,
     error,
@@ -1520,6 +1820,16 @@ def record_payment_processing_exception(
 
 
 def can_cancel_order(order):
+    if (
+        order.payment_method != OrderPaymentMethod.CASH_ON_DELIVERY
+        and order.payment_status
+        in {
+            OrderPaymentStatus.AUTHORIZED,
+            OrderPaymentStatus.PAID,
+            OrderPaymentStatus.REFUND_PENDING,
+        }
+    ):
+        return False
     return (
         order.status in CANCELLABLE_ORDER_STATUSES
         and order.stock_restored_at is None
@@ -1531,6 +1841,18 @@ def can_transition_order_status(order, next_status):
         return True
 
     if next_status == OrderStatus.CANCELLED:
+        return False
+
+    if (
+        order.payment_method != OrderPaymentMethod.CASH_ON_DELIVERY
+        and next_status
+        in {
+            OrderStatus.PROCESSING,
+            OrderStatus.SHIPPED,
+            OrderStatus.DELIVERED,
+        }
+        and order.payment_status != OrderPaymentStatus.PAID
+    ):
         return False
 
     return next_status in ALLOWED_ORDER_STATUS_TRANSITIONS.get(order.status, set())
@@ -1634,10 +1956,44 @@ def cancel_order_and_restore_stock(order):
     )
 
     if not can_cancel_order(locked_order):
+        if (
+            locked_order.payment_method != OrderPaymentMethod.CASH_ON_DELIVERY
+            and locked_order.payment_status
+            in {
+                OrderPaymentStatus.AUTHORIZED,
+                OrderPaymentStatus.PAID,
+                OrderPaymentStatus.REFUND_PENDING,
+            }
+        ):
+            raise DjangoValidationError(
+                "Authorized or paid card orders require the payment refund/cancel flow."
+            )
         raise DjangoValidationError(
             "Only new, confirmed, or processing orders can be cancelled."
         )
 
+    return _restore_order_stock_and_cancel(locked_order)
+
+
+@transaction.atomic
+def cancel_refunded_order_and_restore_stock(order):
+    locked_order = Order.objects.select_for_update().get(pk=order.pk)
+    if locked_order.payment_status != OrderPaymentStatus.REFUNDED:
+        raise DjangoValidationError(
+            "Stock can be restored only after the card refund is confirmed."
+        )
+    if (
+        locked_order.status not in CANCELLABLE_ORDER_STATUSES
+        or locked_order.stock_restored_at is not None
+    ):
+        raise DjangoValidationError(
+            "Only new, confirmed, or processing refunded orders can restore stock."
+        )
+
+    return _restore_order_stock_and_cancel(locked_order)
+
+
+def _restore_order_stock_and_cancel(locked_order):
     stock_restoration_rows = list(
         locked_order.items.order_by("product_id")
         .values("product_id")
@@ -1709,6 +2065,27 @@ def _get_existing_active_reservation_ids(*, source, owner_kwargs):
         )
         .values_list("id", flat=True)
     )
+
+
+def ensure_no_active_online_payment(*, source, owner_kwargs):
+    payment_owner_filter = {}
+    if owner_kwargs.get("user") is not None:
+        payment_owner_filter["reservation__user"] = owner_kwargs["user"]
+    elif owner_kwargs.get("guest_token") is not None:
+        payment_owner_filter["reservation__guest_token"] = owner_kwargs[
+            "guest_token"
+        ]
+    else:
+        return
+
+    if PaymentTransaction.objects.filter(
+        provider=PaymentProvider.BOG,
+        action=PaymentTransactionAction.SALE,
+        status=PaymentTransactionStatus.PENDING,
+        reservation__source=source,
+        **payment_owner_filter,
+    ).exists():
+        raise CheckoutPaymentInProgress()
 
 
 def _finalize_checkout_reservations(
@@ -1840,44 +2217,60 @@ def apply_payment_provider_response(payment_transaction, provider_response):
             pk=payment_transaction.reservation_id
         )
 
-    provider_transaction_id = str(
-        provider_response.provider_transaction_id or ""
-    ).strip()
-    if provider_transaction_id:
-        existing_transaction = (
-            PaymentTransaction.objects.select_for_update()
-            .filter(
-                provider=payment_transaction.provider,
-                provider_transaction_id=provider_transaction_id,
-            )
-            .exclude(pk=payment_transaction.pk)
-            .first()
-        )
-        if existing_transaction:
-            if (
-                existing_transaction.order_id != payment_transaction.order_id
-                or existing_transaction.reservation_id
-                != payment_transaction.reservation_id
-                or existing_transaction.amount != payment_transaction.amount
-                or existing_transaction.currency != payment_transaction.currency
-            ):
-                raise DjangoValidationError(
-                    "Provider transaction ID is already linked to another payment."
-                )
+    try:
+        PaymentTransactionStatus(provider_response.status)
+    except ValueError as error:
+        raise DjangoValidationError(
+            f"Unsupported provider payment status: {provider_response.status}"
+        ) from error
+    if not isinstance(provider_response.provider_reference, dict):
+        raise DjangoValidationError("Provider reference must be an object.")
 
-            payment_transaction.delete(allow_hard_delete=True)
-            return existing_transaction
+    provider_order_id = str(provider_response.provider_order_id or "").strip()
+    provider_transaction_id = str(provider_response.provider_transaction_id or "").strip()
+    provider_action_id = str(provider_response.provider_action_id or "").strip()
+
+    duplicate_transaction = _find_duplicate_provider_response(
+        payment_transaction=payment_transaction,
+        provider_transaction_id=provider_transaction_id,
+        provider_action_id=provider_action_id,
+    )
+    if duplicate_transaction:
+        payment_transaction.status = PaymentTransactionStatus.CANCELLED
+        payment_transaction.error_code = "duplicate_provider_response"
+        payment_transaction.error_message = (
+            "Provider response is already linked to another local transaction."
+        )
+        payment_transaction.provider_order_id = provider_order_id
+        payment_transaction.provider_reference = provider_response.provider_reference
+        payment_transaction.cancelled_at = timezone.now()
+        payment_transaction.save(
+            update_fields=[
+                "status",
+                "error_code",
+                "error_message",
+                "provider_order_id",
+                "provider_reference",
+                "cancelled_at",
+                "updated_at",
+            ]
+        )
+        return duplicate_transaction
 
     now = timezone.now()
     payment_transaction.status = provider_response.status
+    payment_transaction.provider_order_id = provider_order_id
     payment_transaction.provider_transaction_id = provider_transaction_id
+    payment_transaction.provider_action_id = provider_action_id
     payment_transaction.provider_reference = provider_response.provider_reference
     payment_transaction.error_code = provider_response.error_code
     payment_transaction.error_message = provider_response.error_message
 
     update_fields = [
         "status",
+        "provider_order_id",
         "provider_transaction_id",
+        "provider_action_id",
         "provider_reference",
         "error_code",
         "error_message",
@@ -1904,6 +2297,47 @@ def apply_payment_provider_response(payment_transaction, provider_response):
     return payment_transaction
 
 
+def _find_duplicate_provider_response(
+    *,
+    payment_transaction,
+    provider_transaction_id,
+    provider_action_id,
+):
+    identity_filters = Q()
+    if provider_transaction_id:
+        identity_filters |= Q(provider_transaction_id=provider_transaction_id)
+    if provider_action_id:
+        identity_filters |= Q(provider_action_id=provider_action_id)
+    if not identity_filters:
+        return None
+
+    matching_transactions = list(
+        PaymentTransaction.objects.select_for_update()
+        .filter(identity_filters, provider=payment_transaction.provider)
+        .exclude(pk=payment_transaction.pk)
+        .order_by("pk")[:2]
+    )
+    if len(matching_transactions) > 1:
+        raise DjangoValidationError(
+            "Provider response identifiers point to different payment actions."
+        )
+    existing_transaction = matching_transactions[0] if matching_transactions else None
+    if not existing_transaction:
+        return None
+
+    if (
+        existing_transaction.order_id != payment_transaction.order_id
+        or existing_transaction.reservation_id != payment_transaction.reservation_id
+        or existing_transaction.action != payment_transaction.action
+        or existing_transaction.amount != payment_transaction.amount
+        or existing_transaction.currency != payment_transaction.currency
+    ):
+        raise DjangoValidationError(
+            "Provider response identity is already linked to another payment action."
+        )
+    return existing_transaction
+
+
 def _sync_order_payment_status(payment_transaction, *, locked_order=None):
     if not payment_transaction.order_id:
         return False
@@ -1917,6 +2351,23 @@ def _sync_order_payment_status(payment_transaction, *, locked_order=None):
             pk=payment_transaction.order_id
         )
 
+    if next_status in {
+        OrderPaymentStatus.FAILED,
+        OrderPaymentStatus.CANCELLED,
+    }:
+        newer_strong_transaction_exists = PaymentTransaction.objects.filter(
+            order=locked_order,
+            status__in=STRONG_PAYMENT_STATUSES,
+        ).filter(
+            Q(created_at__gt=payment_transaction.created_at)
+            | Q(
+                created_at=payment_transaction.created_at,
+                pk__gt=payment_transaction.pk,
+            )
+        ).exists()
+        if newer_strong_transaction_exists:
+            return False
+
     if not can_transition_order_payment_status(locked_order, next_status):
         return False
 
@@ -1925,6 +2376,8 @@ def _sync_order_payment_status(payment_transaction, *, locked_order=None):
 
     locked_order.payment_status = next_status
     locked_order.save(update_fields=["payment_status", "updated_at"])
+    if next_status == OrderPaymentStatus.PAID:
+        _send_purchase_event_if_eligible(locked_order)
     return True
 
 
@@ -1961,7 +2414,7 @@ def _build_buy_now_session_expired_error(*, clear_guest_token=False):
     )
 
 
-def _build_buy_now_conflict_error(issues):
+def build_buy_now_conflict_error(issues):
     issue_types = {issue.issue_type for issue in issues}
 
     if "unavailable" in issue_types or "out_of_stock" in issue_types:

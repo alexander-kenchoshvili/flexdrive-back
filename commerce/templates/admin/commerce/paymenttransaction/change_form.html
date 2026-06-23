@@ -2,15 +2,6 @@
 
 {% block submit_buttons_bottom %}
 {{ block.super }}
-{% if show_cancel_and_restore_stock %}
-<div class="submit-row">
-  <input
-    type="submit"
-    name="_cancel_and_restore_stock"
-    value="Cancel and restore stock"
-  >
-</div>
-{% endif %}
 {% if show_bog_full_refund or show_bog_reconciliation %}
 <div class="submit-row">
   {% if show_bog_full_refund %}

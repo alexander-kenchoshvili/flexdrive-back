@@ -16,6 +16,8 @@ import os
 import sys
 from urllib.parse import parse_qs, unquote, urlparse
 from corsheaders.defaults import default_headers
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 load_dotenv()
@@ -24,6 +26,15 @@ SUPPORTED_APP_ENVIRONMENTS = frozenset({"development", "staging", "production"})
 DEVELOPMENT_SECRET_KEY = (
     "django-insecure--_bfns!nr^c#*c+ivlubs!ekah4ppv8yn24hflx56=b1wg4x_+"
 )
+DEFAULT_BOG_CALLBACK_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu4RUyAw3+CdkS3ZNILQh
+zHI9Hemo+vKB9U2BSabppkKjzjjkf+0Sm76hSMiu/HFtYhqWOESryoCDJoqffY0Q
+1VNt25aTxbj068QNUtnxQ7KQVLA+pG0smf+EBWlS1vBEAFbIas9d8c9b9sSEkTrr
+TYQ90WIM8bGB6S/KLVoT1a7SnzabjoLc5Qf/SLDG5fu8dH8zckyeYKdRKSBJKvhx
+tcBuHV4f7qsynQT+f2UYbESX/TLHwT5qFWZDHZ0YUOUIvb8n7JujVSGZO9/+ll/g
+4ZIWhC1MlJgPObDwRkRd8NFOopgxMcMsDIZIoLbWKhHVq67hdbwpAq9K9WMmEhPn
+PwIDAQAB
+-----END PUBLIC KEY-----"""
 
 
 def _parse_bool_env(name, default=False):
@@ -141,6 +152,75 @@ def _validate_deployed_environment(
     if errors:
         raise ImproperlyConfigured(
             f"Invalid {app_env} configuration: {'; '.join(errors)}."
+        )
+
+
+def _validate_bog_payment_configuration(
+    *,
+    enabled,
+    client_id,
+    client_secret,
+    oauth_url,
+    api_base_url,
+    callback_url,
+    frontend_success_url,
+    frontend_fail_url,
+    callback_public_key,
+    connect_timeout,
+    read_timeout,
+    order_ttl_minutes,
+    reservation_ttl_seconds,
+    callback_max_body_bytes,
+):
+    if not enabled:
+        return
+
+    errors = []
+    if not client_id:
+        errors.append("BOG_CLIENT_ID must be configured")
+    if not client_secret:
+        errors.append("BOG_CLIENT_SECRET must be configured")
+    try:
+        callback_key = serialization.load_pem_public_key(
+            callback_public_key.encode("ascii")
+        )
+    except (TypeError, ValueError, UnicodeEncodeError):
+        errors.append("BOG_CALLBACK_PUBLIC_KEY must be a PEM public key")
+    else:
+        if not isinstance(callback_key, rsa.RSAPublicKey):
+            errors.append("BOG_CALLBACK_PUBLIC_KEY must be an RSA public key")
+    for name, value in (
+        ("BOG_OAUTH_URL", oauth_url),
+        ("BOG_API_BASE_URL", api_base_url),
+        ("BOG_CALLBACK_PUBLIC_URL", callback_url),
+        ("BOG_FRONTEND_SUCCESS_URL", frontend_success_url),
+        ("BOG_FRONTEND_FAIL_URL", frontend_fail_url),
+    ):
+        parsed = urlparse(value)
+        if (
+            parsed.scheme.lower() != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            errors.append(f"{name} must be a valid https URL")
+    if connect_timeout <= 0:
+        errors.append("BOG_HTTP_CONNECT_TIMEOUT_SECONDS must be positive")
+    if read_timeout <= 0:
+        errors.append("BOG_HTTP_READ_TIMEOUT_SECONDS must be positive")
+    if not 2 <= order_ttl_minutes <= 1440:
+        errors.append("BOG_ORDER_TTL_MINUTES must be between 2 and 1440")
+    if reservation_ttl_seconds <= order_ttl_minutes * 60:
+        errors.append(
+            "BOG_STOCK_RESERVATION_TTL_SECONDS must be longer than "
+            "the BOG order TTL"
+        )
+    if callback_max_body_bytes <= 0:
+        errors.append("BOG_CALLBACK_MAX_BODY_BYTES must be positive")
+
+    if errors:
+        raise ImproperlyConfigured(
+            f"Invalid BOG payment configuration: {'; '.join(errors)}."
         )
 
 
@@ -274,6 +354,71 @@ CART_GUEST_TTL_SECONDS = _parse_int_env("CART_GUEST_TTL_SECONDS", 60 * 60 * 24 *
 CART_USER_TTL_SECONDS = _parse_int_env("CART_USER_TTL_SECONDS", 60 * 60 * 24 * 60)
 BUY_NOW_SESSION_TTL_SECONDS = _parse_int_env("BUY_NOW_SESSION_TTL_SECONDS", 60 * 60 * 2)
 STOCK_RESERVATION_TTL_SECONDS = _parse_int_env("STOCK_RESERVATION_TTL_SECONDS", 60 * 15)
+BOG_PAYMENTS_ENABLED = _parse_bool_env("BOG_PAYMENTS_ENABLED", False)
+BOG_CLIENT_ID = os.getenv("BOG_CLIENT_ID", "").strip()
+BOG_CLIENT_SECRET = os.getenv("BOG_CLIENT_SECRET", "").strip()
+BOG_OAUTH_URL = os.getenv(
+    "BOG_OAUTH_URL",
+    "https://oauth2.bog.ge/auth/realms/bog/protocol/openid-connect/token",
+).strip()
+BOG_API_BASE_URL = os.getenv(
+    "BOG_API_BASE_URL",
+    "https://api.bog.ge",
+).strip().rstrip("/")
+BOG_CALLBACK_PUBLIC_URL = os.getenv(
+    "BOG_CALLBACK_PUBLIC_URL",
+    "",
+).strip()
+BOG_FRONTEND_SUCCESS_URL = os.getenv(
+    "BOG_FRONTEND_SUCCESS_URL",
+    "",
+).strip()
+BOG_FRONTEND_FAIL_URL = os.getenv(
+    "BOG_FRONTEND_FAIL_URL",
+    "",
+).strip()
+BOG_CALLBACK_PUBLIC_KEY = (
+    os.getenv("BOG_CALLBACK_PUBLIC_KEY", "").replace("\\n", "\n").strip()
+    or DEFAULT_BOG_CALLBACK_PUBLIC_KEY
+)
+BOG_HTTP_CONNECT_TIMEOUT_SECONDS = _parse_int_env(
+    "BOG_HTTP_CONNECT_TIMEOUT_SECONDS",
+    5,
+)
+BOG_HTTP_READ_TIMEOUT_SECONDS = _parse_int_env(
+    "BOG_HTTP_READ_TIMEOUT_SECONDS",
+    15,
+)
+BOG_TOKEN_REFRESH_SKEW_SECONDS = max(
+    _parse_int_env("BOG_TOKEN_REFRESH_SKEW_SECONDS", 30),
+    0,
+)
+BOG_ORDER_TTL_MINUTES = _parse_int_env("BOG_ORDER_TTL_MINUTES", 15)
+BOG_STOCK_RESERVATION_TTL_SECONDS = _parse_int_env(
+    "BOG_STOCK_RESERVATION_TTL_SECONDS",
+    BOG_ORDER_TTL_MINUTES * 60 + 120,
+)
+BOG_CALLBACK_MAX_BODY_BYTES = _parse_int_env(
+    "BOG_CALLBACK_MAX_BODY_BYTES",
+    256 * 1024,
+)
+
+_validate_bog_payment_configuration(
+    enabled=BOG_PAYMENTS_ENABLED,
+    client_id=BOG_CLIENT_ID,
+    client_secret=BOG_CLIENT_SECRET,
+    oauth_url=BOG_OAUTH_URL,
+    api_base_url=BOG_API_BASE_URL,
+    callback_url=BOG_CALLBACK_PUBLIC_URL,
+    frontend_success_url=BOG_FRONTEND_SUCCESS_URL,
+    frontend_fail_url=BOG_FRONTEND_FAIL_URL,
+    callback_public_key=BOG_CALLBACK_PUBLIC_KEY,
+    connect_timeout=BOG_HTTP_CONNECT_TIMEOUT_SECONDS,
+    read_timeout=BOG_HTTP_READ_TIMEOUT_SECONDS,
+    order_ttl_minutes=BOG_ORDER_TTL_MINUTES,
+    reservation_ttl_seconds=BOG_STOCK_RESERVATION_TTL_SECONDS,
+    callback_max_body_bytes=BOG_CALLBACK_MAX_BODY_BYTES,
+)
 
 SECURE_SSL_REDIRECT = _parse_bool_env("SECURE_SSL_REDIRECT", not DEBUG)
 USE_X_FORWARDED_HOST = _parse_bool_env("USE_X_FORWARDED_HOST", not DEBUG)

@@ -1,7 +1,14 @@
+from django.urls import reverse
 from rest_framework import serializers
 
 from catalog.models import Product, ProductStatus
 
+from .card_payments import (
+    can_redirect_to_bog,
+    can_retry_card_payment_start,
+    get_provider_order_expires_at,
+    get_public_payment_result,
+)
 from .images import build_product_primary_image_snapshot, empty_image_asset, serialize_image_asset
 from .models import (
     BuyNowSession,
@@ -11,6 +18,8 @@ from .models import (
     OrderBuyerType,
     OrderItem,
     OrderPaymentMethod,
+    PaymentTransaction,
+    PaymentTransactionStatus,
     WishlistItem,
 )
 from .services import (
@@ -162,6 +171,78 @@ class CheckoutSerializer(serializers.Serializer):
         attrs["company_name"] = company_name
         attrs["company_identification_code"] = company_identification_code
         return attrs
+
+
+class CardPaymentCheckoutSerializer(CheckoutSerializer):
+    payment_method = serializers.ChoiceField(
+        choices=((OrderPaymentMethod.CARD, "Card"),),
+    )
+
+    def validate_payment_method(self, value):
+        return value
+
+
+class CardPaymentSerializer(serializers.ModelSerializer):
+    payment_token = serializers.UUIDField(source="public_token", read_only=True)
+    result = serializers.SerializerMethodField()
+    redirect_url = serializers.SerializerMethodField()
+    expires_at = serializers.SerializerMethodField()
+    can_retry_start = serializers.SerializerMethodField()
+    is_terminal = serializers.SerializerMethodField()
+    order_public_token = serializers.SerializerMethodField()
+    status_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PaymentTransaction
+        fields = (
+            "payment_token",
+            "status",
+            "result",
+            "amount",
+            "currency",
+            "redirect_url",
+            "expires_at",
+            "can_retry_start",
+            "is_terminal",
+            "order_public_token",
+            "status_url",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+    def get_result(self, obj):
+        return get_public_payment_result(obj)
+
+    def get_redirect_url(self, obj):
+        return obj.redirect_url if can_redirect_to_bog(obj) else None
+
+    def get_expires_at(self, obj):
+        return get_provider_order_expires_at(obj)
+
+    def get_can_retry_start(self, obj):
+        return can_retry_card_payment_start(obj)
+
+    def get_is_terminal(self, obj):
+        return obj.status in {
+            PaymentTransactionStatus.PAID,
+            PaymentTransactionStatus.FAILED,
+            PaymentTransactionStatus.CANCELLED,
+            PaymentTransactionStatus.REFUNDED,
+        }
+
+    def get_order_public_token(self, obj):
+        if not obj.order_id:
+            return None
+        return obj.order.public_token
+
+    def get_status_url(self, obj):
+        request = self.context.get("request")
+        path = reverse(
+            "commerce-card-payment-status",
+            kwargs={"public_token": obj.public_token},
+        )
+        return request.build_absolute_uri(path) if request else path
 
 
 def normalize_order_lookup_phone(value):

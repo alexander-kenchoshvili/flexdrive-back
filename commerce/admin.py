@@ -1,8 +1,18 @@
 from django import forms
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.http import HttpResponseRedirect
+from django.http import Http404, HttpResponseRedirect
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
 
+from .bog_callbacks import BogCallbackError, reconcile_bog_payment
+from .bog_payments import BogPaymentError
+from .bog_refunds import (
+    can_request_bog_full_refund,
+    get_bog_sale_payment_for_order,
+    request_bog_full_refund,
+)
 from .models import (
     Cart,
     CartItem,
@@ -10,7 +20,10 @@ from .models import (
     Order,
     OrderItem,
     OrderStatus,
+    PaymentProvider,
     PaymentTransaction,
+    PaymentTransactionAction,
+    PaymentTransactionStatus,
     StockReservation,
     StockReservationItem,
 )
@@ -56,7 +69,9 @@ class PaymentTransactionInline(admin.TabularInline):
         "status",
         "amount",
         "currency",
+        "provider_order_id",
         "provider_transaction_id",
+        "provider_action_id",
         "created_at",
     )
     readonly_fields = fields
@@ -213,6 +228,21 @@ class OrderAdmin(admin.ModelAdmin):
         actions.pop("delete_selected", None)
         return actions
 
+    def get_urls(self):
+        custom_urls = [
+            path(
+                "<path:object_id>/bog-refund/",
+                self.admin_site.admin_view(self.bog_refund_view),
+                name="commerce_order_bog_refund",
+            ),
+            path(
+                "<path:object_id>/bog-reconcile/",
+                self.admin_site.admin_view(self.bog_reconcile_view),
+                name="commerce_order_bog_reconcile",
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         extra_context = extra_context or {}
 
@@ -221,8 +251,26 @@ class OrderAdmin(admin.ModelAdmin):
             extra_context["show_cancel_and_restore_stock"] = bool(
                 order and can_cancel_order(order)
             )
+            sale_payment = self._bog_sale_payment_or_none(order)
+            extra_context["show_bog_full_refund"] = bool(
+                order and can_request_bog_full_refund(order)
+            )
+            extra_context["show_bog_reconciliation"] = bool(
+                sale_payment and sale_payment.provider_order_id
+            )
+            if order:
+                extra_context["bog_refund_url"] = reverse(
+                    "admin:commerce_order_bog_refund",
+                    args=[order.pk],
+                )
+                extra_context["bog_reconcile_url"] = reverse(
+                    "admin:commerce_order_bog_reconcile",
+                    args=[order.pk],
+                )
         else:
             extra_context["show_cancel_and_restore_stock"] = False
+            extra_context["show_bog_full_refund"] = False
+            extra_context["show_bog_reconciliation"] = False
 
         return super().changeform_view(request, object_id, form_url, extra_context)
 
@@ -255,6 +303,154 @@ class OrderAdmin(admin.ModelAdmin):
             )
 
         return HttpResponseRedirect(".")
+
+    def bog_refund_view(self, request, object_id):
+        order = self._get_action_order(request, object_id)
+        if request.method == "POST":
+            try:
+                refund = request_bog_full_refund(
+                    order=order,
+                    requested_by=request.user,
+                )
+            except DjangoValidationError as error:
+                self.message_user(
+                    request,
+                    error.messages[0],
+                    level=messages.ERROR,
+                )
+            except BogPaymentError as error:
+                level = (
+                    messages.WARNING
+                    if error.retryable or error.outcome_unknown
+                    else messages.ERROR
+                )
+                self.message_user(
+                    request,
+                    (
+                        f"BOG refund was not confirmed ({error.code}). "
+                        "Check the refund transaction and reconcile its status."
+                    ),
+                    level=level,
+                )
+            else:
+                self.message_user(
+                    request,
+                    (
+                        "BOG accepted the full refund request. The refund is "
+                        "pending until BOG confirms the final status."
+                        if refund.status == PaymentTransactionStatus.REFUND_PENDING
+                        else "The existing refund record was reused."
+                    ),
+                    level=messages.SUCCESS,
+                )
+            return HttpResponseRedirect(
+                reverse("admin:commerce_order_change", args=[order.pk])
+            )
+
+        return self._confirmation_response(
+            request,
+            original=order,
+            title=f"Confirm full BOG refund for {order.order_number}",
+            action_label="Request full refund",
+            warning=(
+                f"BOG will receive a full GEL {order.total} refund request. "
+                "The request cannot be cancelled. Stock will be restored only "
+                "after BOG confirms the refund."
+            ),
+            cancel_url=reverse(
+                "admin:commerce_order_change",
+                args=[order.pk],
+            ),
+        )
+
+    def bog_reconcile_view(self, request, object_id):
+        order = self._get_action_order(request, object_id)
+        try:
+            sale_payment = get_bog_sale_payment_for_order(order)
+        except DjangoValidationError as error:
+            raise Http404 from error
+        if request.method == "POST":
+            try:
+                result = reconcile_bog_payment(sale_payment)
+            except (BogPaymentError, BogCallbackError) as error:
+                self.message_user(
+                    request,
+                    (
+                        f"BOG status could not be reconciled ({error.code}). "
+                        "No payment state was guessed."
+                    ),
+                    level=messages.ERROR,
+                )
+            except DjangoValidationError as error:
+                self.message_user(
+                    request,
+                    error.messages[0],
+                    level=messages.ERROR,
+                )
+            else:
+                self.message_user(
+                    request,
+                    f"BOG status reconciliation result: {result.result}.",
+                    level=messages.SUCCESS,
+                )
+            return HttpResponseRedirect(
+                reverse("admin:commerce_order_change", args=[order.pk])
+            )
+
+        return self._confirmation_response(
+            request,
+            original=order,
+            title=f"Refresh BOG status for {order.order_number}",
+            action_label="Refresh BOG status",
+            warning=(
+                "FlexDrive will read the latest payment/refund status from BOG "
+                "and apply only a verified state transition."
+            ),
+            cancel_url=reverse(
+                "admin:commerce_order_change",
+                args=[order.pk],
+            ),
+        )
+
+    def _get_action_order(self, request, object_id):
+        order = self.get_object(request, object_id)
+        if order is None:
+            raise Http404
+        if not self.has_change_permission(request, order):
+            raise PermissionDenied
+        return order
+
+    def _bog_sale_payment_or_none(self, order):
+        if order is None:
+            return None
+        try:
+            return get_bog_sale_payment_for_order(order)
+        except DjangoValidationError:
+            return None
+
+    def _confirmation_response(
+        self,
+        request,
+        *,
+        original,
+        title,
+        action_label,
+        warning,
+        cancel_url,
+    ):
+        return TemplateResponse(
+            request,
+            "admin/commerce/bog_action_confirmation.html",
+            {
+                **self.admin_site.each_context(request),
+                "opts": self.model._meta,
+                "original": original,
+                "title": title,
+                "action_label": action_label,
+                "warning": warning,
+                "cancel_url": cancel_url,
+            },
+        )
 
 
 class StockReservationItemInline(admin.TabularInline):
@@ -294,6 +490,9 @@ class StockReservationAdmin(admin.ModelAdmin):
 
 @admin.register(PaymentTransaction)
 class PaymentTransactionAdmin(admin.ModelAdmin):
+    change_form_template = (
+        "admin/commerce/paymenttransaction/change_form.html"
+    )
     list_display = (
         "id",
         "order",
@@ -304,13 +503,21 @@ class PaymentTransactionAdmin(admin.ModelAdmin):
         "status",
         "amount",
         "currency",
+        "provider_order_id",
+        "provider_action_id",
+        "error_code",
         "created_at",
+        "updated_at",
     )
     list_filter = ("provider", "payment_method", "action", "status", "created_at")
     search_fields = (
         "order__order_number",
         "reservation__token",
+        "public_token",
+        "idempotency_key",
+        "provider_order_id",
         "provider_transaction_id",
+        "provider_action_id",
     )
     readonly_fields = tuple(
         field.name for field in PaymentTransaction._meta.fields
@@ -326,6 +533,194 @@ class PaymentTransactionAdmin(admin.ModelAdmin):
         actions = super().get_actions(request)
         actions.pop("delete_selected", None)
         return actions
+
+    def get_urls(self):
+        custom_urls = [
+            path(
+                "<path:object_id>/bog-refund/",
+                self.admin_site.admin_view(self.bog_refund_view),
+                name="commerce_paymenttransaction_bog_refund",
+            ),
+            path(
+                "<path:object_id>/bog-reconcile/",
+                self.admin_site.admin_view(self.bog_reconcile_view),
+                name="commerce_paymenttransaction_bog_reconcile",
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
+    def changeform_view(
+        self,
+        request,
+        object_id=None,
+        form_url="",
+        extra_context=None,
+    ):
+        extra_context = extra_context or {}
+        payment = self.get_object(request, object_id) if object_id else None
+        is_bog_sale = bool(
+            payment
+            and payment.provider == PaymentProvider.BOG
+            and payment.action == PaymentTransactionAction.SALE
+            and payment.provider_order_id
+        )
+        extra_context["show_bog_reconciliation"] = is_bog_sale
+        extra_context["show_bog_full_refund"] = bool(
+            is_bog_sale
+            and payment.status == PaymentTransactionStatus.PAID
+            and payment.order_id is None
+        )
+        if payment:
+            extra_context["bog_refund_url"] = reverse(
+                "admin:commerce_paymenttransaction_bog_refund",
+                args=[payment.pk],
+            )
+            extra_context["bog_reconcile_url"] = reverse(
+                "admin:commerce_paymenttransaction_bog_reconcile",
+                args=[payment.pk],
+            )
+        return super().changeform_view(
+            request,
+            object_id,
+            form_url,
+            extra_context,
+        )
+
+    def bog_refund_view(self, request, object_id):
+        payment = self._get_action_payment(request, object_id)
+        if request.method == "POST":
+            try:
+                refund = request_bog_full_refund(
+                    sale_payment=payment,
+                    requested_by=request.user,
+                )
+            except DjangoValidationError as error:
+                self.message_user(
+                    request,
+                    error.messages[0],
+                    level=messages.ERROR,
+                )
+            except BogPaymentError as error:
+                self.message_user(
+                    request,
+                    (
+                        f"BOG refund was not confirmed ({error.code}). "
+                        "Reconcile before creating any new request."
+                    ),
+                    level=(
+                        messages.WARNING
+                        if error.retryable or error.outcome_unknown
+                        else messages.ERROR
+                    ),
+                )
+            else:
+                self.message_user(
+                    request,
+                    (
+                        f"Full refund transaction {refund.pk} is pending BOG "
+                        "confirmation."
+                    ),
+                    level=messages.SUCCESS,
+                )
+            return HttpResponseRedirect(
+                reverse(
+                    "admin:commerce_paymenttransaction_change",
+                    args=[payment.pk],
+                )
+            )
+
+        return self._confirmation_response(
+            request,
+            original=payment,
+            title=f"Confirm full BOG refund for payment {payment.pk}",
+            action_label="Request full refund",
+            warning=(
+                f"BOG will receive a full GEL {payment.amount} refund request. "
+                "This paid transaction has no order and requires incident "
+                "recovery."
+            ),
+        )
+
+    def bog_reconcile_view(self, request, object_id):
+        payment = self._get_action_payment(request, object_id)
+        if request.method == "POST":
+            try:
+                result = reconcile_bog_payment(payment)
+            except (BogPaymentError, BogCallbackError) as error:
+                self.message_user(
+                    request,
+                    f"BOG reconciliation failed safely ({error.code}).",
+                    level=messages.ERROR,
+                )
+            except DjangoValidationError as error:
+                self.message_user(
+                    request,
+                    error.messages[0],
+                    level=messages.ERROR,
+                )
+            else:
+                self.message_user(
+                    request,
+                    f"BOG status reconciliation result: {result.result}.",
+                    level=messages.SUCCESS,
+                )
+            return HttpResponseRedirect(
+                reverse(
+                    "admin:commerce_paymenttransaction_change",
+                    args=[payment.pk],
+                )
+            )
+
+        return self._confirmation_response(
+            request,
+            original=payment,
+            title=f"Refresh BOG status for payment {payment.pk}",
+            action_label="Refresh BOG status",
+            warning=(
+                "FlexDrive will fetch the latest BOG details and apply the "
+                "same verified reconciliation used by callbacks."
+            ),
+        )
+
+    def _get_action_payment(self, request, object_id):
+        payment = self.get_object(request, object_id)
+        if payment is None:
+            raise Http404
+        if not self.has_change_permission(request, payment):
+            raise PermissionDenied
+        if (
+            payment.provider != PaymentProvider.BOG
+            or payment.action != PaymentTransactionAction.SALE
+            or not payment.provider_order_id
+        ):
+            raise Http404
+        return payment
+
+    def _confirmation_response(
+        self,
+        request,
+        *,
+        original,
+        title,
+        action_label,
+        warning,
+    ):
+        return TemplateResponse(
+            request,
+            "admin/commerce/bog_action_confirmation.html",
+            {
+                **self.admin_site.each_context(request),
+                "opts": self.model._meta,
+                "original": original,
+                "title": title,
+                "action_label": action_label,
+                "warning": warning,
+                "cancel_url": reverse(
+                    "admin:commerce_paymenttransaction_change",
+                    args=[original.pk],
+                ),
+            },
+        )
 
 
 @admin.register(CheckoutAttempt)

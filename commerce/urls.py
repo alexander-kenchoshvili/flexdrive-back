@@ -1,10 +1,13 @@
 from django.urls import path
 
 from .views import (
+    BuyNowCardPaymentStartAPIView,
+    BogPaymentCallbackAPIView,
     BuyNowCheckoutAPIView,
     BuyNowSessionAPIView,
     BuyNowSessionConfirmationAPIView,
     CartAPIView,
+    CartCardPaymentStartAPIView,
     CartItemDetailAPIView,
     CartItemListAPIView,
     CartPriceConfirmationAPIView,
@@ -16,6 +19,8 @@ from .views import (
     WishlistAPIView,
     WishlistItemDetailAPIView,
     WishlistItemListAPIView,
+    CardPaymentStatusAPIView,
+    CardPaymentAvailabilityAPIView,
 )
 
 urlpatterns = [
@@ -26,6 +31,11 @@ urlpatterns = [
         name="commerce-buy-now-session-confirm",
     ),
     path("buy-now/checkout/", BuyNowCheckoutAPIView.as_view(), name="commerce-buy-now-checkout"),
+    path(
+        "payments/card/buy-now/start/",
+        BuyNowCardPaymentStartAPIView.as_view(),
+        name="commerce-buy-now-card-payment-start",
+    ),
     path("cart/", CartAPIView.as_view(), name="commerce-cart"),
     path("cart/confirm-prices/", CartPriceConfirmationAPIView.as_view(), name="commerce-cart-confirm-prices"),
     path("cart/items/", CartItemListAPIView.as_view(), name="commerce-cart-item-list"),
@@ -34,6 +44,26 @@ urlpatterns = [
     path("wishlist/items/", WishlistItemListAPIView.as_view(), name="commerce-wishlist-item-list"),
     path("wishlist/items/<int:product_id>/", WishlistItemDetailAPIView.as_view(), name="commerce-wishlist-item-detail"),
     path("orders/checkout/", OrderCheckoutAPIView.as_view(), name="commerce-order-checkout"),
+    path(
+        "payments/card/availability/",
+        CardPaymentAvailabilityAPIView.as_view(),
+        name="commerce-card-payment-availability",
+    ),
+    path(
+        "payments/card/cart/start/",
+        CartCardPaymentStartAPIView.as_view(),
+        name="commerce-cart-card-payment-start",
+    ),
+    path(
+        "payments/card/<uuid:public_token>/",
+        CardPaymentStatusAPIView.as_view(),
+        name="commerce-card-payment-status",
+    ),
+    path(
+        "payments/bog/callback/",
+        BogPaymentCallbackAPIView.as_view(),
+        name="commerce-bog-payment-callback",
+    ),
     path("orders/lookup/", OrderLookupAPIView.as_view(), name="commerce-order-lookup"),
     path("orders/", OwnedOrderListAPIView.as_view(), name="commerce-order-list"),
     path("orders/<uuid:public_token>/detail/", OwnedOrderDetailAPIView.as_view(), name="commerce-order-detail"),
