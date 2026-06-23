@@ -591,6 +591,10 @@ Phase 7 verification completed:
 - [ ] Confirm payment details in BOG manager.
 - [ ] Run a declined/cancelled payment.
 - [ ] Confirm reservation release.
+- [ ] Before production/public enablement, add and schedule automatic BOG
+  pending-payment reconciliation/cleanup so abandoned pending payments are
+  checked with BOG and related reservations are closed without manual admin
+  refresh.
 - [ ] Run a full refund.
 - [ ] Confirm verified refund state and customer-side balance behavior.
 - [ ] Test duplicate callback/reconciliation behavior where operationally safe.
@@ -604,6 +608,9 @@ The card option may be publicly enabled only when:
 - no secret is present in Git or frontend output;
 - one real successful payment has been reconciled end to end;
 - one real failed/cancelled attempt has released stock;
+- BOG pending-payment reconciliation/cleanup is scheduled for production, so
+  abandoned pending payments and their reservations do not require manual admin
+  refresh;
 - one real full refund has reached a verified final state;
 - duplicate callback handling is proven idempotent;
 - an unpaid order cannot enter fulfillment;

@@ -227,9 +227,16 @@ def _prepare_cart_card_payment(
         user=user,
         guest_token=locked_cart.guest_token,
     )
+    product_ids = list(
+        locked_cart.items.select_for_update().values_list(
+            "product_id",
+            flat=True,
+        )
+    )
     _raise_if_unresolved_payment_exists(
         source=OrderCheckoutSource.CART,
         owner_filter=owner_filter,
+        product_ids=product_ids,
     )
 
     reservation = create_stock_reservation_from_cart(
@@ -297,6 +304,7 @@ def _prepare_buy_now_card_payment(
     _raise_if_unresolved_payment_exists(
         source=OrderCheckoutSource.BUY_NOW,
         owner_filter=owner_filter,
+        product_ids=[locked_session.product_id],
     )
 
     try:
@@ -738,7 +746,7 @@ def _reservation_owner_filter(*, user=None, guest_token=None):
     raise ValueError("Card payment owner is required.")
 
 
-def _raise_if_unresolved_payment_exists(*, source, owner_filter):
+def _raise_if_unresolved_payment_exists(*, source, owner_filter, product_ids=None):
     active_payment = (
         PaymentTransaction.objects.select_for_update()
         .filter(
@@ -748,8 +756,20 @@ def _raise_if_unresolved_payment_exists(*, source, owner_filter):
             reservation__source=source,
             **owner_filter,
         )
-        .order_by("-created_at", "-pk")
-        .first()
+    )
+    if product_ids is not None:
+        normalized_product_ids = {
+            int(product_id)
+            for product_id in product_ids
+            if product_id is not None
+        }
+        if not normalized_product_ids:
+            return
+        active_payment = active_payment.filter(
+            reservation__items__product_id__in=normalized_product_ids,
+        )
+    active_payment = (
+        active_payment.distinct().order_by("-created_at", "-pk").first()
     )
     if active_payment is not None:
         raise ActiveCardPaymentExists(active_payment)
@@ -797,4 +817,3 @@ def _release_reservation(reservation, *, now):
         released_at=now,
         updated_at=now,
     )
-

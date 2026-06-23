@@ -134,6 +134,19 @@ class CardPaymentFlowAPITests(APITransactionTestCase):
         )
         return cart
 
+    def _create_other_product(self):
+        return Product.objects.create(
+            category=self.category,
+            name="Oil filter",
+            slug=f"card-payment-oil-filter-{uuid.uuid4()}",
+            sku=f"OF-{uuid.uuid4()}",
+            short_description="Oil filter",
+            description="Oil filter",
+            price=Decimal("40.00"),
+            stock_qty=3,
+            status=ProductStatus.PUBLISHED,
+        )
+
     def _provider_result(self, suffix="1"):
         order_id = f"bog-order-{suffix}"
         return BogCreateOrderResult(
@@ -386,6 +399,49 @@ class CardPaymentFlowAPITests(APITransactionTestCase):
         self.assertEqual(StockReservation.objects.count(), 1)
         self.provider_client.create_order.assert_called_once()
 
+    def test_cart_card_payment_allows_different_product_while_previous_payment_is_active(
+        self,
+    ):
+        cart = self._create_cart()
+        other_product = self._create_other_product()
+        self.provider_client.create_order.side_effect = [
+            self._provider_result("first"),
+            self._provider_result("second"),
+        ]
+
+        first = self._start_cart_payment(uuid.uuid4())
+        first_payment = PaymentTransaction.objects.get()
+        first_reservation = first_payment.reservation
+
+        cart.items.all().delete()
+        CartItem.objects.create(
+            cart=cart,
+            product=other_product,
+            quantity=1,
+            unit_price_snapshot=other_product.price,
+        )
+        second = self._start_cart_payment(uuid.uuid4())
+
+        first_payment.refresh_from_db()
+        first_reservation.refresh_from_db()
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED)
+        self.assertNotEqual(
+            first.data["payment_token"],
+            second.data["payment_token"],
+        )
+        self.assertEqual(PaymentTransaction.objects.count(), 2)
+        self.assertEqual(StockReservation.objects.count(), 2)
+        self.assertEqual(first_payment.status, PaymentTransactionStatus.PENDING)
+        self.assertEqual(first_reservation.status, StockReservationStatus.ACTIVE)
+        self.assertEqual(
+            {
+                reservation.items.get().product_id
+                for reservation in StockReservation.objects.all()
+            },
+            {self.product.pk, other_product.pk},
+        )
+
     def test_cod_checkout_is_blocked_while_cart_card_payment_is_active(self):
         self._create_cart()
         self.provider_client.create_order.return_value = self._provider_result()
@@ -410,6 +466,51 @@ class CardPaymentFlowAPITests(APITransactionTestCase):
         self.assertEqual(Order.objects.count(), 0)
         self.assertEqual(CartItem.objects.count(), 1)
         self.assertEqual(self.product.stock_qty, 3)
+
+    def test_cod_checkout_allows_different_cart_product_while_card_payment_is_active(
+        self,
+    ):
+        cart = self._create_cart()
+        other_product = self._create_other_product()
+        self.provider_client.create_order.return_value = self._provider_result()
+        start_response = self._start_cart_payment(uuid.uuid4())
+        pending_payment = PaymentTransaction.objects.get()
+        pending_reservation = pending_payment.reservation
+
+        cart.items.all().delete()
+        CartItem.objects.create(
+            cart=cart,
+            product=other_product,
+            quantity=1,
+            unit_price_snapshot=other_product.price,
+        )
+        cod_response = self.client.post(
+            reverse("commerce-order-checkout"),
+            self._checkout_payload(
+                payment_method=OrderPaymentMethod.CASH_ON_DELIVERY,
+            ),
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        )
+
+        self.product.refresh_from_db()
+        other_product.refresh_from_db()
+        pending_payment.refresh_from_db()
+        pending_reservation.refresh_from_db()
+        self.assertEqual(start_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(cod_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Order.objects.count(), 1)
+        order = Order.objects.get()
+        self.assertEqual(
+            order.payment_method,
+            OrderPaymentMethod.CASH_ON_DELIVERY,
+        )
+        self.assertEqual(order.items.get().product, other_product)
+        self.assertEqual(self.product.stock_qty, 3)
+        self.assertEqual(other_product.stock_qty, 2)
+        self.assertEqual(pending_payment.status, PaymentTransactionStatus.PENDING)
+        self.assertEqual(pending_reservation.status, StockReservationStatus.ACTIVE)
+        self.assertEqual(pending_reservation.items.get().product, self.product)
 
     def test_definitive_provider_rejection_fails_attempt_and_releases_stock(self):
         self._create_cart()
@@ -578,6 +679,63 @@ class CardPaymentFlowAPITests(APITransactionTestCase):
         self.assertEqual(Order.objects.count(), 0)
         self.assertTrue(BuyNowSession.objects.filter(pk=session.pk).exists())
         self.assertEqual(self.product.stock_qty, 3)
+
+    def test_cod_checkout_allows_different_buy_now_product_while_card_payment_is_active(
+        self,
+    ):
+        other_product = self._create_other_product()
+        session = BuyNowSession.objects.create(
+            user=self.user,
+            product=self.product,
+            unit_price_snapshot=self.product.price,
+            quantity=1,
+        )
+        self.provider_client.create_order.return_value = self._provider_result(
+            "buy-now-active"
+        )
+        start_response = self.client.post(
+            reverse("commerce-buy-now-card-payment-start"),
+            self._checkout_payload(),
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        )
+        pending_payment = PaymentTransaction.objects.get()
+        pending_reservation = pending_payment.reservation
+
+        session.product = other_product
+        session.unit_price_snapshot = other_product.price
+        session.save(
+            update_fields=["product", "unit_price_snapshot", "updated_at"]
+        )
+        cod_response = self.client.post(
+            reverse("commerce-buy-now-checkout"),
+            self._checkout_payload(
+                payment_method=OrderPaymentMethod.CASH_ON_DELIVERY,
+            ),
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        )
+
+        self.product.refresh_from_db()
+        other_product.refresh_from_db()
+        pending_payment.refresh_from_db()
+        pending_reservation.refresh_from_db()
+        self.assertEqual(start_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(cod_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Order.objects.count(), 1)
+        order = Order.objects.get()
+        self.assertEqual(order.checkout_source, OrderCheckoutSource.BUY_NOW)
+        self.assertEqual(
+            order.payment_method,
+            OrderPaymentMethod.CASH_ON_DELIVERY,
+        )
+        self.assertEqual(order.items.get().product, other_product)
+        self.assertFalse(BuyNowSession.objects.filter(pk=session.pk).exists())
+        self.assertEqual(self.product.stock_qty, 3)
+        self.assertEqual(other_product.stock_qty, 2)
+        self.assertEqual(pending_payment.status, PaymentTransactionStatus.PENDING)
+        self.assertEqual(pending_reservation.status, StockReservationStatus.ACTIVE)
+        self.assertEqual(pending_reservation.items.get().product, self.product)
 
     def test_payment_status_endpoint_exposes_no_provider_or_customer_data(self):
         self._create_cart()

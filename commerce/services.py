@@ -1019,10 +1019,12 @@ def create_order_from_cart(
     ensure_no_active_online_payment(
         source=OrderCheckoutSource.CART,
         owner_kwargs=reservation_owner,
+        product_ids=product_ids,
     )
     checkout_reservation_ids = _get_existing_active_reservation_ids(
         source=OrderCheckoutSource.CART,
         owner_kwargs=reservation_owner,
+        exclude_active_online_payments=True,
     )
     reserved_quantities = get_reserved_stock_quantities(
         product_ids=product_ids,
@@ -1186,10 +1188,12 @@ def create_order_from_buy_now_session(
     ensure_no_active_online_payment(
         source=OrderCheckoutSource.BUY_NOW,
         owner_kwargs=reservation_owner,
+        product_ids=[locked_product.pk],
     )
     checkout_reservation_ids = _get_existing_active_reservation_ids(
         source=OrderCheckoutSource.BUY_NOW,
         owner_kwargs=reservation_owner,
+        exclude_active_online_payments=True,
     )
     reserved_quantity = get_reserved_stock_quantities(
         product_ids=[locked_product.pk],
@@ -1312,6 +1316,7 @@ def create_stock_reservation_from_cart(*, cart, user=None, guest_token=None, ttl
     existing_reservation_ids = _get_existing_active_reservation_ids(
         source=OrderCheckoutSource.CART,
         owner_kwargs=owner_kwargs,
+        exclude_active_online_payments=True,
     )
     reserved_quantities = get_reserved_stock_quantities(
         product_ids=product_ids,
@@ -1383,6 +1388,7 @@ def create_stock_reservation_from_buy_now_session(*, session, user=None, guest_t
     existing_reservation_ids = _get_existing_active_reservation_ids(
         source=OrderCheckoutSource.BUY_NOW,
         owner_kwargs=owner_kwargs,
+        exclude_active_online_payments=True,
     )
     reserved_quantity = get_reserved_stock_quantities(
         product_ids=[product.pk],
@@ -2054,20 +2060,28 @@ def _get_reservation_owner_kwargs(*, user=None, guest_token=None):
     raise ValueError("Stock reservation owner is required.")
 
 
-def _get_existing_active_reservation_ids(*, source, owner_kwargs):
-    return list(
-        StockReservation.objects.select_for_update()
-        .filter(
-            source=source,
-            status=StockReservationStatus.ACTIVE,
-            expires_at__gt=timezone.now(),
-            **owner_kwargs,
-        )
-        .values_list("id", flat=True)
+def _get_existing_active_reservation_ids(
+    *,
+    source,
+    owner_kwargs,
+    exclude_active_online_payments=False,
+):
+    queryset = StockReservation.objects.select_for_update().filter(
+        source=source,
+        status=StockReservationStatus.ACTIVE,
+        expires_at__gt=timezone.now(),
+        **owner_kwargs,
     )
+    if exclude_active_online_payments:
+        queryset = queryset.exclude(
+            payment_transactions__provider=PaymentProvider.BOG,
+            payment_transactions__action=PaymentTransactionAction.SALE,
+            payment_transactions__status=PaymentTransactionStatus.PENDING,
+        )
+    return list(queryset.values_list("id", flat=True))
 
 
-def ensure_no_active_online_payment(*, source, owner_kwargs):
+def ensure_no_active_online_payment(*, source, owner_kwargs, product_ids=None):
     payment_owner_filter = {}
     if owner_kwargs.get("user") is not None:
         payment_owner_filter["reservation__user"] = owner_kwargs["user"]
@@ -2078,13 +2092,26 @@ def ensure_no_active_online_payment(*, source, owner_kwargs):
     else:
         return
 
-    if PaymentTransaction.objects.filter(
+    active_payments = PaymentTransaction.objects.filter(
         provider=PaymentProvider.BOG,
         action=PaymentTransactionAction.SALE,
         status=PaymentTransactionStatus.PENDING,
         reservation__source=source,
         **payment_owner_filter,
-    ).exists():
+    )
+    if product_ids is not None:
+        normalized_product_ids = {
+            int(product_id)
+            for product_id in product_ids
+            if product_id is not None
+        }
+        if not normalized_product_ids:
+            return
+        active_payments = active_payments.filter(
+            reservation__items__product_id__in=normalized_product_ids,
+        )
+
+    if active_payments.distinct().exists():
         raise CheckoutPaymentInProgress()
 
 
