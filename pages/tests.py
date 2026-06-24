@@ -60,7 +60,7 @@ class GetCurrentContentAPITests(APITestCase):
             [item["description"] for item in items],
             [
                 "შეარჩიე საჭირო ავტონაწილები ონლაინ, სხვადასხვა ადგილზე გადაადგილებისა და ხანგრძლივი ძებნის გარეშე.",
-                "თუ თანხის ერთიანად გადახდა არ გსურს, შეგიძლია ისარგებლო ნაწილ-ნაწილ გადახდის შესაძლებლობით.",
+                "პროდუქტის შეძენა შეგიძლია სადებეტო ან საკრედიტო ბარათით.",
                 "შეკვეთილ ნაწილებს მიიღებ შენთვის მოსახერხებელ მისამართზე, სწრაფად და ორგანიზებულად.",
             ],
         )
@@ -160,7 +160,7 @@ class GetCurrentContentAPITests(APITestCase):
             [
                 "საჭირო ავტონაწილს ირჩევ ონლაინ და შეკვეთის ნაბიჯები თავიდანვე გასაგებია, ზედმეტი დაბნეულობის გარეშე.",
                 "თუ სწრაფად გჭირდება შეკვეთა, შეგიძლია პროცესი account-ის შექმნის გარეშე დაიწყო და დაასრულო.",
-                "აირჩიე შენთვის მოსახერხებელი გადახდის გზა, მათ შორის ნაწილ-ნაწილ გადახდის შესაძლებლობა.",
+                "გადაიხადე საკრედიტო ან სადებეტო ბარათით უსაფრთხოდ და სწრაფად.",
                 "შეკვეთამდე ხედავ მიწოდების პირობებს, რომ იცოდე როდის და როგორ მიიღებ საჭირო ნაწილს.",
             ],
         )
@@ -205,12 +205,12 @@ class GetCurrentContentAPITests(APITestCase):
                 ("guest_step", "იპოვე საჭირო ნაწილი"),
                 ("guest_step", "აირჩიე ყიდვის გზა"),
                 ("guest_step", "შეავსე მონაცემები"),
-                ("guest_step", "დაადასტურე შეკვეთა"),
+                ("guest_step", "შეკვეთის შემოწმება"),
                 ("guest_card", "სტუმრად ყიდვა სწრაფია"),
                 ("registered_step", "შედი ანგარიშში"),
-                ("registered_step", "გამოიყენე Wishlist და ისტორია"),
+                ("registered_step", "გამოიყენე Wishlist"),
                 ("registered_step", "დაასრულე Checkout სწრაფად"),
-                ("registered_step", "აკონტროლე შეკვეთა"),
+                ("registered_step", "სწრაფი Checkout"),
                 ("registered_card", "Wishlist და განმეორებითი არჩევანი"),
                 ("registered_card", "შენახული მისამართები"),
                 ("registered_card", "შეკვეთების ისტორია"),
@@ -903,5 +903,6 @@ class PublicPagesCacheTests(APITestCase):
         self.assertEqual(second_response.headers["X-Cache-Status"], "HIT")
         self.assertEqual(third_response.headers["X-Cache-Status"], "MISS")
         self.assertEqual(third_item_title, "Updated item")
+
 
 
