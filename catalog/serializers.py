@@ -365,7 +365,7 @@ class ProductSuggestionSerializer(ProductListSerializer):
 class ProductDetailSerializer(ProductListSerializer):
     description = serializers.CharField()
     sku = serializers.CharField()
-    stock_qty = serializers.IntegerField()
+    stock_qty = serializers.SerializerMethodField()
     status = serializers.CharField()
     images = ProductImageSerializer(many=True, read_only=True)
     specs = ProductSpecSerializer(many=True, read_only=True)
@@ -386,6 +386,9 @@ class ProductDetailSerializer(ProductListSerializer):
             "created_at",
             "updated_at",
         )
+
+    def get_stock_qty(self, obj):
+        return obj.customer_available_stock_qty
 
     def get_related_products(self, obj):
         related_products = self.context.get("related_products") or []

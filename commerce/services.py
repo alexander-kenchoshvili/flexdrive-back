@@ -336,7 +336,7 @@ def get_product_availability_issue(product):
         return "unavailable"
     if not product.price_available:
         return "unavailable"
-    if product.stock_qty <= 0:
+    if product.customer_available_stock_qty <= 0:
         return "out_of_stock"
     return "available"
 
@@ -658,7 +658,7 @@ def add_product_to_cart(cart, product, quantity):
     )
     desired_quantity = quantity + (cart_item.quantity if cart_item else 0)
 
-    if desired_quantity > product.stock_qty:
+    if desired_quantity > product.customer_available_stock_qty:
         raise ValidationError({"quantity": "Requested quantity exceeds available stock."})
 
     if cart_item:
@@ -689,7 +689,7 @@ def update_cart_item_quantity(cart_item, quantity):
     product = locked_cart_item.product
     _ensure_product_is_purchasable(product)
 
-    if quantity > product.stock_qty:
+    if quantity > product.customer_available_stock_qty:
         raise ValidationError({"quantity": "Requested quantity exceeds available stock."})
 
     locked_cart_item.quantity = quantity
@@ -734,7 +734,7 @@ def get_buy_now_session_issue_data(session):
 def create_or_replace_buy_now_session(*, session=None, user=None, guest_token=None, product, quantity):
     _ensure_product_is_purchasable(product)
 
-    if quantity > product.stock_qty:
+    if quantity > product.customer_available_stock_qty:
         raise ValidationError({"quantity": "Requested quantity exceeds available stock."})
 
     locked_session = session
@@ -867,7 +867,7 @@ def _build_cart_availability_issues(
 
         available_quantity = available_quantities.get(
             product.pk,
-            product.stock_qty,
+            product.customer_available_stock_qty,
         )
         if item.quantity <= available_quantity:
             continue
@@ -901,7 +901,7 @@ def build_buy_now_session_issues(
 ):
     current_product = product or session.product
     if available_quantity is None:
-        available_quantity = current_product.stock_qty
+        available_quantity = current_product.customer_available_stock_qty
     issues = []
     availability_issue = get_product_availability_issue(current_product)
 
@@ -1032,7 +1032,7 @@ def create_order_from_cart(
     )
     available_quantities = {
         product_id: max(
-            product.stock_qty - reserved_quantities.get(product_id, 0),
+            product.customer_available_stock_qty - reserved_quantities.get(product_id, 0),
             0,
         )
         for product_id, product in products_by_id.items()
@@ -1200,7 +1200,7 @@ def create_order_from_buy_now_session(
         exclude_reservation_ids=checkout_reservation_ids,
     ).get(locked_product.pk, 0)
     available_quantity = max(
-        locked_product.stock_qty - reserved_quantity,
+        locked_product.customer_available_stock_qty - reserved_quantity,
         0,
     )
 
@@ -1291,7 +1291,7 @@ def get_available_stock_quantity(*, product, now=None, exclude_reservation_ids=N
         now=now,
         exclude_reservation_ids=exclude_reservation_ids,
     ).get(product.pk, 0)
-    return max(product.stock_qty - reserved_quantity, 0)
+    return max(product.customer_available_stock_qty - reserved_quantity, 0)
 
 
 @transaction.atomic
@@ -1410,7 +1410,7 @@ def create_stock_reservation_from_buy_now_session(*, session, user=None, guest_t
                     product_id=product.id,
                     issue_type="price_changed",
                     requested_quantity=locked_session.quantity,
-                    available_quantity=product.stock_qty,
+                    available_quantity=product.customer_available_stock_qty,
                     price_snapshot=locked_session.unit_price_snapshot,
                     current_price=product.price,
                 )
@@ -2223,7 +2223,7 @@ def _build_reservation_item_issue(*, product, requested_quantity, reserved_quant
             "available_quantity": 0,
         }
 
-    available_quantity = max(product.stock_qty - reserved_quantity, 0)
+    available_quantity = max(product.customer_available_stock_qty - reserved_quantity, 0)
     if requested_quantity <= available_quantity:
         return None
 
@@ -2488,7 +2488,7 @@ def _ensure_product_is_purchasable(product):
         raise ValidationError({"product_id": "Product is not available."})
     if not product.price_available:
         raise ValidationError({"product_id": "Product price is not available."})
-    if product.stock_qty <= 0:
+    if product.customer_available_stock_qty <= 0:
         raise ValidationError({"quantity": "Product is out of stock."})
 
 
@@ -2502,7 +2502,7 @@ def _merge_carts(*, target_cart, source_cart):
 
     for source_item in source_items:
         target_item = existing_items.get(source_item.product_id)
-        stock_qty = source_item.product.stock_qty
+        stock_qty = source_item.product.customer_available_stock_qty
         merged_quantity = source_item.quantity + (target_item.quantity if target_item else 0)
         merged_quantity = min(merged_quantity, stock_qty)
 

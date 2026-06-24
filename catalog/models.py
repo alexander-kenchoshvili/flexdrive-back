@@ -29,6 +29,9 @@ def category_image_upload_to(instance, filename):
     return f"catalog/categories/{category_id}/images/{uuid.uuid4().hex}{ext}"
 
 
+CUSTOMER_STOCK_RESERVE_QTY = 5
+
+
 class TimeStampedModel(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -495,8 +498,12 @@ class Product(TimeStampedModel):
         super().save(*args, **kwargs)
 
     @property
+    def customer_available_stock_qty(self):
+        return max(self.stock_qty - CUSTOMER_STOCK_RESERVE_QTY, 0)
+
+    @property
     def in_stock(self):
-        return self.stock_qty > 0
+        return self.customer_available_stock_qty > 0
 
     @property
     def price_available(self):

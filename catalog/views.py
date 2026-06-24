@@ -9,6 +9,7 @@ from rest_framework.response import Response
 
 from common.cache_utils import CACHE_GROUP_CATALOG_CATEGORIES, cache_api_response
 from .models import (
+    CUSTOMER_STOCK_RESERVE_QTY,
     Brand,
     Category,
     Product,
@@ -357,7 +358,7 @@ def _name_boundary_whens(search_terms, score):
 
 def _in_stock_order_annotation():
     return Case(
-        When(stock_qty__gt=0, then=1),
+        When(stock_qty__gt=CUSTOMER_STOCK_RESERVE_QTY, then=1),
         default=0,
         output_field=IntegerField(),
     )
@@ -950,9 +951,9 @@ class ProductListAPIView(generics.ListAPIView):
 
         in_stock = _parse_bool(params.get("in_stock"), "in_stock")
         if in_stock is True:
-            queryset = queryset.filter(stock_qty__gt=0)
+            queryset = queryset.filter(stock_qty__gt=CUSTOMER_STOCK_RESERVE_QTY)
         elif in_stock is False:
-            queryset = queryset.filter(stock_qty=0)
+            queryset = queryset.filter(stock_qty__lte=CUSTOMER_STOCK_RESERVE_QTY)
 
         on_sale = _parse_bool(params.get("on_sale"), "on_sale")
         if on_sale is True:

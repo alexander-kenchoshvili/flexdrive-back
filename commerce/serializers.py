@@ -291,7 +291,7 @@ class CartItemSerializer(serializers.ModelSerializer):
     )
     on_sale = serializers.BooleanField(source="product.on_sale", read_only=True)
     in_stock = serializers.BooleanField(source="product.in_stock", read_only=True)
-    stock_qty = serializers.IntegerField(source="product.stock_qty", read_only=True)
+    stock_qty = serializers.IntegerField(source="product.customer_available_stock_qty", read_only=True)
     is_purchasable = serializers.SerializerMethodField()
     availability_issue = serializers.SerializerMethodField()
     price_changed = serializers.BooleanField(read_only=True)
@@ -394,7 +394,7 @@ class BuyNowSessionSerializer(serializers.ModelSerializer):
         read_only=True,
     )
     in_stock = serializers.BooleanField(source="product.in_stock", read_only=True)
-    stock_qty = serializers.IntegerField(source="product.stock_qty", read_only=True)
+    stock_qty = serializers.IntegerField(source="product.customer_available_stock_qty", read_only=True)
     is_purchasable = serializers.SerializerMethodField()
     availability_issue = serializers.SerializerMethodField()
     price_changed = serializers.BooleanField(read_only=True)
@@ -480,7 +480,7 @@ class WishlistItemSerializer(serializers.ModelSerializer):
     is_new = serializers.BooleanField(source="product.is_new", read_only=True)
     is_featured = serializers.BooleanField(source="product.is_featured", read_only=True)
     in_stock = serializers.BooleanField(source="product.in_stock", read_only=True)
-    stock_qty = serializers.IntegerField(source="product.stock_qty", read_only=True)
+    stock_qty = serializers.IntegerField(source="product.customer_available_stock_qty", read_only=True)
     category = serializers.SerializerMethodField()
     primary_image = serializers.SerializerMethodField()
 
