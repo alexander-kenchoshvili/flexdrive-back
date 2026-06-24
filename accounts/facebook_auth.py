@@ -1,6 +1,8 @@
 from django.conf import settings
+import base64
 import hashlib
 import hmac
+import json
 import logging
 import requests
 from urllib.parse import urlencode
@@ -41,6 +43,15 @@ def get_facebook_app_secret():
     return str(getattr(settings, "FACEBOOK_APP_SECRET", "") or "").strip()
 
 
+def require_facebook_app_secret():
+    app_secret = get_facebook_app_secret()
+
+    if not app_secret:
+        raise FacebookAuthConfigurationError("Facebook app secret is not configured.")
+
+    return app_secret
+
+
 def get_facebook_oauth_redirect_uri():
     return str(getattr(settings, "FACEBOOK_OAUTH_REDIRECT_URI", "") or "").strip()
 
@@ -78,6 +89,42 @@ def build_facebook_oauth_authorization_url(*, state):
         }
     )
     return f"{_facebook_dialog_url()}?{query}"
+
+
+def _base64_url_decode(value):
+    raw_value = str(value or "")
+    padded_value = raw_value + ("=" * (-len(raw_value) % 4))
+    return base64.urlsafe_b64decode(padded_value.encode("ascii"))
+
+
+def parse_facebook_signed_request(signed_request):
+    raw_signed_request = str(signed_request or "").strip()
+    if not raw_signed_request or "." not in raw_signed_request:
+        raise FacebookAuthError("Facebook signed request is missing.")
+
+    encoded_signature, encoded_payload = raw_signed_request.split(".", 1)
+    app_secret = require_facebook_app_secret()
+
+    try:
+        signature = _base64_url_decode(encoded_signature)
+        payload = json.loads(_base64_url_decode(encoded_payload).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise FacebookAuthError("Facebook signed request is invalid.") from exc
+
+    algorithm = str(payload.get("algorithm") or "").upper()
+    if algorithm != "HMAC-SHA256":
+        raise FacebookAuthError("Facebook signed request algorithm is not supported.")
+
+    expected_signature = hmac.new(
+        app_secret.encode("utf-8"),
+        msg=encoded_payload.encode("utf-8"),
+        digestmod=hashlib.sha256,
+    ).digest()
+
+    if not hmac.compare_digest(signature, expected_signature):
+        raise FacebookAuthError("Facebook signed request signature is invalid.")
+
+    return payload
 
 
 def _build_appsecret_proof(access_token, app_secret):

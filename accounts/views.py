@@ -5,6 +5,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from django.conf import settings
 from django.core import signing
 from django.http import HttpResponseRedirect
+from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import generics, status
@@ -36,6 +37,7 @@ from .facebook_auth import (
     build_facebook_oauth_authorization_url,
     exchange_facebook_authorization_code,
     fetch_facebook_profile,
+    parse_facebook_signed_request,
 )
 from .google_auth import (
     GoogleAuthConfigurationError,
@@ -45,6 +47,7 @@ from .google_auth import (
 )
 from .services import delete_user_account
 from .utils import validate_recaptcha
+from .models import FacebookAccount
 
 
 GOOGLE_OAUTH_STATE_COOKIE = "google_oauth_state"
@@ -555,6 +558,65 @@ class FacebookOAuthCallbackAPIView(APIView):
             refresh_token=tokens["refresh"],
             redirect_to=_build_frontend_url(next_path),
             state_cookie_name=FACEBOOK_OAUTH_STATE_COOKIE,
+        )
+
+
+class FacebookDataDeletionAPIView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_scope = "facebook_auth"
+
+    def post(self, request):
+        try:
+            payload = parse_facebook_signed_request(
+                request.data.get("signed_request"),
+            )
+        except FacebookAuthConfigurationError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except FacebookAuthError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        facebook_id = str(payload.get("user_id") or "").strip()
+        if not facebook_id:
+            return Response(
+                {"detail": "Facebook signed request is missing user id."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        FacebookAccount.objects.filter(facebook_id=facebook_id).delete()
+        confirmation_code = secrets.token_urlsafe(16)
+        status_path = reverse(
+            "facebook_data_deletion_status",
+            kwargs={"confirmation_code": confirmation_code},
+        )
+
+        return Response(
+            {
+                "url": request.build_absolute_uri(status_path),
+                "confirmation_code": confirmation_code,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class FacebookDataDeletionStatusAPIView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request, confirmation_code):
+        return Response(
+            {
+                "confirmation_code": confirmation_code,
+                "status": "completed",
+                "message": "Facebook data deletion request has been processed.",
+            },
+            status=status.HTTP_200_OK,
         )
 
 

@@ -1,3 +1,7 @@
+import base64
+import hashlib
+import hmac
+import json
 from datetime import timedelta
 from urllib.parse import parse_qs, urlparse
 from unittest.mock import patch
@@ -937,6 +941,113 @@ class FacebookAuthAPITests(APITestCase):
         self.assertFalse(
             FacebookAccount.objects.filter(facebook_id="facebook-id-1").exists()
         )
+
+
+class FacebookDataDeletionAPITests(APITestCase):
+    def setUp(self):
+        self.user_model = get_user_model()
+        self.user_model.objects.filter(email="facebook-delete@example.com").delete()
+        self.user = self.user_model.objects.create_user(
+            username="facebook-delete@example.com",
+            email="facebook-delete@example.com",
+            password="Password123!",
+            is_active=True,
+        )
+        FacebookAccount.objects.create(
+            user=self.user,
+            facebook_id="facebook-delete-id",
+            email="facebook-delete@example.com",
+            full_name="Facebook Delete",
+            picture_url="https://example.com/facebook-delete.png",
+        )
+
+    def _signed_request(self, payload, *, secret="facebook-secret"):
+        encoded_payload = (
+            base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8"))
+            .decode("ascii")
+            .rstrip("=")
+        )
+        signature = hmac.new(
+            secret.encode("utf-8"),
+            msg=encoded_payload.encode("utf-8"),
+            digestmod=hashlib.sha256,
+        ).digest()
+        encoded_signature = (
+            base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
+        )
+        return f"{encoded_signature}.{encoded_payload}"
+
+    @override_settings(FACEBOOK_APP_SECRET="facebook-secret")
+    def test_facebook_data_deletion_unlinks_facebook_account(self):
+        response = self.client.post(
+            reverse("facebook_data_deletion"),
+            {
+                "signed_request": self._signed_request(
+                    {
+                        "algorithm": "HMAC-SHA256",
+                        "user_id": "facebook-delete-id",
+                    }
+                )
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("confirmation_code", response.data)
+        self.assertIn("url", response.data)
+        self.assertIn(response.data["confirmation_code"], response.data["url"])
+        self.assertFalse(
+            FacebookAccount.objects.filter(facebook_id="facebook-delete-id").exists()
+        )
+        self.assertTrue(self.user_model.objects.filter(pk=self.user.pk).exists())
+
+    @override_settings(FACEBOOK_APP_SECRET="facebook-secret")
+    def test_facebook_data_deletion_accepts_unknown_facebook_account(self):
+        response = self.client.post(
+            reverse("facebook_data_deletion"),
+            {
+                "signed_request": self._signed_request(
+                    {
+                        "algorithm": "HMAC-SHA256",
+                        "user_id": "unknown-facebook-id",
+                    }
+                )
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("confirmation_code", response.data)
+
+    @override_settings(FACEBOOK_APP_SECRET="facebook-secret")
+    def test_facebook_data_deletion_rejects_invalid_signature(self):
+        response = self.client.post(
+            reverse("facebook_data_deletion"),
+            {
+                "signed_request": self._signed_request(
+                    {
+                        "algorithm": "HMAC-SHA256",
+                        "user_id": "facebook-delete-id",
+                    },
+                    secret="wrong-secret",
+                )
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(
+            FacebookAccount.objects.filter(facebook_id="facebook-delete-id").exists()
+        )
+
+    def test_facebook_data_deletion_status_is_public(self):
+        response = self.client.get(
+            reverse(
+                "facebook_data_deletion_status",
+                kwargs={"confirmation_code": "confirmation-123"},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["confirmation_code"], "confirmation-123")
+        self.assertEqual(response.data["status"], "completed")
 
 
 class AuthEmailDeliveryAPITests(APITestCase):
