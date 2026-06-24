@@ -2073,10 +2073,14 @@ def _get_existing_active_reservation_ids(
         **owner_kwargs,
     )
     if exclude_active_online_payments:
+        active_online_reservation_ids = PaymentTransaction.objects.filter(
+            provider=PaymentProvider.BOG,
+            action=PaymentTransactionAction.SALE,
+            status=PaymentTransactionStatus.PENDING,
+            reservation_id__isnull=False,
+        ).values("reservation_id")
         queryset = queryset.exclude(
-            payment_transactions__provider=PaymentProvider.BOG,
-            payment_transactions__action=PaymentTransactionAction.SALE,
-            payment_transactions__status=PaymentTransactionStatus.PENDING,
+            pk__in=active_online_reservation_ids,
         )
     return list(queryset.values_list("id", flat=True))
 
@@ -2108,10 +2112,12 @@ def ensure_no_active_online_payment(*, source, owner_kwargs, product_ids=None):
         if not normalized_product_ids:
             return
         active_payments = active_payments.filter(
-            reservation__items__product_id__in=normalized_product_ids,
+            reservation_id__in=StockReservationItem.objects.filter(
+                product_id__in=normalized_product_ids,
+            ).values("reservation_id"),
         )
 
-    if active_payments.distinct().exists():
+    if active_payments.exists():
         raise CheckoutPaymentInProgress()
 
 

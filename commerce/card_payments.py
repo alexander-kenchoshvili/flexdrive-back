@@ -29,6 +29,7 @@ from .models import (
     PaymentTransactionAction,
     PaymentTransactionStatus,
     StockReservation,
+    StockReservationItem,
     StockReservationStatus,
 )
 from .services import (
@@ -766,11 +767,11 @@ def _raise_if_unresolved_payment_exists(*, source, owner_filter, product_ids=Non
         if not normalized_product_ids:
             return
         active_payment = active_payment.filter(
-            reservation__items__product_id__in=normalized_product_ids,
+            reservation_id__in=StockReservationItem.objects.filter(
+                product_id__in=normalized_product_ids,
+            ).values("reservation_id"),
         )
-    active_payment = (
-        active_payment.distinct().order_by("-created_at", "-pk").first()
-    )
+    active_payment = active_payment.order_by("-created_at", "-pk").first()
     if active_payment is not None:
         raise ActiveCardPaymentExists(active_payment)
 
