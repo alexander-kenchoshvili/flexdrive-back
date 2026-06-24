@@ -190,6 +190,7 @@ class CardPaymentSerializer(serializers.ModelSerializer):
     can_retry_start = serializers.SerializerMethodField()
     is_terminal = serializers.SerializerMethodField()
     order_public_token = serializers.SerializerMethodField()
+    order_number = serializers.SerializerMethodField()
     status_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -205,6 +206,7 @@ class CardPaymentSerializer(serializers.ModelSerializer):
             "can_retry_start",
             "is_terminal",
             "order_public_token",
+            "order_number",
             "status_url",
             "created_at",
             "updated_at",
@@ -235,6 +237,11 @@ class CardPaymentSerializer(serializers.ModelSerializer):
         if not obj.order_id:
             return None
         return obj.order.public_token
+
+    def get_order_number(self, obj):
+        if not obj.order_id:
+            return None
+        return obj.order.order_number
 
     def get_status_url(self, obj):
         request = self.context.get("request")

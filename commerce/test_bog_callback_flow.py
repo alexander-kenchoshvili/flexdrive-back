@@ -891,6 +891,7 @@ class BogCallbackFlowTests(APITransactionTestCase):
             str(response.data["order_public_token"]),
             str(payment.order.public_token),
         )
+        self.assertEqual(response.data["order_number"], payment.order.order_number)
         self.assertEqual(response.data["status"], PaymentTransactionStatus.PAID)
 
     def test_callback_is_the_only_commerce_post_exempt_from_csrf(self):

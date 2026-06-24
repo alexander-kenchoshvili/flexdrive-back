@@ -757,6 +757,8 @@ class CardPaymentFlowAPITests(APITransactionTestCase):
             response.data["payment_token"],
             start_response.data["payment_token"],
         )
+        self.assertIsNone(response.data["order_public_token"])
+        self.assertIsNone(response.data["order_number"])
         self.assertNotIn("provider_order_id", response.data)
         self.assertNotIn("provider_reference", response.data)
         self.assertNotIn("checkout_snapshot", response.data)
