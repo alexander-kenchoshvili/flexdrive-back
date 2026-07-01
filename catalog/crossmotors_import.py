@@ -816,8 +816,8 @@ def _upsert_product(values, *, category, brand):
             sku=values["sku"],
             slug=_build_unique_product_slug(values["clean_name"] or values["name"], values["sku"]),
         )
+        product.category = category
 
-    product.category = category
     product.brand = brand
     product.name = values["name"]
     product.manufacturer_part_number = values["oem"]

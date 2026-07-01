@@ -175,7 +175,7 @@ class CrossMotorsImportTests(TestCase):
                     "model": "XV",
                     "generation": "XV 12-17",
                     "manufacturer": "Suo Lun",
-                    "qty": 1,
+                    "qty": 6,
                     "dealer_price": 250.0,
                     "currency": "GEL",
                 }
@@ -199,7 +199,7 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(product.category.name, "განათება")
         self.assertEqual(product.supplier_price, Decimal("250.00"))
         self.assertEqual(product.price, Decimal("250.00"))
-        self.assertEqual(product.stock_qty, 1)
+        self.assertEqual(product.stock_qty, 6)
         self.assertEqual(product.placement, ProductPlacement.FRONT)
         self.assertEqual(product.side, ProductSide.RIGHT)
         self.assertEqual(product.status, ProductStatus.PUBLISHED)
@@ -243,6 +243,47 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(product.status, ProductStatus.PUBLISHED)
         self.assertFalse(product.price_available)
         self.assertFalse(product.purchasable)
+
+    def test_import_report_preserves_existing_product_category(self):
+        manual_category = Category.objects.create(
+            name="ხელით დალაგებული",
+            slug="khelit-dalagebuli",
+        )
+        Product.objects.create(
+            category=manual_category,
+            name="Existing manually categorized",
+            slug="existing-manually-categorized",
+            sku="CM-000015",
+            price=Decimal("10.00"),
+            stock_qty=1,
+            status=ProductStatus.PUBLISHED,
+        )
+        report = build_crossmotors_report(
+            [
+                {
+                    "code": "000015",
+                    "oem": "84001FJ090BK",
+                    "name": "წინა ფარი (RH) შავი",
+                    "brand": "Subaru",
+                    "model": "XV",
+                    "generation": "XV 12-17",
+                    "manufacturer": "Suo Lun",
+                    "qty": 7,
+                    "dealer_price": 250.0,
+                    "currency": "GEL",
+                }
+            ],
+            product_queryset=Product.objects.all(),
+        )
+
+        result = import_crossmotors_report(report)
+
+        product = Product.objects.get(sku="CM-000015")
+        self.assertEqual(result.updated_products, 1)
+        self.assertEqual(product.category, manual_category)
+        self.assertEqual(product.supplier_price, Decimal("250.00"))
+        self.assertEqual(product.price, Decimal("250.00"))
+        self.assertEqual(product.stock_qty, 7)
 
     def test_import_report_archives_existing_original_product(self):
         category = Category.objects.create(name="Original", slug="original")
