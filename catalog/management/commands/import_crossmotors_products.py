@@ -10,6 +10,7 @@ from catalog.crossmotors_import import (
     build_crossmotors_report,
     fetch_crossmotors_stock,
     import_crossmotors_report,
+    import_crossmotors_report_bulk,
 )
 
 
@@ -69,6 +70,11 @@ class Command(BaseCommand):
                 "in the current supplier feed."
             ),
         )
+        parser.add_argument(
+            "--bulk",
+            action="store_true",
+            help="Use the bulk importer for large staging/production supplier refreshes.",
+        )
 
     def handle(self, *args, **options):
         try:
@@ -107,7 +113,12 @@ class Command(BaseCommand):
             return
 
         try:
-            result = import_crossmotors_report(
+            import_func = (
+                import_crossmotors_report_bulk
+                if options["bulk"]
+                else import_crossmotors_report
+            )
+            result = import_func(
                 report,
                 archive_missing=options["archive_missing"],
             )

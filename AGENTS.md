@@ -219,3 +219,31 @@ This file exists so the project context does not need to be re-explained in ever
 - For card payments, prefer authorization/capture if the chosen provider supports it: reserve stock first, authorize payment, then capture only after the order is fulfilment-ready. If immediate capture is required, implement reliable full refund/cancel flows.
 - For installments and part-payment providers, cancellation/refund must go through the same provider channel, not manual cash/bank transfer, unless a documented provider exception requires otherwise.
 - Do not start this work casually while finishing legal/static pages. Treat it as a separate checkout/payment architecture phase after Terms/Returns/Delivery/Payment/Privacy content is stable and before production payment integrations.
+
+## Current Supplier Import And Staging Media Workflow - 2026-07-02
+
+- Cross Motors supplier refreshes on staging must use the fast bulk importer path, not the old row-by-row importer path.
+  - Preferred staging command shape: `.\venv\Scripts\python.exe manage.py import_crossmotors_products --page-size 1000 --sample-size 0 --commit --bulk`
+  - Set `DATABASE_URL` only in the command environment for the staging Neon database; do not edit `.env`.
+  - Do a dry-run first without `--commit` when changing importer logic or when the supplier feed shape may have changed.
+  - Use `--archive-missing` only when explicitly intended; the normal refresh used during this pass did not archive missing feed products.
+- The importer now has canonical category mapping to prevent duplicate category creation:
+  - Supplier lighting rows should map to `ფარები და განათება` / slug `ganateba`.
+  - Supplier bumper/grille visual rows should map to `ვიზუალის ნაწილები` / slug `bamperebi-da-tskhaurebi`.
+  - Engine/filter rows should map to `ძრავები და ფილტრები` / slug `dzravi-zetebi-da-filtrebi`.
+  - Do not reintroduce fallback category names such as `განათება`, `ბამპერები და ცხაურები`, or `ძრავი, ზეთები და ფილტრები` as new catalog categories.
+- If staging categories look wrong after an import, compare SKU-to-category assignments against local by SKU, not only category totals.
+  - Ignore non-`CM-*` test products when comparing supplier catalog state.
+  - For common `CM-*` SKUs, staging `Product.category.slug` should match local.
+  - Local archived supplier leftovers should not be counted as active catalog parity issues.
+- Product image sync from local to staging must not be done by copying local DB image paths directly.
+  - Local image files are filesystem-backed under `media/`; staging image delivery is Cloudinary-backed.
+  - Correct workflow:
+    1. Build a local `ProductImage` snapshot keyed by product SKU, including `image_original`, `image_desktop`, `image_tablet`, `image_mobile`, `alt_text`, `is_primary`, and `sort_order`.
+    2. Verify every snapshot SKU exists on staging before modifying staging image rows.
+    3. Upload local image files to Cloudinary using parallel uploads. Sequential upload is too slow for the current volume.
+    4. Only after all uploads succeed, replace staging `ProductImage` rows in one DB transaction: delete old rows, then `bulk_create` the snapshot rows with the uploaded Cloudinary asset paths.
+    5. Verify final staging counts by SKU: expected image products, total image rows, no row-count mismatches, and no extra image products.
+  - During the 2026-07-02 sync, the expected verified shape was 353 products with images, 1207 `ProductImage` rows, and 4828 Cloudinary files because each row stores original + desktop + tablet + mobile variants.
+  - Cloudinary credentials must be supplied only as temporary command environment variables when needed. Never write them into repo files, `.env`, AGENTS.md, scripts, reports, or logs.
+  - Temporary sync scripts/snapshots are acceptable for one-off operations, but remove them before finishing unless the user explicitly asks to keep a reusable tool.

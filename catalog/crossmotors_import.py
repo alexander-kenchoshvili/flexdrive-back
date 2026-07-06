@@ -12,13 +12,14 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 from urllib.parse import urljoin
 
 import requests
 from django.db import transaction
 from django.db.models import QuerySet
+from django.utils import timezone
 from django.utils.text import slugify
 
 from catalog.models import (
@@ -60,7 +61,7 @@ SIDE_LABELS = {
 
 _CATEGORY_RULES = (
     (
-        "განათება",
+        "ფარები და განათება",
         (
             "ფარი",
             "ფარ",
@@ -75,7 +76,7 @@ _CATEGORY_RULES = (
         ),
     ),
     (
-        "ბამპერები და ცხაურები",
+        "ვიზუალის ნაწილები",
         (
             "ბამპერ",
             "ცხაურ",
@@ -136,7 +137,7 @@ _CATEGORY_RULES = (
         ),
     ),
     (
-        "ძრავი, ზეთები და ფილტრები",
+        "ძრავები და ფილტრები",
         (
             "ზეთი",
             "ზეთები",
@@ -517,6 +518,507 @@ def import_crossmotors_report(report, *, archive_missing=False):
         )
 
     return counters.to_result()
+
+
+@transaction.atomic
+def import_crossmotors_report_bulk(report, *, archive_missing=False, batch_size=1000):
+    if report.error_count:
+        raise ValueError("Cannot import Cross Motors data with validation errors.")
+
+    counters = _ImportCounters()
+    valid_rows = [row for row in report.rows if row.is_valid]
+    original_skus = [
+        row.values.get("sku")
+        for row in report.rows
+        if row.is_original and row.values.get("sku")
+    ]
+    now = timezone.now()
+
+    if original_skus:
+        counters.archived_original_products = Product.objects.filter(
+            sku__in=original_skus,
+        ).exclude(status=ProductStatus.ARCHIVED).update(
+            status=ProductStatus.ARCHIVED,
+            updated_at=now,
+        )
+
+    if not valid_rows:
+        return counters.to_result()
+
+    categories = _bulk_get_or_create_categories(valid_rows, counters, now, batch_size)
+    brands = _bulk_get_or_create_brands(valid_rows, counters, now, batch_size)
+    makes = _bulk_get_or_create_vehicle_makes(valid_rows, counters, now, batch_size)
+    models = _bulk_get_or_create_vehicle_models(valid_rows, makes, counters, now, batch_size)
+
+    product_result = _bulk_upsert_products(
+        valid_rows,
+        categories=categories,
+        brands=brands,
+        now=now,
+        batch_size=batch_size,
+    )
+    counters.created_products = product_result["created"]
+    counters.updated_products = product_result["updated"]
+
+    spec_result = _bulk_upsert_specs(
+        valid_rows,
+        products=product_result["products"],
+        now=now,
+        batch_size=batch_size,
+    )
+    counters.created_specs = spec_result["created"]
+    counters.updated_specs = spec_result["updated"]
+
+    counters.created_fitments = _bulk_replace_fitments(
+        valid_rows,
+        products=product_result["products"],
+        makes=makes,
+        models=models,
+        now=now,
+        batch_size=batch_size,
+    )
+
+    if archive_missing:
+        imported_skus = {row.values["sku"] for row in valid_rows}
+        counters.archived_missing_products = (
+            Product.objects.filter(
+                sku__startswith=CROSSMOTORS_SKU_PREFIX,
+                status=ProductStatus.PUBLISHED,
+            )
+            .exclude(sku__in=imported_skus)
+            .update(status=ProductStatus.ARCHIVED, updated_at=now)
+        )
+
+    return counters.to_result()
+
+
+def _bulk_get_or_create_categories(rows, counters, now, batch_size):
+    names = _ordered_unique(row.values["category"] for row in rows)
+    sort_orders = {name: index for index, name in enumerate(names, start=1)}
+    existing = _casefolded_map(Category.objects.all())
+
+    to_create = [
+        Category(
+            name=name,
+            slug=slug,
+            sort_order=sort_orders[name],
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+        for name, slug in _unique_slugs_for_missing(
+            Category,
+            [name for name in names if name.casefold() not in existing],
+            fallback_prefix="category",
+        ).items()
+    ]
+    if to_create:
+        Category.objects.bulk_create(to_create, batch_size=batch_size)
+
+    inactive = [item for item in existing.values() if not item.is_active]
+    if inactive:
+        for item in inactive:
+            item.is_active = True
+            item.updated_at = now
+        Category.objects.bulk_update(inactive, ["is_active", "updated_at"], batch_size=batch_size)
+
+    refreshed = _casefolded_map(Category.objects.filter(name__in=names))
+    for row in rows:
+        _increment_counter(
+            counters,
+            "categories",
+            row.values["category"].casefold() not in existing,
+        )
+    return refreshed
+
+
+def _bulk_get_or_create_brands(rows, counters, now, batch_size):
+    names = _ordered_unique(row.values["part_manufacturer"] for row in rows if row.values["part_manufacturer"])
+    sort_orders = {name: index for index, name in enumerate(names, start=1)}
+    existing = _casefolded_map(Brand.objects.all())
+
+    to_create = [
+        Brand(
+            name=name,
+            slug=slug,
+            sort_order=sort_orders[name],
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+        for name, slug in _unique_slugs_for_missing(
+            Brand,
+            [name for name in names if name.casefold() not in existing],
+            fallback_prefix="brand",
+        ).items()
+    ]
+    if to_create:
+        Brand.objects.bulk_create(to_create, batch_size=batch_size)
+
+    inactive = [item for item in existing.values() if not item.is_active]
+    if inactive:
+        for item in inactive:
+            item.is_active = True
+            item.updated_at = now
+        Brand.objects.bulk_update(inactive, ["is_active", "updated_at"], batch_size=batch_size)
+
+    refreshed = _casefolded_map(Brand.objects.filter(name__in=names))
+    for row in rows:
+        if row.values["part_manufacturer"]:
+            _increment_counter(
+                counters,
+                "brands",
+                row.values["part_manufacturer"].casefold() not in existing,
+            )
+    return refreshed
+
+
+def _bulk_get_or_create_vehicle_makes(rows, counters, now, batch_size):
+    names = _ordered_unique(row.values["vehicle_make"] for row in rows if row.values["vehicle_make"])
+    sort_orders = {name: index for index, name in enumerate(names, start=1)}
+    existing = _casefolded_map(VehicleMake.objects.all())
+
+    to_create = [
+        VehicleMake(
+            name=name,
+            slug=slug,
+            sort_order=sort_orders[name],
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+        for name, slug in _unique_slugs_for_missing(
+            VehicleMake,
+            [name for name in names if name.casefold() not in existing],
+            fallback_prefix="make",
+        ).items()
+    ]
+    if to_create:
+        VehicleMake.objects.bulk_create(to_create, batch_size=batch_size)
+
+    inactive = [item for item in existing.values() if not item.is_active]
+    if inactive:
+        for item in inactive:
+            item.is_active = True
+            item.updated_at = now
+        VehicleMake.objects.bulk_update(inactive, ["is_active", "updated_at"], batch_size=batch_size)
+
+    refreshed = _casefolded_map(VehicleMake.objects.filter(name__in=names))
+    fitment_rows = [
+        row for row in rows
+        if row.values["vehicle_make"]
+        and row.values["vehicle_model"]
+        and row.values["year_from"]
+        and row.values["year_to"]
+    ]
+    for row in fitment_rows:
+        _increment_counter(
+            counters,
+            "vehicle_makes",
+            row.values["vehicle_make"].casefold() not in existing,
+        )
+    return refreshed
+
+
+def _bulk_get_or_create_vehicle_models(rows, makes, counters, now, batch_size):
+    desired = {}
+    for row in rows:
+        values = row.values
+        make = makes.get((values.get("vehicle_make") or "").casefold())
+        model_name = values.get("vehicle_model")
+        if not (make and model_name and values["year_from"] and values["year_to"]):
+            continue
+        slug = _build_slug(model_name, fallback_prefix="model")
+        desired[(make.id, slug)] = (make, model_name, slug)
+
+    if not desired:
+        return {}
+
+    make_ids = {make_id for make_id, _slug in desired}
+    existing_models = {
+        (model.make_id, model.slug): model
+        for model in VehicleModel.objects.filter(make_id__in=make_ids)
+    }
+    to_create = []
+    to_update = []
+    for key, (make, model_name, slug) in desired.items():
+        existing = existing_models.get(key)
+        if existing is None:
+            to_create.append(
+                VehicleModel(
+                    make=make,
+                    name=model_name,
+                    slug=slug,
+                    sort_order=0,
+                    is_active=True,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            continue
+        changed = False
+        if existing.name != model_name:
+            existing.name = model_name
+            changed = True
+        if not existing.is_active:
+            existing.is_active = True
+            changed = True
+        if changed:
+            existing.updated_at = now
+            to_update.append(existing)
+
+    if to_create:
+        VehicleModel.objects.bulk_create(to_create, batch_size=batch_size)
+    if to_update:
+        VehicleModel.objects.bulk_update(to_update, ["name", "is_active", "updated_at"], batch_size=batch_size)
+
+    refreshed = {
+        (model.make_id, model.slug): model
+        for model in VehicleModel.objects.filter(make_id__in=make_ids)
+    }
+    for row in rows:
+        values = row.values
+        make = makes.get((values.get("vehicle_make") or "").casefold())
+        if not (make and values["vehicle_model"] and values["year_from"] and values["year_to"]):
+            continue
+        slug = _build_slug(values["vehicle_model"], fallback_prefix="model")
+        _increment_counter(counters, "vehicle_models", (make.id, slug) not in existing_models)
+    return refreshed
+
+
+def _bulk_upsert_products(rows, *, categories, brands, now, batch_size):
+    skus = [row.values["sku"] for row in rows]
+    existing = {
+        product.sku: product
+        for product in Product.objects.filter(sku__in=skus).select_related("category")
+    }
+    created = []
+    updated = []
+    existing_slugs = set(Product.objects.values_list("slug", flat=True))
+
+    for row in rows:
+        values = row.values
+        product = existing.get(values["sku"])
+        is_created = product is None
+        if is_created:
+            category = categories[values["category"].casefold()]
+            product = Product(
+                sku=values["sku"],
+                slug=_build_unique_slug_from_set(
+                    values["clean_name"] or values["name"],
+                    values["sku"],
+                    existing_slugs,
+                ),
+                category=category,
+                created_at=now,
+            )
+        else:
+            category = product.category
+
+        brand = brands.get((values.get("part_manufacturer") or "").casefold())
+        product.brand = brand
+        product.name = values["name"]
+        product.manufacturer_part_number = values["oem"]
+        product.short_description = values["short_description"]
+        product.description = values["description"]
+        product.supplier_price = values["supplier_price"]
+        product.price = _calculate_customer_price(product, category)
+        product.old_price = None
+        product.placement = values["placement"]
+        product.side = values["side"]
+        product.stock_qty = values["stock_qty"]
+        product.status = ProductStatus.PUBLISHED
+        product.seo_title = f"{values['clean_name'] or values['name']} | FlexDrive"
+        product.seo_description = values["short_description"]
+        product.is_universal_fitment = False
+        product.updated_at = now
+
+        if is_created:
+            created.append(product)
+        else:
+            updated.append(product)
+
+    if created:
+        Product.objects.bulk_create(created, batch_size=batch_size)
+    if updated:
+        Product.objects.bulk_update(
+            updated,
+            [
+                "brand",
+                "name",
+                "manufacturer_part_number",
+                "short_description",
+                "description",
+                "supplier_price",
+                "price",
+                "old_price",
+                "placement",
+                "side",
+                "stock_qty",
+                "status",
+                "seo_title",
+                "seo_description",
+                "is_universal_fitment",
+                "updated_at",
+            ],
+            batch_size=batch_size,
+        )
+
+    products = Product.objects.in_bulk(skus, field_name="sku")
+    return {"created": len(created), "updated": len(updated), "products": products}
+
+
+def _bulk_upsert_specs(rows, *, products, now, batch_size):
+    desired = []
+    for row in rows:
+        product = products[row.values["sku"]]
+        for key, value, sort_order in _desired_specs(row.values):
+            desired.append(
+                ProductSpec(
+                    product=product,
+                    key=key,
+                    value=value,
+                    sort_order=sort_order,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+    if not desired:
+        return {"created": 0, "updated": 0}
+
+    product_ids = {spec.product_id for spec in desired}
+    keys = {spec.key for spec in desired}
+    existing = set(
+        ProductSpec.objects.filter(product_id__in=product_ids, key__in=keys)
+        .values_list("product_id", "key")
+    )
+    ProductSpec.objects.bulk_create(
+        desired,
+        update_conflicts=True,
+        update_fields=["value", "sort_order", "updated_at"],
+        unique_fields=["product", "key"],
+        batch_size=batch_size,
+    )
+    created = sum(1 for spec in desired if (spec.product_id, spec.key) not in existing)
+    return {"created": created, "updated": len(desired) - created}
+
+
+def _bulk_replace_fitments(rows, *, products, makes, models, now, batch_size):
+    product_ids = [products[row.values["sku"]].id for row in rows]
+    ProductFitment.objects.filter(product_id__in=product_ids).delete()
+
+    fitments = []
+    for row in rows:
+        values = row.values
+        if not (
+            values["vehicle_make"]
+            and values["vehicle_model"]
+            and values["year_from"]
+            and values["year_to"]
+        ):
+            continue
+        model_slug = _build_slug(values["vehicle_model"], fallback_prefix="model")
+        make = makes.get(values["vehicle_make"].casefold())
+        model = models.get((make.id, model_slug)) if make else None
+        if not model:
+            continue
+        fitments.append(
+            ProductFitment(
+                product=products[values["sku"]],
+                vehicle_model=model,
+                year_from=values["year_from"],
+                year_to=values["year_to"],
+                notes=values.get("generation_raw", ""),
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+    if fitments:
+        ProductFitment.objects.bulk_create(fitments, batch_size=batch_size)
+    return len(fitments)
+
+
+def _desired_specs(values):
+    desired_specs = []
+    sort_order = 1
+
+    def add_spec(key, value):
+        nonlocal sort_order
+        if value in (None, ""):
+            return
+        desired_specs.append((key, str(value), sort_order))
+        sort_order += 1
+
+    add_spec("OEM", values.get("oem"))
+    add_spec("მწარმოებელი", values.get("part_manufacturer"))
+    add_spec("მანქანა", _vehicle_label(values))
+    add_spec("თაობა", values.get("generation_raw"))
+    add_spec("მდებარეობა", PLACEMENT_LABELS.get(values.get("placement"), ""))
+    add_spec("მხარე", SIDE_LABELS.get(values.get("side"), ""))
+    return desired_specs
+
+
+def _calculate_customer_price(product, category):
+    if product.supplier_price is None:
+        return Decimal("0.00")
+
+    markup_percent = (
+        product.markup_percent_override
+        if product.markup_percent_override is not None
+        else category.markup_percent
+    )
+    multiplier = Decimal("1.00") + (Decimal(str(markup_percent or Decimal("0.00"))) / Decimal("100"))
+    return (Decimal(str(product.supplier_price)) * multiplier).quantize(
+        Decimal("0.01"),
+        rounding=ROUND_HALF_UP,
+    )
+
+
+def _ordered_unique(values):
+    result = []
+    seen = set()
+    for value in values:
+        if value in (None, ""):
+            continue
+        key = str(value).casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+    return result
+
+
+def _casefolded_map(queryset):
+    return {item.name.casefold(): item for item in queryset}
+
+
+def _unique_slugs_for_missing(model, names, *, fallback_prefix):
+    existing_slugs = set(model.objects.values_list("slug", flat=True))
+    result = {}
+    for name in names:
+        base = _build_slug(name, fallback_prefix=fallback_prefix)
+        candidate = base
+        suffix = 2
+        while candidate in existing_slugs:
+            candidate = f"{base[:140 - len(str(suffix)) - 1]}-{suffix}"
+            suffix += 1
+        existing_slugs.add(candidate)
+        result[name] = candidate
+    return result
+
+
+def _build_unique_slug_from_set(name, sku, existing_slugs):
+    base = _build_slug(f"{name} {sku}", fallback_prefix="product")
+    candidate = base[:255]
+    suffix = 2
+    while candidate in existing_slugs:
+        suffix_text = f"-{suffix}"
+        candidate = f"{base[:255 - len(suffix_text)]}{suffix_text}"
+        suffix += 1
+    existing_slugs.add(candidate)
+    return candidate
 
 
 def _parse_item(item, *, row_number, open_ended_year_to):

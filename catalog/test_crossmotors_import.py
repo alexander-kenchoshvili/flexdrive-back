@@ -7,6 +7,7 @@ from catalog.crossmotors_import import (
     build_crossmotors_report,
     fetch_crossmotors_stock,
     import_crossmotors_report,
+    import_crossmotors_report_bulk,
 )
 from catalog.models import (
     Brand,
@@ -86,7 +87,7 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(values["year_to"], 2017)
         self.assertEqual(values["placement"], ProductPlacement.FRONT)
         self.assertEqual(values["side"], ProductSide.RIGHT)
-        self.assertEqual(values["category"], "განათება")
+        self.assertEqual(values["category"], "ფარები და განათება")
 
     def test_build_report_excludes_original_items(self):
         report = build_crossmotors_report(
@@ -196,7 +197,7 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(product.name, "წინა ფარი (RH) შავი")
         self.assertEqual(product.manufacturer_part_number, "84001FJ090BK")
         self.assertEqual(product.brand.name, "Suo Lun")
-        self.assertEqual(product.category.name, "განათება")
+        self.assertEqual(product.category.name, "ფარები და განათება")
         self.assertEqual(product.supplier_price, Decimal("250.00"))
         self.assertEqual(product.price, Decimal("250.00"))
         self.assertEqual(product.stock_qty, 6)
@@ -213,6 +214,70 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(fitment.year_to, 2017)
         self.assertEqual(fitment.notes, "XV 12-17")
         self.assertTrue(ProductSpec.objects.filter(product=product, key="მხარე", value="მარჯვენა").exists())
+
+    def test_import_report_uses_canonical_category_names(self):
+        lighting = Category.objects.create(
+            name="ფარები და განათება",
+            slug="ganateba",
+        )
+        visual = Category.objects.create(
+            name="ვიზუალის ნაწილები",
+            slug="bamperebi-da-tskhaurebi",
+        )
+        engine = Category.objects.create(
+            name="ძრავები და ფილტრები",
+            slug="dzravi-zetebi-da-filtrebi",
+        )
+        report = build_crossmotors_report(
+            [
+                {
+                    "code": "000015",
+                    "oem": "84001FJ090BK",
+                    "name": "წინა ფარი (RH) შავი",
+                    "brand": "Subaru",
+                    "model": "XV",
+                    "generation": "XV 12-17",
+                    "manufacturer": "Suo Lun",
+                    "qty": 6,
+                    "dealer_price": 250.0,
+                    "currency": "GEL",
+                },
+                {
+                    "code": "000016",
+                    "oem": "",
+                    "name": "ბამპერი წინა",
+                    "brand": "Subaru",
+                    "model": "XV",
+                    "generation": "XV 12-17",
+                    "manufacturer": "Suo Lun",
+                    "qty": 1,
+                    "dealer_price": 100.0,
+                    "currency": "GEL",
+                },
+                {
+                    "code": "000017",
+                    "oem": "",
+                    "name": "ზეთის ფილტრი",
+                    "brand": "Subaru",
+                    "model": "XV",
+                    "generation": "XV 12-17",
+                    "manufacturer": "Suo Lun",
+                    "qty": 1,
+                    "dealer_price": 20.0,
+                    "currency": "GEL",
+                },
+            ],
+            product_queryset=Product.objects.none(),
+        )
+
+        import_crossmotors_report(report)
+
+        self.assertEqual(Product.objects.get(sku="CM-000015").category, lighting)
+        self.assertEqual(Product.objects.get(sku="CM-000016").category, visual)
+        self.assertEqual(Product.objects.get(sku="CM-000017").category, engine)
+        self.assertFalse(Category.objects.filter(name="განათება").exists())
+        self.assertFalse(Category.objects.filter(name="ბამპერები და ცხაურები").exists())
+        self.assertFalse(Category.objects.filter(name="ძრავი, ზეთები და ფილტრები").exists())
 
     def test_import_report_publishes_missing_price_with_zero_placeholder(self):
         report = build_crossmotors_report(
@@ -352,3 +417,78 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(ProductFitment.objects.count(), 1)
         self.assertEqual(VehicleMake.objects.count(), 1)
         self.assertEqual(VehicleModel.objects.count(), 1)
+
+    def test_bulk_import_report_matches_core_import_behavior(self):
+        manual_category = Category.objects.create(
+            name="ხელით დალაგებული",
+            slug="khelit-dalagebuli",
+            markup_percent=Decimal("10.00"),
+        )
+        mirrors = Category.objects.create(
+            name="სარკეები",
+            slug="sarkeebi",
+            markup_percent=Decimal("20.00"),
+        )
+        Product.objects.create(
+            category=manual_category,
+            name="Existing manually categorized",
+            slug="existing-manually-categorized",
+            sku="CM-000015",
+            price=Decimal("10.00"),
+            stock_qty=1,
+            status=ProductStatus.PUBLISHED,
+        )
+        report = build_crossmotors_report(
+            [
+                {
+                    "code": "000015",
+                    "oem": "84001FJ090BK",
+                    "name": "წინა ფარი (RH) შავი",
+                    "brand": "Subaru",
+                    "model": "XV",
+                    "generation": "XV 12-17",
+                    "manufacturer": "Suo Lun",
+                    "qty": 7,
+                    "dealer_price": 250.0,
+                    "currency": "GEL",
+                },
+                {
+                    "code": "000020",
+                    "oem": "",
+                    "name": "სარკე (LH)",
+                    "brand": "Subaru",
+                    "model": "XV",
+                    "generation": "XV 18-",
+                    "manufacturer": "TYG",
+                    "qty": 3,
+                    "dealer_price": None,
+                    "currency": "GEL",
+                },
+            ],
+            product_queryset=Product.objects.all(),
+            open_ended_year_to=2027,
+        )
+
+        result = import_crossmotors_report_bulk(report)
+
+        self.assertEqual(result.created_products, 1)
+        self.assertEqual(result.updated_products, 1)
+        self.assertEqual(result.created_fitments, 2)
+
+        existing = Product.objects.get(sku="CM-000015")
+        self.assertEqual(existing.category, manual_category)
+        self.assertEqual(existing.price, Decimal("275.00"))
+        self.assertEqual(existing.stock_qty, 7)
+
+        created = Product.objects.get(sku="CM-000020")
+        self.assertEqual(created.category, mirrors)
+        self.assertEqual(created.supplier_price, None)
+        self.assertEqual(created.price, Decimal("0.00"))
+        self.assertEqual(created.brand.name, "TYG")
+        self.assertTrue(
+            ProductSpec.objects.filter(
+                product=created,
+                key="მხარე",
+                value="მარცხენა",
+            ).exists()
+        )
