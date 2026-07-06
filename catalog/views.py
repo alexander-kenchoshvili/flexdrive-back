@@ -961,6 +961,25 @@ class ProductListAPIView(generics.ListAPIView):
         elif on_sale is False:
             queryset = queryset.filter(Q(old_price__isnull=True) | Q(old_price__lte=F("price")))
 
+        has_image = _parse_bool(params.get("has_image"), "has_image")
+        product_image_filter = (
+            Q(images__image_original__gt="")
+            | Q(images__image_desktop__gt="")
+            | Q(images__image_tablet__gt="")
+            | Q(images__image_mobile__gt="")
+        )
+        image_row_filter = (
+            Q(image_original__gt="")
+            | Q(image_desktop__gt="")
+            | Q(image_tablet__gt="")
+            | Q(image_mobile__gt="")
+        )
+        if has_image is True:
+            queryset = queryset.filter(product_image_filter).distinct()
+        elif has_image is False:
+            image_product_ids = ProductImage.objects.filter(image_row_filter).values("product_id")
+            queryset = queryset.exclude(id__in=image_product_ids)
+
         ordering_param = params.get("ordering")
         if search_context and not ordering_param:
             return queryset.annotate(

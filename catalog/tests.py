@@ -243,6 +243,14 @@ class CatalogAPITests(APITestCase):
         for row in response.data["results"]:
             self.assertTrue(row["on_sale"])
 
+    def test_products_filter_has_image(self):
+        response = self.client.get(reverse("catalog-product-list"), {"has_image": "true"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["slug"], "product-0")
+        self.assertTrue(response.data["results"][0]["primary_image"]["desktop"])
+
     def test_products_filter_by_vehicle_model_year(self):
         response = self.client.get(
             reverse("catalog-product-list"),
