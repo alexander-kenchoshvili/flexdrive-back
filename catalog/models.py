@@ -12,6 +12,7 @@ from django.db.models.functions import Upper
 from common.image_processing import (
     build_contained_webp_content,
     build_conversion_update_fields,
+    build_resized_webp_content,
     convert_image_field_to_webp,
     save_generated_webp_to_field,
 )
@@ -727,10 +728,9 @@ class ProductImage(TimeStampedModel):
         source_name = str(self.image_original.name or "")
 
         for field_name, (size, suffix) in self.STANDARDIZED_VARIANT_SPECS.items():
-            content = build_contained_webp_content(
+            content = build_resized_webp_content(
                 self.image_original,
-                size=size,
-                background_color=(255, 255, 255),
+                max_size=size,
                 quality=85,
             )
             target_field = getattr(self, field_name)

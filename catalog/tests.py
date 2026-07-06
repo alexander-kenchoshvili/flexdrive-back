@@ -1303,15 +1303,15 @@ class ProductImageNormalizationTests(TestCase):
         self.assertTrue(image.image_mobile.name.endswith(".webp"))
 
         with Image.open(image.image_desktop) as desktop:
-            self.assertEqual(desktop.size, (1440, 1440))
+            self.assertEqual(desktop.size, (1440, 810))
             self.assertEqual(desktop.format, "WEBP")
 
         with Image.open(image.image_tablet) as tablet:
-            self.assertEqual(tablet.size, (1080, 1080))
+            self.assertEqual(tablet.size, (1080, 608))
             self.assertEqual(tablet.format, "WEBP")
 
         with Image.open(image.image_mobile) as mobile:
-            self.assertEqual(mobile.size, (720, 720))
+            self.assertEqual(mobile.size, (720, 405))
             self.assertEqual(mobile.format, "WEBP")
 
     def test_legacy_manual_variant_upload_still_converts_to_webp(self):
