@@ -1,0 +1,102 @@
+{% extends "admin/base_site.html" %}
+{% load static i18n admin_urls %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'catalog/admin_product_image_crop.css' %}">
+{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<script src="{% static 'catalog/admin_product_image_crop.js' %}" defer></script>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+  &rsaquo; <a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+  &rsaquo; <a href="{{ product_url }}">{{ product }}</a>
+  &rsaquo; {{ title }}
+</div>
+{% endblock %}
+
+{% block content %}
+<div
+  class="product-image-crop"
+  data-crop-x="{{ crop.x }}"
+  data-crop-y="{{ crop.y }}"
+  data-crop-width="{{ crop.width }}"
+  data-crop-height="{{ crop.height }}"
+>
+  <div class="crop-header">
+    <div>
+      <h1>{{ title }}</h1>
+      <p class="help">
+        Original: {{ source_width }} x {{ source_height }}. Crop changes regenerate desktop, tablet, and mobile images without replacing the original upload.
+      </p>
+    </div>
+    <a class="button" href="{{ product_url }}">Back to product</a>
+  </div>
+
+  <div class="crop-layout">
+    <div class="crop-stage-panel">
+      <div class="crop-stage" data-crop-stage>
+        <img src="{{ image_url }}" alt="{{ image.alt_text|default:product.name }}" data-crop-image>
+        <div class="crop-box" data-crop-box>
+          <span class="crop-handle crop-handle-nw" data-crop-handle="nw"></span>
+          <span class="crop-handle crop-handle-ne" data-crop-handle="ne"></span>
+          <span class="crop-handle crop-handle-sw" data-crop-handle="sw"></span>
+          <span class="crop-handle crop-handle-se" data-crop-handle="se"></span>
+        </div>
+      </div>
+    </div>
+
+    <aside class="crop-controls">
+      <form method="post" data-crop-form>
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ product_url }}">
+        <input type="hidden" name="crop_x" data-crop-input="x">
+        <input type="hidden" name="crop_y" data-crop-input="y">
+        <input type="hidden" name="crop_width" data-crop-input="width">
+        <input type="hidden" name="crop_height" data-crop-input="height">
+
+        <h2>Manual crop</h2>
+        <p class="help">
+          Drag the crop area or resize it from the corners. Leave a small white margin around the part so product cards do not feel cramped.
+        </p>
+        <p class="help">
+          Flat background replacement:
+          <strong>{% if replace_background_with_white %}enabled{% else %}disabled{% endif %}</strong>.
+          It affects generated desktop, tablet, and mobile images only; the original upload is left unchanged.
+        </p>
+        <dl class="crop-readout">
+          <div>
+            <dt>X</dt>
+            <dd data-crop-readout="x">0</dd>
+          </div>
+          <div>
+            <dt>Y</dt>
+            <dd data-crop-readout="y">0</dd>
+          </div>
+          <div>
+            <dt>Width</dt>
+            <dd data-crop-readout="width">100%</dd>
+          </div>
+          <div>
+            <dt>Height</dt>
+            <dd data-crop-readout="height">100%</dd>
+          </div>
+        </dl>
+
+        <div class="submit-row crop-submit-row">
+          <button type="submit" class="default" name="action" value="manual">Apply crop</button>
+          <button type="submit" name="action" value="auto">Auto crop whitespace</button>
+          <button type="submit" name="action" value="white_bg">Replace flat background with white</button>
+          <button type="submit" name="action" value="reset_bg">Reset white background</button>
+          <button type="submit" name="action" value="reset">Reset crop</button>
+        </div>
+      </form>
+    </aside>
+  </div>
+</div>
+{% endblock %}

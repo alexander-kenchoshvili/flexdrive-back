@@ -3,6 +3,7 @@ from io import BytesIO
 from unittest import skipUnless
 
 from django.contrib.admin.sites import site
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
@@ -41,6 +42,28 @@ def _generate_test_image(filename="sample.jpg", color=(255, 0, 0), size=(100, 10
     return SimpleUploadedFile(filename, file_obj.read(), content_type="image/jpeg")
 
 
+def _generate_whitespace_test_image(filename="part.jpg", size=(800, 600)):
+    file_obj = BytesIO()
+    image = Image.new("RGB", size, (255, 255, 255))
+    for x in range(320, 480):
+        for y in range(250, 350):
+            image.putpixel((x, y), (10, 10, 10))
+    image.save(file_obj, format="JPEG")
+    file_obj.seek(0)
+    return SimpleUploadedFile(filename, file_obj.read(), content_type="image/jpeg")
+
+
+def _generate_gray_background_test_image(filename="gray-part.jpg", size=(800, 600)):
+    file_obj = BytesIO()
+    image = Image.new("RGB", size, (180, 180, 180))
+    for x in range(300, 500):
+        for y in range(220, 380):
+            image.putpixel((x, y), (12, 12, 12))
+    image.save(file_obj, format="JPEG")
+    file_obj.seek(0)
+    return SimpleUploadedFile(filename, file_obj.read(), content_type="image/jpeg")
+
+
 class CatalogAdminTests(TestCase):
     def test_calculated_price_preview_handles_unsaved_product_without_price(self):
         product_admin = site._registry[Product]
@@ -49,6 +72,65 @@ class CatalogAdminTests(TestCase):
             product_admin.calculated_customer_price_readonly(Product()),
             "",
         )
+
+    @override_settings(
+        STORAGES={
+            "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+            },
+        }
+    )
+    def test_product_image_crop_admin_post_updates_crop(self):
+        user = get_user_model().objects.create_superuser(
+            username="admin",
+            email="admin@example.com",
+            password="password",
+        )
+        self.client.force_login(user)
+        category = Category.objects.create(name="Interior", slug="admin-interior")
+        product = Product.objects.create(
+            category=category,
+            name="Mirror Cap",
+            slug="admin-mirror-cap",
+            sku="ADMIN-MIRROR",
+            price=Decimal("10.00"),
+            stock_qty=5,
+            status=ProductStatus.PUBLISHED,
+        )
+        image = ProductImage.objects.create(
+            product=product,
+            image_original=_generate_whitespace_test_image("mirror-cap.jpg"),
+            is_primary=True,
+        )
+        url = reverse("admin:catalog_productimage_crop", args=[product.pk, image.pk])
+
+        get_response = self.client.get(url)
+
+        self.assertEqual(get_response.status_code, 200)
+        self.assertContains(get_response, "Manual crop")
+
+        response = self.client.post(
+            url,
+            {
+                "action": "manual",
+                "crop_x": "0.25000",
+                "crop_y": "0.25000",
+                "crop_width": "0.50000",
+                "crop_height": "0.40000",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        image.refresh_from_db()
+        self.assertEqual(image.crop_x, Decimal("0.25000"))
+        self.assertEqual(image.crop_height, Decimal("0.40000"))
+
+        response = self.client.post(url, {"action": "white_bg"})
+
+        self.assertEqual(response.status_code, 302)
+        image.refresh_from_db()
+        self.assertTrue(image.replace_background_with_white)
 
 
 class CatalogAPITests(APITestCase):
@@ -1338,6 +1420,83 @@ class ProductImageNormalizationTests(TestCase):
 
         with Image.open(image.image_desktop) as desktop:
             self.assertEqual(desktop.format, "WEBP")
+
+    def test_crop_metadata_regenerates_variants_from_original_crop(self):
+        image = ProductImage.objects.create(
+            product=self.product,
+            image_original=_generate_test_image(
+                "organizer-crop-original.jpg",
+                color=(15, 25, 35),
+                size=(1600, 900),
+            ),
+            is_primary=True,
+        )
+
+        image.crop_x = Decimal("0.25000")
+        image.crop_y = Decimal("0.25000")
+        image.crop_width = Decimal("0.50000")
+        image.crop_height = Decimal("0.40000")
+        image.save(
+            update_fields=[
+                "crop_x",
+                "crop_y",
+                "crop_width",
+                "crop_height",
+                "updated_at",
+            ]
+        )
+        image.refresh_from_db()
+
+        with Image.open(image.image_desktop) as desktop:
+            self.assertEqual(desktop.size, (800, 360))
+            self.assertEqual(desktop.format, "WEBP")
+
+    def test_auto_crop_from_original_detects_whitespace(self):
+        image = ProductImage.objects.create(
+            product=self.product,
+            image_original=_generate_whitespace_test_image("organizer-whitespace.jpg"),
+            is_primary=True,
+        )
+
+        self.assertTrue(image.auto_crop_from_original())
+        image.save(
+            update_fields=[
+                "crop_x",
+                "crop_y",
+                "crop_width",
+                "crop_height",
+                "updated_at",
+            ]
+        )
+        image.refresh_from_db()
+
+        self.assertIsNotNone(image.crop_x)
+        self.assertLess(image.crop_width, Decimal("1.00000"))
+        self.assertLess(image.crop_height, Decimal("1.00000"))
+
+    def test_flat_background_replacement_generates_white_background_variants(self):
+        image = ProductImage.objects.create(
+            product=self.product,
+            image_original=_generate_gray_background_test_image("organizer-gray.jpg"),
+            is_primary=True,
+        )
+
+        image.replace_background_with_white = True
+        image.save(update_fields=["replace_background_with_white", "updated_at"])
+        image.refresh_from_db()
+
+        with Image.open(image.image_desktop) as desktop:
+            corner = desktop.convert("RGB").getpixel((2, 2))
+            center = desktop.convert("RGB").getpixel(
+                (desktop.width // 2, desktop.height // 2)
+            )
+
+        self.assertGreaterEqual(corner[0], 245)
+        self.assertGreaterEqual(corner[1], 245)
+        self.assertGreaterEqual(corner[2], 245)
+        self.assertLess(center[0], 80)
+        self.assertLess(center[1], 80)
+        self.assertLess(center[2], 80)
 
 
 class CategoryImageNormalizationTests(TestCase):

@@ -8,12 +8,14 @@ from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models
 from django.db.models import F, Q
 from django.db.models.functions import Upper
+from PIL import Image, ImageOps
 
 from common.image_processing import (
     build_contained_webp_content,
     build_conversion_update_fields,
     build_resized_webp_content,
     convert_image_field_to_webp,
+    detect_content_crop_box,
     save_generated_webp_to_field,
 )
 
@@ -648,6 +650,11 @@ class ProductImage(TimeStampedModel):
     alt_text = models.CharField(max_length=255, blank=True)
     is_primary = models.BooleanField(default=False, db_index=True)
     sort_order = models.PositiveIntegerField(default=0)
+    crop_x = models.DecimalField(max_digits=6, decimal_places=5, blank=True, null=True)
+    crop_y = models.DecimalField(max_digits=6, decimal_places=5, blank=True, null=True)
+    crop_width = models.DecimalField(max_digits=6, decimal_places=5, blank=True, null=True)
+    crop_height = models.DecimalField(max_digits=6, decimal_places=5, blank=True, null=True)
+    replace_background_with_white = models.BooleanField(default=False)
 
     class Meta:
         ordering = ("sort_order", "id")
@@ -680,21 +687,50 @@ class ProductImage(TimeStampedModel):
             "image_desktop",
             "image_tablet",
             "image_mobile",
+            "crop_x",
+            "crop_y",
+            "crop_width",
+            "crop_height",
+            "replace_background_with_white",
         }
+        crop_fields = {"crop_x", "crop_y", "crop_width", "crop_height"}
         update_fields = kwargs.get("update_fields")
         update_field_set = set(update_fields) if update_fields is not None else None
         original_changed = False
+        crop_changed = False
+        background_changed = False
 
-        if self.pk and (update_field_set is None or "image_original" in update_field_set):
-            previous_original_name = (
+        if self.pk and (
+            update_field_set is None
+            or "image_original" in update_field_set
+            or not crop_fields.isdisjoint(update_field_set)
+            or "replace_background_with_white" in update_field_set
+        ):
+            previous_values = (
                 type(self)
                 .objects.filter(pk=self.pk)
-                .values_list("image_original", flat=True)
+                .values(
+                    "image_original",
+                    "crop_x",
+                    "crop_y",
+                    "crop_width",
+                    "crop_height",
+                    "replace_background_with_white",
+                )
                 .first()
             )
-            original_changed = str(previous_original_name or "") != str(
-                self.image_original.name or ""
-            )
+            if previous_values:
+                original_changed = str(previous_values["image_original"] or "") != str(
+                    self.image_original.name or ""
+                )
+                crop_changed = any(
+                    previous_values[field_name] != getattr(self, field_name)
+                    for field_name in crop_fields
+                )
+                background_changed = (
+                    previous_values["replace_background_with_white"]
+                    != self.replace_background_with_white
+                )
         elif self.image_original:
             original_changed = True
 
@@ -708,7 +744,9 @@ class ProductImage(TimeStampedModel):
         if update_field_set is not None and tracked_fields.isdisjoint(update_field_set):
             return
 
-        if self.image_original and (original_changed or variants_missing):
+        if self.image_original and (
+            original_changed or crop_changed or background_changed or variants_missing
+        ):
             generated_fields = self._generate_variants_from_original()
             if generated_fields:
                 super().save(
@@ -726,11 +764,14 @@ class ProductImage(TimeStampedModel):
     def _generate_variants_from_original(self):
         generated_fields = []
         source_name = str(self.image_original.name or "")
+        crop_box = self._get_crop_box()
 
         for field_name, (size, suffix) in self.STANDARDIZED_VARIANT_SPECS.items():
             content = build_resized_webp_content(
                 self.image_original,
                 max_size=size,
+                crop_box=crop_box,
+                replace_background=self.replace_background_with_white,
                 quality=85,
             )
             target_field = getattr(self, field_name)
@@ -743,6 +784,68 @@ class ProductImage(TimeStampedModel):
                 generated_fields.append(field_name)
 
         return generated_fields
+
+    def has_crop(self):
+        return all(
+            value is not None
+            for value in (self.crop_x, self.crop_y, self.crop_width, self.crop_height)
+        )
+
+    def clear_crop(self):
+        self.crop_x = None
+        self.crop_y = None
+        self.crop_width = None
+        self.crop_height = None
+
+    def set_crop_from_box(self, crop_box, *, image_size):
+        left, top, right, bottom = crop_box
+        width, height = image_size
+        if width <= 0 or height <= 0 or right <= left or bottom <= top:
+            self.clear_crop()
+            return
+
+        self.crop_x = Decimal(str(max(min(left / width, 1), 0))).quantize(Decimal("0.00001"))
+        self.crop_y = Decimal(str(max(min(top / height, 1), 0))).quantize(Decimal("0.00001"))
+        self.crop_width = Decimal(str(max(min((right - left) / width, 1), 0))).quantize(Decimal("0.00001"))
+        self.crop_height = Decimal(str(max(min((bottom - top) / height, 1), 0))).quantize(Decimal("0.00001"))
+
+    def auto_crop_from_original(self):
+        crop_box = detect_content_crop_box(self.image_original)
+        if not crop_box:
+            return False
+
+        self.image_original.open("rb")
+        try:
+            with Image.open(self.image_original) as img:
+                img = ImageOps.exif_transpose(img)
+                self.set_crop_from_box(crop_box, image_size=img.size)
+        finally:
+            self.image_original.close()
+        return self.has_crop()
+
+    def _get_crop_box(self):
+        if not self.has_crop() or not self.image_original:
+            return None
+
+        self.image_original.open("rb")
+        try:
+            with Image.open(self.image_original) as img:
+                img = ImageOps.exif_transpose(img)
+                width, height = img.size
+        finally:
+            self.image_original.close()
+
+        left = int(Decimal(self.crop_x) * width)
+        top = int(Decimal(self.crop_y) * height)
+        right = int((Decimal(self.crop_x) + Decimal(self.crop_width)) * width)
+        bottom = int((Decimal(self.crop_y) + Decimal(self.crop_height)) * height)
+
+        left = max(min(left, width - 1), 0)
+        top = max(min(top, height - 1), 0)
+        right = max(min(right, width), left + 1)
+        bottom = max(min(bottom, height), top + 1)
+
+        return (left, top, right, bottom)
 
     def _convert_variants_to_webp(self):
         converted_fields = []

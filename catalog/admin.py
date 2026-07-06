@@ -1,6 +1,14 @@
 from django.contrib import admin
+from django.contrib import messages
 from django.db import transaction
 from django.db.models import F, Q
+from django.http import Http404, HttpResponseRedirect
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
+from django.utils.html import format_html
+from django.utils.http import urlencode
+from PIL import Image, ImageOps
+from decimal import Decimal
 
 from common.cache_utils import CACHE_GROUP_CATALOG_CATEGORIES, invalidate_groups
 
@@ -21,16 +29,35 @@ from .models import (
 class ProductImageInline(admin.TabularInline):
     model = ProductImage
     extra = 1
+    readonly_fields = ("crop_tools",)
     fields = (
         "image_original",
         "image_desktop",
         "image_tablet",
         "image_mobile",
+        "crop_tools",
         "alt_text",
         "is_primary",
         "sort_order",
     )
     ordering = ("sort_order", "id")
+
+    @admin.display(description="Crop")
+    def crop_tools(self, obj):
+        if not obj or not obj.pk:
+            return "Save this product image before cropping."
+
+        if not obj.image_original:
+            return "Upload IMAGE ORIGINAL to use crop tools."
+
+        url = reverse(
+            "admin:catalog_productimage_crop",
+            args=[obj.product_id, obj.pk],
+        )
+        label = "Edit crop"
+        if obj.has_crop():
+            label = "Edit crop / reset"
+        return format_html('<a class="button" href="{}">{}</a>', url, label)
 
 
 class ProductSpecInline(admin.TabularInline):
@@ -292,6 +319,17 @@ class ProductAdmin(admin.ModelAdmin):
     class Media:
         js = ("catalog/admin_product_pricing_preview.js",)
 
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/images/<int:image_id>/crop/",
+                self.admin_site.admin_view(self.crop_product_image_view),
+                name="catalog_productimage_crop",
+            ),
+        ]
+        return custom_urls + urls
+
     fieldsets = (
         (
             "General",
@@ -389,6 +427,140 @@ class ProductAdmin(admin.ModelAdmin):
         if obj and obj.supplier_price is not None and "price" not in readonly_fields:
             readonly_fields.append("price")
         return readonly_fields
+
+    def crop_product_image_view(self, request, object_id, image_id):
+        product = self.get_object(request, object_id)
+        if product is None:
+            raise Http404("Product does not exist.")
+
+        image = (
+            ProductImage.objects.filter(pk=image_id, product=product)
+            .select_related("product")
+            .first()
+        )
+        if image is None:
+            raise Http404("Product image does not exist.")
+
+        product_url = reverse("admin:catalog_product_change", args=[product.pk])
+        if not image.image_original:
+            messages.error(request, "Upload IMAGE ORIGINAL before using crop tools.")
+            return HttpResponseRedirect(product_url)
+
+        source_size = self._get_product_image_original_size(image)
+        if source_size is None:
+            messages.error(request, "Original image could not be opened for cropping.")
+            return HttpResponseRedirect(product_url)
+
+        if request.method == "POST":
+            action = request.POST.get("action", "manual")
+            try:
+                if action == "auto":
+                    if not image.auto_crop_from_original():
+                        messages.warning(request, "Auto crop could not detect removable whitespace.")
+                        return HttpResponseRedirect(request.path)
+                    message = "Auto crop applied and responsive images regenerated."
+                elif action == "reset":
+                    image.clear_crop()
+                    message = "Crop reset and responsive images regenerated from the original."
+                elif action == "white_bg":
+                    image.replace_background_with_white = True
+                    message = "Flat background replacement applied and responsive images regenerated."
+                elif action == "reset_bg":
+                    image.replace_background_with_white = False
+                    message = "Background replacement reset and responsive images regenerated."
+                else:
+                    self._apply_manual_crop_from_post(image, request.POST)
+                    message = "Crop applied and responsive images regenerated."
+            except ValueError as error:
+                messages.error(request, str(error))
+                return HttpResponseRedirect(request.path)
+
+            image.save(
+                update_fields=[
+                    "crop_x",
+                    "crop_y",
+                    "crop_width",
+                    "crop_height",
+                    "replace_background_with_white",
+                    "updated_at",
+                ]
+            )
+            messages.success(request, message)
+            next_url = request.POST.get("next") or product_url
+            return HttpResponseRedirect(next_url)
+
+        context = {
+            **self.admin_site.each_context(request),
+            "title": f"Crop product image: {product.name}",
+            "opts": self.model._meta,
+            "original": product,
+            "product": product,
+            "image": image,
+            "image_url": image.image_original.url,
+            "source_width": source_size[0],
+            "source_height": source_size[1],
+            "crop": self._crop_context(image),
+            "replace_background_with_white": image.replace_background_with_white,
+            "product_url": product_url,
+            "preserved_filters": urlencode({"_changelist_filters": request.GET.urlencode()}),
+        }
+        return TemplateResponse(request, "admin/catalog/productimage/crop.html", context)
+
+    @staticmethod
+    def _get_product_image_original_size(image):
+        image.image_original.open("rb")
+        try:
+            with Image.open(image.image_original) as source:
+                source = ImageOps.exif_transpose(source)
+                return source.size
+        except Exception:
+            return None
+        finally:
+            image.image_original.close()
+
+    @staticmethod
+    def _crop_context(image):
+        if image.has_crop():
+            return {
+                "x": float(image.crop_x),
+                "y": float(image.crop_y),
+                "width": float(image.crop_width),
+                "height": float(image.crop_height),
+            }
+
+        return {
+            "x": 0.0,
+            "y": 0.0,
+            "width": 1.0,
+            "height": 1.0,
+        }
+
+    @staticmethod
+    def _apply_manual_crop_from_post(image, post_data):
+        crop_values = {}
+        for field_name in ("crop_x", "crop_y", "crop_width", "crop_height"):
+            raw_value = post_data.get(field_name)
+            try:
+                value = Decimal(str(raw_value))
+            except Exception as exc:
+                raise ValueError("Crop values are invalid.") from exc
+            if value < 0 or value > 1:
+                raise ValueError("Crop values must stay inside the image.")
+            crop_values[field_name] = value.quantize(Decimal("0.00001"))
+
+        if crop_values["crop_width"] < Decimal("0.05000") or crop_values["crop_height"] < Decimal("0.05000"):
+            raise ValueError("Crop area is too small.")
+
+        if crop_values["crop_x"] + crop_values["crop_width"] > Decimal("1.00000"):
+            raise ValueError("Crop width extends outside the image.")
+
+        if crop_values["crop_y"] + crop_values["crop_height"] > Decimal("1.00000"):
+            raise ValueError("Crop height extends outside the image.")
+
+        image.crop_x = crop_values["crop_x"]
+        image.crop_y = crop_values["crop_y"]
+        image.crop_width = crop_values["crop_width"]
+        image.crop_height = crop_values["crop_height"]
 
     @admin.action(description="Publish selected products")
     def action_publish(self, request, queryset):

@@ -1,9 +1,10 @@
 import os
+import os
 from io import BytesIO
 from urllib.parse import urlparse
 
 from django.core.files.base import ContentFile
-from PIL import Image, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageOps
 
 try:
     RESAMPLING_LANCZOS = Image.Resampling.LANCZOS
@@ -114,6 +115,8 @@ def build_resized_webp_content(
     source_image_field,
     *,
     max_size,
+    crop_box=None,
+    replace_background=False,
     quality=85,
 ):
     if not source_image_field:
@@ -128,12 +131,136 @@ def build_resized_webp_content(
                 img = img.convert("RGBA" if "A" in img.getbands() else "RGB")
 
             source = img.convert("RGBA")
+            if crop_box:
+                source = source.crop(crop_box)
+            if replace_background:
+                source = replace_flat_background_with_white(source)
             source.thumbnail((max_width, max_height), RESAMPLING_LANCZOS)
 
             output = BytesIO()
             source.convert("RGB").save(output, format="WEBP", quality=quality)
             output.seek(0)
             return output.read()
+    finally:
+        source_image_field.close()
+
+
+def replace_flat_background_with_white(
+    image,
+    *,
+    tolerance=26,
+):
+    source = image.convert("RGBA")
+    width, height = source.size
+    if width <= 1 or height <= 1:
+        return source
+
+    background_color = _estimate_edge_background_color(source)
+    rgb = source.convert("RGB")
+    background = Image.new("RGB", source.size, background_color)
+    diff = ImageChops.difference(rgb, background)
+    channel_masks = [
+        channel.point(lambda value: 255 if value <= tolerance else 0)
+        for channel in diff.split()
+    ]
+    candidate_mask = ImageChops.multiply(
+        ImageChops.multiply(channel_masks[0], channel_masks[1]),
+        channel_masks[2],
+    )
+    background_mask = _edge_connected_mask(candidate_mask)
+    if not background_mask.getbbox():
+        return source
+
+    result = source.copy()
+    white = Image.new("RGBA", source.size, (255, 255, 255, 255))
+    result.paste(white, mask=background_mask)
+    return result
+
+
+def _estimate_edge_background_color(source):
+    width, height = source.size
+    sample_points = []
+    sample_size = max(min(width, height) // 24, 1)
+    corners = (
+        (0, 0),
+        (max(width - sample_size, 0), 0),
+        (0, max(height - sample_size, 0)),
+        (max(width - sample_size, 0), max(height - sample_size, 0)),
+    )
+    rgb = source.convert("RGB")
+    for start_x, start_y in corners:
+        for x in range(start_x, min(start_x + sample_size, width)):
+            for y in range(start_y, min(start_y + sample_size, height)):
+                sample_points.append(rgb.getpixel((x, y)))
+
+    if not sample_points:
+        return rgb.getpixel((0, 0))
+
+    channels = list(zip(*sample_points))
+    return tuple(int(sum(channel) / len(channel)) for channel in channels)
+
+
+def _edge_connected_mask(candidate_mask):
+    width, height = candidate_mask.size
+    marker = candidate_mask.copy()
+
+    def flood_if_candidate(point):
+        if marker.getpixel(point) == 255:
+            ImageDraw.floodfill(marker, point, 128, thresh=0)
+
+    for x in range(width):
+        flood_if_candidate((x, 0))
+        flood_if_candidate((x, height - 1))
+
+    for y in range(height):
+        flood_if_candidate((0, y))
+        flood_if_candidate((width - 1, y))
+
+    return marker.point(lambda value: 255 if value == 128 else 0)
+
+
+def detect_content_crop_box(
+    source_image_field,
+    *,
+    tolerance=12,
+    padding_ratio=0.12,
+):
+    if not source_image_field:
+        return None
+
+    source_image_field.open("rb")
+    try:
+        with Image.open(source_image_field) as img:
+            img = ImageOps.exif_transpose(img)
+            source = img.convert("RGBA")
+            width, height = source.size
+            if width <= 1 or height <= 1:
+                return None
+
+            background = Image.new("RGBA", source.size, source.getpixel((0, 0)))
+            diff = ImageChops.difference(source, background).convert("L")
+            mask = diff.point(lambda value: 255 if value > tolerance else 0)
+            bbox = mask.getbbox()
+            if not bbox:
+                return None
+
+            left, top, right, bottom = bbox
+            content_width = right - left
+            content_height = bottom - top
+            if content_width <= 0 or content_height <= 0:
+                return None
+
+            pad_x = max(int(round(content_width * padding_ratio)), 1)
+            pad_y = max(int(round(content_height * padding_ratio)), 1)
+            left = max(left - pad_x, 0)
+            top = max(top - pad_y, 0)
+            right = min(right + pad_x, width)
+            bottom = min(bottom + pad_y, height)
+
+            if right <= left or bottom <= top:
+                return None
+
+            return (left, top, right, bottom)
     finally:
         source_image_field.close()
 
