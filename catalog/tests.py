@@ -1,5 +1,7 @@
 from decimal import Decimal
 from io import BytesIO
+import os
+import tempfile
 from unittest import skipUnless
 
 from django.contrib.admin.sites import site
@@ -32,6 +34,12 @@ from .models import (
     VehicleModel,
 )
 from .admin import ProductImageAdminForm, ProductImageInlineFormSet
+from .management.commands.audit_cloudinary_orphans import (
+    format_bytes,
+    normalize_storage_name,
+    storage_name_to_public_id,
+    top_level_folder,
+)
 from .search_cache import VEHICLE_SEARCH_CACHE_KEY
 from .views import _build_search_context
 
@@ -331,6 +339,37 @@ class CatalogAdminTests(TestCase):
             ProductImage.objects.filter(pk__in=[first_image.pk, second_image.pk]).exists()
         )
         self.assertTrue(ProductImage.objects.filter(pk=other_image.pk).exists())
+
+
+class CloudinaryOrphanAuditCommandTests(TestCase):
+    def test_storage_name_to_public_id_removes_cloudinary_version_and_extension(self):
+        self.assertEqual(
+            storage_name_to_public_id(
+                "v1783414062/catalog/products/4133/images/image.webp"
+            ),
+            "catalog/products/4133/images/image",
+        )
+        self.assertEqual(
+            storage_name_to_public_id("catalog/products/4133/images/image.jpg"),
+            "catalog/products/4133/images/image",
+        )
+
+    def test_normalize_storage_name_preserves_non_versioned_v_folder(self):
+        self.assertEqual(
+            normalize_storage_name("vfolder/catalog/image.webp"),
+            "vfolder/catalog/image.webp",
+        )
+
+    def test_format_bytes(self):
+        self.assertEqual(format_bytes(0), "0 B")
+        self.assertEqual(format_bytes(1024), "1.00 KB")
+        self.assertEqual(format_bytes(1024 * 1024), "1.00 MB")
+
+    def test_top_level_folder(self):
+        self.assertEqual(top_level_folder("catalog/products/1/image"), "catalog")
+        self.assertEqual(top_level_folder("seo/image"), "seo")
+        self.assertEqual(top_level_folder("image"), "image")
+        self.assertEqual(top_level_folder(""), "(root)")
 
 
 class CatalogAPITests(APITestCase):
@@ -1697,6 +1736,90 @@ class ProductImageNormalizationTests(TestCase):
         self.assertLess(center[0], 80)
         self.assertLess(center[1], 80)
         self.assertLess(center[2], 80)
+
+    def test_delete_removes_product_image_files_from_storage_after_commit(self):
+        with tempfile.TemporaryDirectory() as media_root:
+            with override_settings(
+                MEDIA_ROOT=media_root,
+                STORAGES={
+                    "default": {
+                        "BACKEND": "django.core.files.storage.FileSystemStorage"
+                    },
+                    "staticfiles": {
+                        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+                    },
+                },
+            ):
+                image = ProductImage.objects.create(
+                    product=self.product,
+                    image_original=_generate_test_image(
+                        "organizer-delete-original.jpg",
+                        color=(15, 25, 35),
+                        size=(1600, 900),
+                    ),
+                    is_primary=True,
+                )
+                image.refresh_from_db()
+                stored_paths = [
+                    getattr(image, field_name).path
+                    for field_name in (
+                        "image_original",
+                        "image_desktop",
+                        "image_tablet",
+                        "image_mobile",
+                    )
+                    if getattr(image, field_name)
+                ]
+
+                self.assertEqual(len(stored_paths), 4)
+                for stored_path in stored_paths:
+                    self.assertTrue(os.path.exists(stored_path))
+
+                with self.captureOnCommitCallbacks(execute=True):
+                    image.delete()
+
+                for stored_path in stored_paths:
+                    self.assertFalse(os.path.exists(stored_path))
+
+    def test_delete_keeps_product_image_file_still_referenced_by_another_row(self):
+        with tempfile.TemporaryDirectory() as media_root:
+            with override_settings(
+                MEDIA_ROOT=media_root,
+                STORAGES={
+                    "default": {
+                        "BACKEND": "django.core.files.storage.FileSystemStorage"
+                    },
+                    "staticfiles": {
+                        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+                    },
+                },
+            ):
+                shared_name = "catalog/products/shared-image.webp"
+                shared_path = os.path.join(media_root, shared_name)
+                os.makedirs(os.path.dirname(shared_path), exist_ok=True)
+                with open(shared_path, "wb") as shared_file:
+                    shared_file.write(b"shared")
+
+                first_image = ProductImage.objects.create(
+                    product=self.product,
+                    image_desktop=shared_name,
+                    is_primary=True,
+                )
+                second_image = ProductImage.objects.create(
+                    product=self.product,
+                    image_desktop=shared_name,
+                    sort_order=2,
+                )
+
+                with self.captureOnCommitCallbacks(execute=True):
+                    first_image.delete()
+
+                self.assertTrue(os.path.exists(shared_path))
+
+                with self.captureOnCommitCallbacks(execute=True):
+                    second_image.delete()
+
+                self.assertFalse(os.path.exists(shared_path))
 
 
 class CategoryImageNormalizationTests(TestCase):
