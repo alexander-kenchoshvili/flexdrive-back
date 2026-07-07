@@ -1,7 +1,9 @@
+from django import forms
 from django.contrib import admin
 from django.contrib import messages
 from django.db import transaction
 from django.db.models import F, Q
+from django.forms.models import BaseInlineFormSet
 from django.http import Http404, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
@@ -26,8 +28,41 @@ from .models import (
 )
 
 
+class ProductImageAdminForm(forms.ModelForm):
+    class Meta:
+        model = ProductImage
+        fields = "__all__"
+
+    def validate_constraints(self):
+        # The inline formset validates the final submitted primary-image state.
+        # Running the model constraint per row sees stale DB values when moving
+        # the primary flag from an existing image to a newly uploaded image.
+        return None
+
+
+class ProductImageInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+
+        primary_count = 0
+        for form in self.forms:
+            if not hasattr(form, "cleaned_data") or not form.cleaned_data:
+                continue
+            if form.cleaned_data.get("DELETE"):
+                continue
+            if form.cleaned_data.get("is_primary"):
+                primary_count += 1
+
+        if primary_count > 1:
+            raise forms.ValidationError(
+                "Only one product image can be marked as primary."
+            )
+
+
 class ProductImageInline(admin.TabularInline):
     model = ProductImage
+    form = ProductImageAdminForm
+    formset = ProductImageInlineFormSet
     extra = 1
     readonly_fields = ("crop_tools",)
     fields = (

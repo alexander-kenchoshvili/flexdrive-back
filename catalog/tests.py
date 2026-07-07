@@ -9,6 +9,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Q
+from django.forms.models import inlineformset_factory
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -30,6 +31,7 @@ from .models import (
     VehicleMake,
     VehicleModel,
 )
+from .admin import ProductImageAdminForm, ProductImageInlineFormSet
 from .search_cache import VEHICLE_SEARCH_CACHE_KEY
 from .views import _build_search_context
 
@@ -131,6 +133,127 @@ class CatalogAdminTests(TestCase):
         self.assertEqual(response.status_code, 302)
         image.refresh_from_db()
         self.assertTrue(image.replace_background_with_white)
+
+    @override_settings(
+        STORAGES={
+            "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+            },
+        }
+    )
+    def test_product_image_inline_allows_moving_primary_to_new_image(self):
+        category = Category.objects.create(name="Lighting", slug="admin-lighting")
+        product = Product.objects.create(
+            category=category,
+            name="Headlight",
+            slug="admin-headlight",
+            sku="ADMIN-HEADLIGHT",
+            price=Decimal("20.00"),
+            stock_qty=3,
+            status=ProductStatus.PUBLISHED,
+        )
+        image = ProductImage.objects.create(
+            product=product,
+            image_original=_generate_test_image("old-headlight.jpg"),
+            is_primary=True,
+            sort_order=1,
+        )
+        formset_class = inlineformset_factory(
+            Product,
+            ProductImage,
+            form=ProductImageAdminForm,
+            formset=ProductImageInlineFormSet,
+            fields=(
+                "image_original",
+                "alt_text",
+                "is_primary",
+                "sort_order",
+            ),
+            extra=1,
+            can_delete=True,
+        )
+        data = {
+            "images-TOTAL_FORMS": "2",
+            "images-INITIAL_FORMS": "1",
+            "images-MIN_NUM_FORMS": "0",
+            "images-MAX_NUM_FORMS": "1000",
+            "images-0-id": str(image.pk),
+            "images-0-product": str(product.pk),
+            "images-0-alt_text": "Old image",
+            "images-0-sort_order": "1",
+            "images-1-id": "",
+            "images-1-product": str(product.pk),
+            "images-1-alt_text": "New primary image",
+            "images-1-is_primary": "on",
+            "images-1-sort_order": "2",
+        }
+        files = {
+            "images-1-image_original": _generate_test_image("new-headlight.jpg"),
+        }
+
+        formset = formset_class(data=data, files=files, instance=product, prefix="images")
+
+        self.assertTrue(formset.is_valid(), formset.errors)
+
+    def test_product_image_inline_rejects_multiple_primary_images(self):
+        category = Category.objects.create(name="Body", slug="admin-body")
+        product = Product.objects.create(
+            category=category,
+            name="Bumper",
+            slug="admin-bumper",
+            sku="ADMIN-BUMPER",
+            price=Decimal("40.00"),
+            stock_qty=2,
+            status=ProductStatus.PUBLISHED,
+        )
+        image = ProductImage.objects.create(
+            product=product,
+            image_original=_generate_test_image("old-bumper.jpg"),
+            is_primary=True,
+            sort_order=1,
+        )
+        formset_class = inlineformset_factory(
+            Product,
+            ProductImage,
+            form=ProductImageAdminForm,
+            formset=ProductImageInlineFormSet,
+            fields=(
+                "image_original",
+                "alt_text",
+                "is_primary",
+                "sort_order",
+            ),
+            extra=1,
+            can_delete=True,
+        )
+        data = {
+            "images-TOTAL_FORMS": "2",
+            "images-INITIAL_FORMS": "1",
+            "images-MIN_NUM_FORMS": "0",
+            "images-MAX_NUM_FORMS": "1000",
+            "images-0-id": str(image.pk),
+            "images-0-product": str(product.pk),
+            "images-0-alt_text": "Old image",
+            "images-0-is_primary": "on",
+            "images-0-sort_order": "1",
+            "images-1-id": "",
+            "images-1-product": str(product.pk),
+            "images-1-alt_text": "New image",
+            "images-1-is_primary": "on",
+            "images-1-sort_order": "2",
+        }
+        files = {
+            "images-1-image_original": _generate_test_image("new-bumper.jpg"),
+        }
+
+        formset = formset_class(data=data, files=files, instance=product, prefix="images")
+
+        self.assertFalse(formset.is_valid())
+        self.assertIn(
+            "Only one product image can be marked as primary.",
+            formset.non_form_errors(),
+        )
 
 
 class CatalogAPITests(APITestCase):
