@@ -1,10 +1,11 @@
 from django import forms
 from django.contrib import admin
 from django.contrib import messages
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import F, Q
 from django.forms.models import BaseInlineFormSet
-from django.http import Http404, HttpResponseRedirect
+from django.http import Http404, HttpResponseNotAllowed, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.html import format_html
@@ -352,11 +353,19 @@ class ProductAdmin(admin.ModelAdmin):
     actions = ("action_publish", "action_unpublish", "action_mark_featured")
 
     class Media:
-        js = ("catalog/admin_product_pricing_preview.js",)
+        js = (
+            "catalog/admin_product_pricing_preview.js",
+            "catalog/admin_product_images_bulk_delete.js",
+        )
 
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
+            path(
+                "<path:object_id>/images/delete-selected/",
+                self.admin_site.admin_view(self.delete_selected_product_images_view),
+                name="catalog_product_images_delete_selected",
+            ),
             path(
                 "<path:object_id>/images/<int:image_id>/crop/",
                 self.admin_site.admin_view(self.crop_product_image_view),
@@ -462,6 +471,36 @@ class ProductAdmin(admin.ModelAdmin):
         if obj and obj.supplier_price is not None and "price" not in readonly_fields:
             readonly_fields.append("price")
         return readonly_fields
+
+    def delete_selected_product_images_view(self, request, object_id):
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
+        product = self.get_object(request, object_id)
+        if product is None:
+            raise Http404("Product does not exist.")
+
+        if not self.has_change_permission(request, product) or not self.has_delete_permission(
+            request, product
+        ):
+            raise PermissionDenied
+
+        product_url = reverse("admin:catalog_product_change", args=[product.pk])
+        image_ids = request.POST.getlist("image_ids")
+        images = ProductImage.objects.filter(pk__in=image_ids, product=product)
+        deleted_count = images.count()
+
+        if deleted_count:
+            images.delete()
+            messages.success(
+                request,
+                f"Deleted {deleted_count} selected product image"
+                f"{'' if deleted_count == 1 else 's'}.",
+            )
+        else:
+            messages.warning(request, "No product images were selected for deletion.")
+
+        return HttpResponseRedirect(f"{product_url}#images-group")
 
     def crop_product_image_view(self, request, object_id, image_id):
         product = self.get_object(request, object_id)

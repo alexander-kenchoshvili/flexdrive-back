@@ -255,6 +255,83 @@ class CatalogAdminTests(TestCase):
             formset.non_form_errors(),
         )
 
+    @override_settings(
+        STORAGES={
+            "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+            },
+        }
+    )
+    def test_product_admin_delete_selected_images_keeps_user_on_product(self):
+        user = get_user_model().objects.create_superuser(
+            username="bulk-delete-admin",
+            email="bulk-delete-admin@example.com",
+            password="password",
+        )
+        self.client.force_login(user)
+        category = Category.objects.create(name="Panels", slug="admin-panels")
+        product = Product.objects.create(
+            category=category,
+            name="Door Panel",
+            slug="admin-door-panel",
+            sku="ADMIN-PANEL",
+            price=Decimal("30.00"),
+            stock_qty=4,
+            status=ProductStatus.PUBLISHED,
+        )
+        other_product = Product.objects.create(
+            category=category,
+            name="Fender",
+            slug="admin-fender",
+            sku="ADMIN-FENDER",
+            price=Decimal("35.00"),
+            stock_qty=2,
+            status=ProductStatus.PUBLISHED,
+        )
+        first_image = ProductImage.objects.create(
+            product=product,
+            image_original=_generate_test_image("door-panel-1.jpg"),
+            is_primary=True,
+            sort_order=1,
+        )
+        second_image = ProductImage.objects.create(
+            product=product,
+            image_original=_generate_test_image("door-panel-2.jpg"),
+            sort_order=2,
+        )
+        other_image = ProductImage.objects.create(
+            product=other_product,
+            image_original=_generate_test_image("fender.jpg"),
+            is_primary=True,
+            sort_order=1,
+        )
+        url = reverse(
+            "admin:catalog_product_images_delete_selected",
+            args=[product.pk],
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "image_ids": [
+                    str(first_image.pk),
+                    str(second_image.pk),
+                    str(other_image.pk),
+                ]
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            f"{reverse('admin:catalog_product_change', args=[product.pk])}#images-group",
+            fetch_redirect_response=False,
+        )
+        self.assertFalse(
+            ProductImage.objects.filter(pk__in=[first_image.pk, second_image.pk]).exists()
+        )
+        self.assertTrue(ProductImage.objects.filter(pk=other_image.pk).exists())
+
 
 class CatalogAPITests(APITestCase):
     def setUp(self):
