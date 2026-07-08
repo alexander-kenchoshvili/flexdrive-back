@@ -21,6 +21,8 @@ from .models import (
     Product,
     ProductFitment,
     ProductImage,
+    ProductPlacement,
+    ProductSide,
     ProductSpec,
     ProductStatus,
     SupplierProductBlock,
@@ -31,6 +33,20 @@ from .models import (
 
 CROSSMOTORS_SOURCE_NAME = "Cross Motors"
 CROSSMOTORS_SKU_PREFIX = "CM-"
+PLACEMENT_LABELS_KA = {
+    ProductPlacement.FRONT: "წინა",
+    ProductPlacement.REAR: "უკანა",
+    ProductPlacement.UPPER: "ზედა",
+    ProductPlacement.LOWER: "ქვედა",
+    ProductPlacement.INNER: "შიდა",
+    ProductPlacement.OUTER: "გარე",
+}
+SIDE_LABELS_KA = {
+    ProductSide.LEFT: "მარცხენა",
+    ProductSide.RIGHT: "მარჯვენა",
+    ProductSide.BOTH: "ორივე",
+    ProductSide.CENTER: "ცენტრი",
+}
 
 
 class ProductImageAdminForm(forms.ModelForm):
@@ -119,6 +135,70 @@ class ProductFitmentInline(admin.TabularInline):
         "year_to",
         "engine__name",
     )
+
+
+def _regenerate_manual_fitment_descriptions(product):
+    fitment = (
+        product.fitments.select_related("vehicle_model__make")
+        .order_by(
+            "vehicle_model__make__name",
+            "vehicle_model__name",
+            "year_from",
+            "year_to",
+            "engine__name",
+        )
+        .first()
+    )
+    if not fitment:
+        return
+
+    vehicle = _fitment_vehicle_label(fitment)
+    years = _fitment_year_label(fitment)
+    placement = PLACEMENT_LABELS_KA.get(product.placement, "")
+    side = SIDE_LABELS_KA.get(product.side, "")
+
+    short_parts = [product.name, vehicle, years]
+    short_description = " - ".join(part for part in short_parts if part)[:300]
+
+    detail_parts = [part for part in (vehicle, years, placement, side) if part]
+    description = (
+        f"{product.name} - {', '.join(detail_parts)}."
+        if detail_parts
+        else product.name
+    )
+
+    product.short_description = short_description
+    product.description = description
+    product.seo_description = short_description
+    product.save(
+        update_fields=[
+            "short_description",
+            "description",
+            "seo_description",
+            "updated_at",
+        ]
+    )
+
+
+def _fitment_vehicle_label(fitment):
+    if not fitment:
+        return ""
+    return " ".join(
+        part
+        for part in (
+            fitment.vehicle_model.make.name,
+            fitment.vehicle_model.name,
+        )
+        if part
+    )
+
+
+def _fitment_year_label(fitment):
+    if not fitment:
+        return ""
+    if fitment.year_from == fitment.year_to:
+        return str(fitment.year_from)
+    return f"{fitment.year_from}-{fitment.year_to}"
 
 
 class OnSaleListFilter(admin.SimpleListFilter):
@@ -428,7 +508,14 @@ class ProductAdmin(admin.ModelAdmin):
         ),
         (
             "Parts metadata",
-            {"fields": ("placement", "side", "is_universal_fitment")},
+            {
+                "fields": (
+                    "placement",
+                    "side",
+                    "is_universal_fitment",
+                    "preserve_manual_fitment_content",
+                )
+            },
         ),
         ("Flags", {"fields": ("is_new", "is_featured")}),
         ("Inventory", {"fields": ("stock_qty", "in_stock_readonly")}),
@@ -481,6 +568,12 @@ class ProductAdmin(admin.ModelAdmin):
         if obj and obj.supplier_price is not None and "price" not in readonly_fields:
             readonly_fields.append("price")
         return readonly_fields
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        product = form.instance
+        if product.preserve_manual_fitment_content:
+            _regenerate_manual_fitment_descriptions(product)
 
     def delete_selected_product_images_view(self, request, object_id):
         if request.method != "POST":

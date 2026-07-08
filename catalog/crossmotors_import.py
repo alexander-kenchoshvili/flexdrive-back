@@ -529,6 +529,9 @@ def import_crossmotors_report(report, *, archive_missing=False):
         else:
             counters.updated_products += 1
 
+        if product.preserve_manual_fitment_content:
+            continue
+
         spec_result = _upsert_specs(product, values)
         counters.created_specs += spec_result["created"]
         counters.updated_specs += spec_result["updated"]
@@ -869,8 +872,9 @@ def _bulk_upsert_products(rows, *, categories, brands, now, batch_size):
         product.brand = brand
         product.name = values["name"]
         product.manufacturer_part_number = values["oem"]
-        product.short_description = values["short_description"]
-        product.description = values["description"]
+        if not product.preserve_manual_fitment_content:
+            product.short_description = values["short_description"]
+            product.description = values["description"]
         product.supplier_price = values["supplier_price"]
         product.price = _calculate_customer_price(product, category)
         product.old_price = None
@@ -879,7 +883,8 @@ def _bulk_upsert_products(rows, *, categories, brands, now, batch_size):
         product.stock_qty = values["stock_qty"]
         product.status = ProductStatus.PUBLISHED
         product.seo_title = f"{values['clean_name'] or values['name']} | FlexDrive"
-        product.seo_description = values["short_description"]
+        if not product.preserve_manual_fitment_content:
+            product.seo_description = values["short_description"]
         product.is_universal_fitment = False
         product.updated_at = now
 
@@ -922,6 +927,8 @@ def _bulk_upsert_specs(rows, *, products, now, batch_size):
     desired = []
     for row in rows:
         product = products[row.values["sku"]]
+        if product.preserve_manual_fitment_content:
+            continue
         for key, value, sort_order in _desired_specs(row.values):
             desired.append(
                 ProductSpec(
@@ -955,7 +962,14 @@ def _bulk_upsert_specs(rows, *, products, now, batch_size):
 
 
 def _bulk_replace_fitments(rows, *, products, makes, models, now, batch_size):
+    rows = [
+        row
+        for row in rows
+        if not products[row.values["sku"]].preserve_manual_fitment_content
+    ]
     product_ids = [products[row.values["sku"]].id for row in rows]
+    if not product_ids:
+        return 0
     ProductFitment.objects.filter(product_id__in=product_ids).delete()
 
     fitments = []
@@ -1373,8 +1387,9 @@ def _upsert_product(values, *, category, brand):
     product.brand = brand
     product.name = values["name"]
     product.manufacturer_part_number = values["oem"]
-    product.short_description = values["short_description"]
-    product.description = values["description"]
+    if not product.preserve_manual_fitment_content:
+        product.short_description = values["short_description"]
+        product.description = values["description"]
     product.supplier_price = values["supplier_price"]
     product.price = (
         values["supplier_price"]
@@ -1387,7 +1402,8 @@ def _upsert_product(values, *, category, brand):
     product.stock_qty = values["stock_qty"]
     product.status = ProductStatus.PUBLISHED
     product.seo_title = f"{values['clean_name'] or values['name']} | FlexDrive"
-    product.seo_description = values["short_description"]
+    if not product.preserve_manual_fitment_content:
+        product.seo_description = values["short_description"]
     product.is_universal_fitment = False
     product.save()
 

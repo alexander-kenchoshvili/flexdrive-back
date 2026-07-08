@@ -422,6 +422,13 @@ class Product(TimeStampedModel):
     is_new = models.BooleanField(default=False, db_index=True)
     is_featured = models.BooleanField(default=False, db_index=True)
     is_universal_fitment = models.BooleanField(default=False, db_index=True)
+    preserve_manual_fitment_content = models.BooleanField(
+        default=False,
+        help_text=(
+            "Keep manually edited fitments, descriptions, and specs during supplier imports. "
+            "Supplier price and stock will still be refreshed."
+        ),
+    )
     status = models.CharField(
         max_length=20,
         choices=ProductStatus.choices,

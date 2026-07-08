@@ -34,7 +34,11 @@ from .models import (
     VehicleMake,
     VehicleModel,
 )
-from .admin import ProductImageAdminForm, ProductImageInlineFormSet
+from .admin import (
+    ProductImageAdminForm,
+    ProductImageInlineFormSet,
+    _regenerate_manual_fitment_descriptions,
+)
 from .management.commands.audit_cloudinary_orphans import (
     format_bytes,
     normalize_storage_name,
@@ -83,6 +87,45 @@ class CatalogAdminTests(TestCase):
             product_admin.calculated_customer_price_readonly(Product()),
             "",
         )
+
+    def test_manual_fitment_description_regeneration_uses_current_fitment(self):
+        category = Category.objects.create(name="Lighting", slug="manual-lighting")
+        make = VehicleMake.objects.create(name="Subaru", slug="manual-subaru")
+        model = VehicleModel.objects.create(
+            make=make,
+            name="Forester",
+            slug="manual-forester",
+        )
+        product = Product.objects.create(
+            category=category,
+            name="ეკრანის ქვედა ძირის ზედა მხარე",
+            slug="manual-fitment-description",
+            sku="CM-MANUAL",
+            price=Decimal("80.00"),
+            placement=ProductPlacement.UPPER,
+            preserve_manual_fitment_content=True,
+            status=ProductStatus.PUBLISHED,
+        )
+        ProductFitment.objects.create(
+            product=product,
+            vehicle_model=model,
+            year_from=2020,
+            year_to=2024,
+            notes="Manual corrected fitment",
+        )
+
+        _regenerate_manual_fitment_descriptions(product)
+
+        product.refresh_from_db()
+        self.assertEqual(
+            product.short_description,
+            "ეკრანის ქვედა ძირის ზედა მხარე - Subaru Forester - 2020-2024",
+        )
+        self.assertEqual(
+            product.description,
+            "ეკრანის ქვედა ძირის ზედა მხარე - Subaru Forester, 2020-2024, ზედა.",
+        )
+        self.assertEqual(product.seo_description, product.short_description)
 
     def test_product_admin_action_blocks_crossmotors_product_from_supplier_import(self):
         user = get_user_model().objects.create_superuser(

@@ -347,6 +347,75 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(product.price, Decimal("250.00"))
         self.assertEqual(product.stock_qty, 7)
 
+    def test_import_report_preserves_locked_manual_fitment_content(self):
+        category = Category.objects.create(name="Manual", slug="manual")
+        make = VehicleMake.objects.create(name="Subaru", slug="subaru")
+        model = VehicleModel.objects.create(make=make, name="Forester", slug="forester")
+        product = Product.objects.create(
+            category=category,
+            name="Manual fitment product",
+            slug="manual-fitment-product",
+            sku="CM-000015",
+            price=Decimal("10.00"),
+            stock_qty=1,
+            short_description="Manual short 2020-2024",
+            description="Manual description 2020-2024",
+            seo_description="Manual SEO 2020-2024",
+            preserve_manual_fitment_content=True,
+            status=ProductStatus.PUBLISHED,
+        )
+        ProductFitment.objects.create(
+            product=product,
+            vehicle_model=model,
+            year_from=2020,
+            year_to=2024,
+            notes="Manual fitment",
+        )
+        ProductSpec.objects.create(
+            product=product,
+            key="თაობა",
+            value="Manual 2020-2024",
+        )
+        report = build_crossmotors_report(
+            [
+                {
+                    "code": "000015",
+                    "oem": "84001FJ090BK",
+                    "name": "წინა ფარი (RH) შავი",
+                    "brand": "Subaru",
+                    "model": "XV",
+                    "generation": "XV 25-",
+                    "manufacturer": "Suo Lun",
+                    "qty": 7,
+                    "dealer_price": 250.0,
+                    "currency": "GEL",
+                }
+            ],
+            product_queryset=Product.objects.all(),
+        )
+
+        result = import_crossmotors_report(report)
+
+        product.refresh_from_db()
+        self.assertEqual(result.updated_products, 1)
+        self.assertEqual(result.created_fitments, 0)
+        self.assertEqual(result.created_specs, 0)
+        self.assertEqual(result.updated_specs, 0)
+        self.assertEqual(product.supplier_price, Decimal("250.00"))
+        self.assertEqual(product.price, Decimal("250.00"))
+        self.assertEqual(product.stock_qty, 7)
+        self.assertEqual(product.short_description, "Manual short 2020-2024")
+        self.assertEqual(product.description, "Manual description 2020-2024")
+        self.assertEqual(product.seo_description, "Manual SEO 2020-2024")
+        fitment = ProductFitment.objects.get(product=product)
+        self.assertEqual(fitment.year_from, 2020)
+        self.assertEqual(fitment.year_to, 2024)
+        self.assertEqual(fitment.notes, "Manual fitment")
+        self.assertEqual(
+            ProductSpec.objects.get(product=product, key="თაობა").value,
+            "Manual 2020-2024",
+        )
+
     def test_import_report_archives_existing_original_product(self):
         category = Category.objects.create(name="Original", slug="original")
         brand = Brand.objects.create(name="Subaru Original", slug="subaru-original")
@@ -527,4 +596,73 @@ class CrossMotorsImportTests(TestCase):
                 key="მხარე",
                 value="მარცხენა",
             ).exists()
+        )
+
+    def test_bulk_import_report_preserves_locked_manual_fitment_content(self):
+        category = Category.objects.create(name="Manual", slug="manual")
+        make = VehicleMake.objects.create(name="Subaru", slug="subaru")
+        model = VehicleModel.objects.create(make=make, name="Forester", slug="forester")
+        product = Product.objects.create(
+            category=category,
+            name="Manual fitment product",
+            slug="manual-fitment-product",
+            sku="CM-000015",
+            price=Decimal("10.00"),
+            stock_qty=1,
+            short_description="Manual short 2020-2024",
+            description="Manual description 2020-2024",
+            seo_description="Manual SEO 2020-2024",
+            preserve_manual_fitment_content=True,
+            status=ProductStatus.PUBLISHED,
+        )
+        ProductFitment.objects.create(
+            product=product,
+            vehicle_model=model,
+            year_from=2020,
+            year_to=2024,
+            notes="Manual fitment",
+        )
+        ProductSpec.objects.create(
+            product=product,
+            key="თაობა",
+            value="Manual 2020-2024",
+        )
+        report = build_crossmotors_report(
+            [
+                {
+                    "code": "000015",
+                    "oem": "84001FJ090BK",
+                    "name": "წინა ფარი (RH) შავი",
+                    "brand": "Subaru",
+                    "model": "XV",
+                    "generation": "XV 25-",
+                    "manufacturer": "Suo Lun",
+                    "qty": 7,
+                    "dealer_price": 250.0,
+                    "currency": "GEL",
+                }
+            ],
+            product_queryset=Product.objects.all(),
+        )
+
+        result = import_crossmotors_report_bulk(report)
+
+        product.refresh_from_db()
+        self.assertEqual(result.updated_products, 1)
+        self.assertEqual(result.created_fitments, 0)
+        self.assertEqual(result.created_specs, 0)
+        self.assertEqual(result.updated_specs, 0)
+        self.assertEqual(product.supplier_price, Decimal("250.00"))
+        self.assertEqual(product.price, Decimal("250.00"))
+        self.assertEqual(product.stock_qty, 7)
+        self.assertEqual(product.short_description, "Manual short 2020-2024")
+        self.assertEqual(product.description, "Manual description 2020-2024")
+        self.assertEqual(product.seo_description, "Manual SEO 2020-2024")
+        fitment = ProductFitment.objects.get(product=product)
+        self.assertEqual(fitment.year_from, 2020)
+        self.assertEqual(fitment.year_to, 2024)
+        self.assertEqual(fitment.notes, "Manual fitment")
+        self.assertEqual(
+            ProductSpec.objects.get(product=product, key="თაობა").value,
+            "Manual 2020-2024",
         )
