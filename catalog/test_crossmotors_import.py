@@ -164,7 +164,8 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(report.missing_price_in_stock_count, 1)
         self.assertIn("dealer_price is empty", report.rows[0].warnings[0])
         self.assertEqual(report.rows[0].values["year_from"], 2018)
-        self.assertEqual(report.rows[0].values["year_to"], 2027)
+        self.assertEqual(report.rows[0].values["year_to"], 2018)
+        self.assertEqual(report.rows[0].values["short_description"], "სარკე - Subaru XV - 2018")
 
     def test_import_report_creates_catalog_records(self):
         report = build_crossmotors_report(
@@ -198,7 +199,7 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(product.name, "წინა ფარი (RH) შავი")
         self.assertEqual(product.manufacturer_part_number, "84001FJ090BK")
         self.assertEqual(product.brand.name, "Suo Lun")
-        self.assertEqual(product.category.name, "ფარები და განათება")
+        self.assertEqual(product.category.name, "ახალი")
         self.assertEqual(product.supplier_price, Decimal("250.00"))
         self.assertEqual(product.price, Decimal("250.00"))
         self.assertEqual(product.stock_qty, 6)
@@ -216,19 +217,7 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(fitment.notes, "XV 12-17")
         self.assertTrue(ProductSpec.objects.filter(product=product, key="მხარე", value="მარჯვენა").exists())
 
-    def test_import_report_uses_canonical_category_names(self):
-        lighting = Category.objects.create(
-            name="ფარები და განათება",
-            slug="ganateba",
-        )
-        visual = Category.objects.create(
-            name="ვიზუალის ნაწილები",
-            slug="bamperebi-da-tskhaurebi",
-        )
-        engine = Category.objects.create(
-            name="ძრავები და ფილტრები",
-            slug="dzravi-zetebi-da-filtrebi",
-        )
+    def test_import_report_routes_new_products_to_new_category(self):
         report = build_crossmotors_report(
             [
                 {
@@ -271,11 +260,17 @@ class CrossMotorsImportTests(TestCase):
             product_queryset=Product.objects.none(),
         )
 
-        import_crossmotors_report(report)
+        result = import_crossmotors_report(report)
 
-        self.assertEqual(Product.objects.get(sku="CM-000015").category, lighting)
-        self.assertEqual(Product.objects.get(sku="CM-000016").category, visual)
-        self.assertEqual(Product.objects.get(sku="CM-000017").category, engine)
+        new_category = Category.objects.get(name="ახალი")
+        self.assertEqual(result.created_categories, 1)
+        self.assertEqual(result.updated_categories, 0)
+        self.assertEqual(Product.objects.get(sku="CM-000015").category, new_category)
+        self.assertEqual(Product.objects.get(sku="CM-000016").category, new_category)
+        self.assertEqual(Product.objects.get(sku="CM-000017").category, new_category)
+        self.assertFalse(Category.objects.filter(name="ფარები და განათება").exists())
+        self.assertFalse(Category.objects.filter(name="ვიზუალის ნაწილები").exists())
+        self.assertFalse(Category.objects.filter(name="ძრავები და ფილტრები").exists())
         self.assertFalse(Category.objects.filter(name="განათება").exists())
         self.assertFalse(Category.objects.filter(name="ბამპერები და ცხაურები").exists())
         self.assertFalse(Category.objects.filter(name="ძრავი, ზეთები და ფილტრები").exists())
@@ -303,6 +298,7 @@ class CrossMotorsImportTests(TestCase):
         import_crossmotors_report(report)
 
         product = Product.objects.get(sku="CM-000020")
+        self.assertEqual(product.category.name, "ახალი")
         self.assertEqual(product.supplier_price, None)
         self.assertEqual(product.price, Decimal("0.00"))
         self.assertEqual(product.stock_qty, 3)
@@ -469,11 +465,6 @@ class CrossMotorsImportTests(TestCase):
             slug="khelit-dalagebuli",
             markup_percent=Decimal("10.00"),
         )
-        mirrors = Category.objects.create(
-            name="სარკეები",
-            slug="sarkeebi",
-            markup_percent=Decimal("20.00"),
-        )
         Product.objects.create(
             category=manual_category,
             name="Existing manually categorized",
@@ -526,7 +517,7 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(existing.stock_qty, 7)
 
         created = Product.objects.get(sku="CM-000020")
-        self.assertEqual(created.category, mirrors)
+        self.assertEqual(created.category.name, "ახალი")
         self.assertEqual(created.supplier_price, None)
         self.assertEqual(created.price, Decimal("0.00"))
         self.assertEqual(created.brand.name, "TYG")

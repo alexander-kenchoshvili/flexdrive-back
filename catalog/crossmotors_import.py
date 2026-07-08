@@ -39,6 +39,7 @@ from catalog.models import (
 
 CROSSMOTORS_SOURCE_NAME = "Cross Motors"
 CROSSMOTORS_SKU_PREFIX = "CM-"
+NEW_SUPPLIER_CATEGORY_NAME = "ახალი"
 DEFAULT_BASE_URL = "https://portal.crossmotors.ge"
 DEFAULT_PAGE_SIZE = 1000
 DEFAULT_TIMEOUT = 30
@@ -479,6 +480,7 @@ def import_crossmotors_report(report, *, archive_missing=False):
 
     counters = _ImportCounters()
     category_sort_orders = {}
+    categories_by_name = {}
     brand_sort_orders = {}
     make_sort_orders = {}
     imported_skus = set()
@@ -496,14 +498,19 @@ def import_crossmotors_report(report, *, archive_missing=False):
         values = row.values
         imported_skus.add(values["sku"])
 
-        category, category_created = _get_or_create_category(
-            values["category"],
-            sort_order=category_sort_orders.setdefault(
-                values["category"],
-                len(category_sort_orders) + 1,
-            ),
-        )
-        _increment_counter(counters, "categories", category_created)
+        category = None
+        if values["sku"] not in report.existing_skus:
+            category = categories_by_name.get(NEW_SUPPLIER_CATEGORY_NAME)
+            if category is None:
+                category, category_created = _get_or_create_category(
+                    NEW_SUPPLIER_CATEGORY_NAME,
+                    sort_order=category_sort_orders.setdefault(
+                        NEW_SUPPLIER_CATEGORY_NAME,
+                        len(category_sort_orders) + 1,
+                    ),
+                )
+                categories_by_name[NEW_SUPPLIER_CATEGORY_NAME] = category
+                _increment_counter(counters, "categories", category_created)
 
         brand = None
         if values["part_manufacturer"]:
@@ -572,7 +579,19 @@ def import_crossmotors_report_bulk(report, *, archive_missing=False, batch_size=
     if not valid_rows:
         return counters.to_result()
 
-    categories = _bulk_get_or_create_categories(valid_rows, counters, now, batch_size)
+    existing_skus = set(
+        Product.objects.filter(
+            sku__in=[row.values["sku"] for row in valid_rows]
+        ).values_list("sku", flat=True)
+    )
+
+    categories = _bulk_get_or_create_categories(
+        valid_rows,
+        counters,
+        now,
+        batch_size,
+        existing_skus=existing_skus,
+    )
     brands = _bulk_get_or_create_brands(valid_rows, counters, now, batch_size)
     makes = _bulk_get_or_create_vehicle_makes(valid_rows, counters, now, batch_size)
     models = _bulk_get_or_create_vehicle_models(valid_rows, makes, counters, now, batch_size)
@@ -619,8 +638,11 @@ def import_crossmotors_report_bulk(report, *, archive_missing=False, batch_size=
     return counters.to_result()
 
 
-def _bulk_get_or_create_categories(rows, counters, now, batch_size):
-    names = _ordered_unique(row.values["category"] for row in rows)
+def _bulk_get_or_create_categories(rows, counters, now, batch_size, *, existing_skus):
+    new_product_rows = [
+        row for row in rows if row.values["sku"] not in existing_skus
+    ]
+    names = [NEW_SUPPLIER_CATEGORY_NAME] if new_product_rows else []
     sort_orders = {name: index for index, name in enumerate(names, start=1)}
     existing = _casefolded_map(Category.objects.all())
 
@@ -641,8 +663,14 @@ def _bulk_get_or_create_categories(rows, counters, now, batch_size):
     ]
     if to_create:
         Category.objects.bulk_create(to_create, batch_size=batch_size)
+    counters.created_categories += len(to_create)
 
-    inactive = [item for item in existing.values() if not item.is_active]
+    relevant_names = {name.casefold() for name in names}
+    inactive = [
+        item
+        for key, item in existing.items()
+        if key in relevant_names and not item.is_active
+    ]
     if inactive:
         for item in inactive:
             item.is_active = True
@@ -650,12 +678,7 @@ def _bulk_get_or_create_categories(rows, counters, now, batch_size):
         Category.objects.bulk_update(inactive, ["is_active", "updated_at"], batch_size=batch_size)
 
     refreshed = _casefolded_map(Category.objects.filter(name__in=names))
-    for row in rows:
-        _increment_counter(
-            counters,
-            "categories",
-            row.values["category"].casefold() not in existing,
-        )
+    counters.updated_categories += max(len(names) - len(to_create), 0)
     return refreshed
 
 
@@ -828,7 +851,7 @@ def _bulk_upsert_products(rows, *, categories, brands, now, batch_size):
         product = existing.get(values["sku"])
         is_created = product is None
         if is_created:
-            category = categories[values["category"].casefold()]
+            category = categories[NEW_SUPPLIER_CATEGORY_NAME.casefold()]
             product = Product(
                 sku=values["sku"],
                 slug=_build_unique_slug_from_set(
@@ -1157,14 +1180,14 @@ def _parse_generation_years(value, *, open_ended_year_to):
     if match:
         year_from = int(match.group("start"))
         raw_year_to = match.group("end")
-        year_to = int(raw_year_to) if raw_year_to else open_ended_year_to
+        year_to = int(raw_year_to) if raw_year_to else year_from
         return _normalize_year_range(year_from, year_to)
 
     match = _YEAR_RANGE_2_DIGIT_RE.search(generation)
     if match:
         year_from = _expand_two_digit_year(int(match.group("start")))
         raw_year_to = match.group("end")
-        year_to = _expand_two_digit_year(int(raw_year_to)) if raw_year_to else open_ended_year_to
+        year_to = _expand_two_digit_year(int(raw_year_to)) if raw_year_to else year_from
         return _normalize_year_range(year_from, year_to)
 
     match = _YEAR_SINGLE_4_DIGIT_RE.search(generation)
