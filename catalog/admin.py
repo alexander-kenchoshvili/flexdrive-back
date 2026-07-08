@@ -23,10 +23,14 @@ from .models import (
     ProductImage,
     ProductSpec,
     ProductStatus,
+    SupplierProductBlock,
     VehicleEngine,
     VehicleMake,
     VehicleModel,
 )
+
+CROSSMOTORS_SOURCE_NAME = "Cross Motors"
+CROSSMOTORS_SKU_PREFIX = "CM-"
 
 
 class ProductImageAdminForm(forms.ModelForm):
@@ -350,7 +354,13 @@ class ProductAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
-    actions = ("action_publish", "action_unpublish", "action_mark_featured")
+    actions = (
+        "action_publish",
+        "action_unpublish",
+        "action_mark_featured",
+        "action_block_supplier_products",
+        "action_allow_supplier_products",
+    )
 
     class Media:
         js = (
@@ -656,3 +666,73 @@ class ProductAdmin(admin.ModelAdmin):
         transaction.on_commit(
             lambda: invalidate_groups(CACHE_GROUP_CATALOG_CATEGORIES)
         )
+
+    @admin.action(description="Block selected Cross Motors products from supplier import")
+    def action_block_supplier_products(self, request, queryset):
+        skus = list(
+            queryset.filter(sku__startswith=CROSSMOTORS_SKU_PREFIX)
+            .values_list("sku", flat=True)
+        )
+        if not skus:
+            self.message_user(
+                request,
+                "No Cross Motors products were selected.",
+                level=messages.WARNING,
+            )
+            return
+
+        with transaction.atomic():
+            SupplierProductBlock.objects.bulk_create(
+                [
+                    SupplierProductBlock(
+                        source_name=CROSSMOTORS_SOURCE_NAME,
+                        supplier_sku=sku,
+                    )
+                    for sku in skus
+                ],
+                ignore_conflicts=True,
+            )
+            Product.objects.filter(sku__in=skus).update(status=ProductStatus.ARCHIVED)
+
+        transaction.on_commit(
+            lambda: invalidate_groups(CACHE_GROUP_CATALOG_CATEGORIES)
+        )
+        self.message_user(
+            request,
+            f"Blocked {len(skus)} Cross Motors product(s) from supplier import and archived them.",
+            level=messages.SUCCESS,
+        )
+
+    @admin.action(description="Allow selected Cross Motors products in supplier import")
+    def action_allow_supplier_products(self, request, queryset):
+        skus = list(
+            queryset.filter(sku__startswith=CROSSMOTORS_SKU_PREFIX)
+            .values_list("sku", flat=True)
+        )
+        if not skus:
+            self.message_user(
+                request,
+                "No Cross Motors products were selected.",
+                level=messages.WARNING,
+            )
+            return
+
+        deleted_count, _ = SupplierProductBlock.objects.filter(
+            source_name=CROSSMOTORS_SOURCE_NAME,
+            supplier_sku__in=skus,
+        ).delete()
+
+        self.message_user(
+            request,
+            f"Allowed {deleted_count} Cross Motors product(s) to be imported again.",
+            level=messages.SUCCESS,
+        )
+
+
+@admin.register(SupplierProductBlock)
+class SupplierProductBlockAdmin(admin.ModelAdmin):
+    list_display = ("source_name", "supplier_sku", "note", "created_at", "updated_at")
+    list_filter = ("source_name",)
+    search_fields = ("source_name", "supplier_sku", "note")
+    readonly_fields = ("created_at", "updated_at")
+    ordering = ("source_name", "supplier_sku")

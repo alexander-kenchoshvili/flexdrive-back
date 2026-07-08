@@ -319,6 +319,24 @@ class ProductStatus(models.TextChoices):
     ARCHIVED = "archived", "Archived"
 
 
+class SupplierProductBlock(TimeStampedModel):
+    source_name = models.CharField(max_length=120)
+    supplier_sku = models.CharField(max_length=64)
+    note = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ("source_name", "supplier_sku")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source_name", "supplier_sku"],
+                name="catalog_unique_supplier_product_block",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.source_name}: {self.supplier_sku}"
+
+
 class ProductPlacement(models.TextChoices):
     FRONT = "front", "Front"
     REAR = "rear", "Rear"

@@ -31,6 +31,7 @@ from catalog.models import (
     ProductSide,
     ProductSpec,
     ProductStatus,
+    SupplierProductBlock,
     VehicleMake,
     VehicleModel,
 )
@@ -208,6 +209,10 @@ class CrossMotorsReport:
     @property
     def original_count(self):
         return sum(1 for row in self.rows if row.is_original)
+
+    @property
+    def blocked_count(self):
+        return sum(1 for row in self.rows if row.excluded_reason == "blocked")
 
     @property
     def importable_count(self):
@@ -436,6 +441,28 @@ def build_crossmotors_report(
         for index, item in enumerate(items, start=1)
     )
     skus = {row.values["sku"] for row in rows if row.values.get("sku")}
+    blocked_skus = set(
+        SupplierProductBlock.objects.filter(
+            source_name=CROSSMOTORS_SOURCE_NAME,
+            supplier_sku__in=skus,
+        ).values_list("supplier_sku", flat=True)
+    )
+    if blocked_skus:
+        rows = tuple(
+            (
+                CrossMotorsProductRow(
+                    row_number=row.row_number,
+                    raw=row.raw,
+                    values=row.values,
+                    errors=row.errors,
+                    warnings=row.warnings,
+                    excluded_reason="blocked",
+                )
+                if row.values.get("sku") in blocked_skus and not row.is_original
+                else row
+            )
+            for row in rows
+        )
     existing_skus = set(product_queryset.filter(sku__in=skus).values_list("sku", flat=True))
 
     return CrossMotorsReport(

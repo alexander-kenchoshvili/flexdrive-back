@@ -29,6 +29,7 @@ from .models import (
     ProductSide,
     ProductSpec,
     ProductStatus,
+    SupplierProductBlock,
     VehicleEngine,
     VehicleMake,
     VehicleModel,
@@ -81,6 +82,53 @@ class CatalogAdminTests(TestCase):
         self.assertEqual(
             product_admin.calculated_customer_price_readonly(Product()),
             "",
+        )
+
+    def test_product_admin_action_blocks_crossmotors_product_from_supplier_import(self):
+        user = get_user_model().objects.create_superuser(
+            username="supplier-block-admin",
+            email="supplier-block-admin@example.com",
+            password="password",
+        )
+        self.client.force_login(user)
+        category = Category.objects.create(name="Lighting", slug="admin-block-lighting")
+        supplier_product = Product.objects.create(
+            category=category,
+            name="Supplier Headlight",
+            slug="admin-supplier-headlight",
+            sku="CM-000015",
+            price=Decimal("250.00"),
+            stock_qty=5,
+            status=ProductStatus.PUBLISHED,
+        )
+        manual_product = Product.objects.create(
+            category=category,
+            name="Manual Headlight",
+            slug="admin-manual-headlight",
+            sku="MANUAL-000015",
+            price=Decimal("250.00"),
+            stock_qty=5,
+            status=ProductStatus.PUBLISHED,
+        )
+
+        response = self.client.post(
+            reverse("admin:catalog_product_changelist"),
+            {
+                "action": "action_block_supplier_products",
+                "_selected_action": [str(supplier_product.pk), str(manual_product.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        supplier_product.refresh_from_db()
+        manual_product.refresh_from_db()
+        self.assertEqual(supplier_product.status, ProductStatus.ARCHIVED)
+        self.assertEqual(manual_product.status, ProductStatus.PUBLISHED)
+        self.assertTrue(
+            SupplierProductBlock.objects.filter(
+                source_name="Cross Motors",
+                supplier_sku="CM-000015",
+            ).exists()
         )
 
     @override_settings(

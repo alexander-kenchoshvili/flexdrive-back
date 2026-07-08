@@ -18,6 +18,7 @@ from catalog.models import (
     ProductSide,
     ProductSpec,
     ProductStatus,
+    SupplierProductBlock,
     VehicleMake,
     VehicleModel,
 )
@@ -417,6 +418,50 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(ProductFitment.objects.count(), 1)
         self.assertEqual(VehicleMake.objects.count(), 1)
         self.assertEqual(VehicleModel.objects.count(), 1)
+
+    def test_import_report_skips_blocked_supplier_product(self):
+        category = Category.objects.create(name="Lighting", slug="blocked-lighting")
+        Product.objects.create(
+            category=category,
+            name="Archived supplier product",
+            slug="archived-supplier-product",
+            sku="CM-000015",
+            price=Decimal("10.00"),
+            stock_qty=1,
+            status=ProductStatus.ARCHIVED,
+        )
+        SupplierProductBlock.objects.create(
+            source_name="Cross Motors",
+            supplier_sku="CM-000015",
+        )
+        report = build_crossmotors_report(
+            [
+                {
+                    "code": "000015",
+                    "oem": "84001FJ090BK",
+                    "name": "წინა ფარი (RH) შავი",
+                    "brand": "Subaru",
+                    "model": "XV",
+                    "generation": "XV 12-17",
+                    "manufacturer": "Suo Lun",
+                    "qty": 7,
+                    "dealer_price": 250.0,
+                    "currency": "GEL",
+                }
+            ],
+            product_queryset=Product.objects.all(),
+        )
+
+        result = import_crossmotors_report(report)
+
+        product = Product.objects.get(sku="CM-000015")
+        self.assertEqual(report.blocked_count, 1)
+        self.assertEqual(report.update_count, 0)
+        self.assertEqual(result.updated_products, 0)
+        self.assertEqual(product.name, "Archived supplier product")
+        self.assertEqual(product.price, Decimal("10.00"))
+        self.assertEqual(product.stock_qty, 1)
+        self.assertEqual(product.status, ProductStatus.ARCHIVED)
 
     def test_bulk_import_report_matches_core_import_behavior(self):
         manual_category = Category.objects.create(
