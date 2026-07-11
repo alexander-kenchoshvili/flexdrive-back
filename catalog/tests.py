@@ -1781,6 +1781,28 @@ class ProductImageNormalizationTests(TestCase):
             self.assertEqual(desktop.size, (1440, 1440))
             self.assertEqual(desktop.format, "WEBP")
 
+    def test_image_padding_controls_generated_product_scale(self):
+        image = ProductImage.objects.create(
+            product=self.product,
+            image_original=_generate_test_image(
+                "organizer-padding.jpg", color=(15, 25, 35), size=(500, 326)
+            ),
+            is_primary=True,
+        )
+
+        widths = []
+        for padding in (Decimal("0.00"), Decimal("35.00")):
+            image.image_padding = padding
+            image.save(update_fields=["image_padding", "updated_at"])
+            image.refresh_from_db()
+            with Image.open(image.image_desktop) as desktop:
+                row = [desktop.convert("RGB").getpixel((x, desktop.height // 2)) for x in range(desktop.width)]
+                widths.append(sum(1 for pixel in row if max(pixel) < 200))
+
+        self.assertGreater(widths[0], 1300)
+        self.assertLess(widths[1], 500)
+        self.assertGreater(widths[0], widths[1] * 2)
+
     def test_auto_crop_from_original_detects_whitespace(self):
         image = ProductImage.objects.create(
             product=self.product,

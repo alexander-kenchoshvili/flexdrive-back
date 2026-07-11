@@ -139,7 +139,13 @@ def build_resized_webp_content(
             padding_ratio = max(min(float(padding_ratio or 0), 0.45), 0)
             inner_width = max(int(round(max_width * (1 - 2 * padding_ratio))), 1)
             inner_height = max(int(round(max_height * (1 - 2 * padding_ratio))), 1)
-            source.thumbnail((inner_width, inner_height), RESAMPLING_LANCZOS)
+            scale = min(inner_width / source.width, inner_height / source.height)
+            resized_size = (
+                max(int(round(source.width * scale)), 1),
+                max(int(round(source.height * scale)), 1),
+            )
+            if resized_size != source.size:
+                source = source.resize(resized_size, RESAMPLING_LANCZOS)
 
             output = BytesIO()
             canvas = Image.new("RGBA", (max_width, max_height), (255, 255, 255, 255))
