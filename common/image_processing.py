@@ -116,6 +116,7 @@ def build_resized_webp_content(
     *,
     max_size,
     crop_box=None,
+    padding_ratio=0,
     replace_background=False,
     quality=85,
 ):
@@ -135,10 +136,16 @@ def build_resized_webp_content(
                 source = source.crop(crop_box)
             if replace_background:
                 source = replace_flat_background_with_white(source)
-            source.thumbnail((max_width, max_height), RESAMPLING_LANCZOS)
+            padding_ratio = max(min(float(padding_ratio or 0), 0.45), 0)
+            inner_width = max(int(round(max_width * (1 - 2 * padding_ratio))), 1)
+            inner_height = max(int(round(max_height * (1 - 2 * padding_ratio))), 1)
+            source.thumbnail((inner_width, inner_height), RESAMPLING_LANCZOS)
 
             output = BytesIO()
-            source.convert("RGB").save(output, format="WEBP", quality=quality)
+            canvas = Image.new("RGBA", (max_width, max_height), (255, 255, 255, 255))
+            offset = ((max_width - source.width) // 2, (max_height - source.height) // 2)
+            canvas.alpha_composite(source, offset)
+            canvas.convert("RGB").save(output, format="WEBP", quality=quality)
             output.seek(0)
             return output.read()
     finally:

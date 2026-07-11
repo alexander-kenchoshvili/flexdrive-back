@@ -679,6 +679,7 @@ class ProductImage(TimeStampedModel):
     crop_y = models.DecimalField(max_digits=6, decimal_places=5, blank=True, null=True)
     crop_width = models.DecimalField(max_digits=6, decimal_places=5, blank=True, null=True)
     crop_height = models.DecimalField(max_digits=6, decimal_places=5, blank=True, null=True)
+    image_padding = models.DecimalField(max_digits=5, decimal_places=2, default=12)
     replace_background_with_white = models.BooleanField(default=False)
 
     class Meta:
@@ -716,6 +717,7 @@ class ProductImage(TimeStampedModel):
             "crop_y",
             "crop_width",
             "crop_height",
+            "image_padding",
             "replace_background_with_white",
         }
         crop_fields = {"crop_x", "crop_y", "crop_width", "crop_height"}
@@ -730,6 +732,7 @@ class ProductImage(TimeStampedModel):
             or "image_original" in update_field_set
             or not crop_fields.isdisjoint(update_field_set)
             or "replace_background_with_white" in update_field_set
+            or "image_padding" in update_field_set
         ):
             previous_values = (
                 type(self)
@@ -740,6 +743,7 @@ class ProductImage(TimeStampedModel):
                     "crop_y",
                     "crop_width",
                     "crop_height",
+                    "image_padding",
                     "replace_background_with_white",
                 )
                 .first()
@@ -755,6 +759,7 @@ class ProductImage(TimeStampedModel):
                 background_changed = (
                     previous_values["replace_background_with_white"]
                     != self.replace_background_with_white
+                    or previous_values["image_padding"] != self.image_padding
                 )
         elif self.image_original:
             original_changed = True
@@ -796,6 +801,7 @@ class ProductImage(TimeStampedModel):
                 self.image_original,
                 max_size=size,
                 crop_box=crop_box,
+                padding_ratio=float(self.image_padding or 0) / 100,
                 replace_background=self.replace_background_with_white,
                 quality=85,
             )

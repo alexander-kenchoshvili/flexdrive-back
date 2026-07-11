@@ -648,6 +648,9 @@ class ProductAdmin(admin.ModelAdmin):
                 else:
                     self._apply_manual_crop_from_post(image, request.POST)
                     message = "Crop applied and responsive images regenerated."
+
+                if action in {"manual", "auto"}:
+                    self._apply_image_padding_from_post(image, request.POST)
             except ValueError as error:
                 messages.error(request, str(error))
                 return HttpResponseRedirect(request.path)
@@ -659,6 +662,7 @@ class ProductAdmin(admin.ModelAdmin):
                     "crop_width",
                     "crop_height",
                     "replace_background_with_white",
+                    "image_padding",
                     "updated_at",
                 ]
             )
@@ -678,6 +682,7 @@ class ProductAdmin(admin.ModelAdmin):
             "source_height": source_size[1],
             "crop": self._crop_context(image),
             "replace_background_with_white": image.replace_background_with_white,
+            "image_padding": image.image_padding,
             "product_url": product_url,
             "preserved_filters": urlencode({"_changelist_filters": request.GET.urlencode()}),
         }
@@ -738,6 +743,16 @@ class ProductAdmin(admin.ModelAdmin):
         image.crop_y = crop_values["crop_y"]
         image.crop_width = crop_values["crop_width"]
         image.crop_height = crop_values["crop_height"]
+
+    @staticmethod
+    def _apply_image_padding_from_post(image, post_data):
+        try:
+            value = Decimal(str(post_data.get("image_padding", image.image_padding)))
+        except Exception as exc:
+            raise ValueError("Image padding is invalid.") from exc
+        if value < 0 or value > 40:
+            raise ValueError("Image padding must be between 0 and 40 percent.")
+        image.image_padding = value.quantize(Decimal("0.01"))
 
     @admin.action(description="Publish selected products")
     def action_publish(self, request, queryset):

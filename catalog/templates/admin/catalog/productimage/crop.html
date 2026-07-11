@@ -27,6 +27,7 @@
   data-crop-y="{{ crop.y }}"
   data-crop-width="{{ crop.width }}"
   data-crop-height="{{ crop.height }}"
+  data-image-padding="{{ image_padding }}"
 >
   <div class="crop-header">
     <div>
@@ -59,6 +60,16 @@
         <input type="hidden" name="crop_y" data-crop-input="y">
         <input type="hidden" name="crop_width" data-crop-input="width">
         <input type="hidden" name="crop_height" data-crop-input="height">
+
+        <label class="crop-padding-control" for="image-padding">
+          <strong>Product size / padding</strong>
+          <span><span data-padding-readout>{{ image_padding }}</span>% white space</span>
+        </label>
+        <input id="image-padding" type="range" name="image_padding" min="0" max="40" step="1" value="{{ image_padding }}" data-padding-input>
+        <p class="help">Lower padding makes the product larger. Higher padding makes it smaller.</p>
+        <div class="crop-preview" data-crop-preview>
+          <img src="{{ image_url }}" alt="" data-preview-image>
+        </div>
 
         <h2>Manual crop</h2>
         <p class="help">

@@ -21,6 +21,10 @@
     var box = root.querySelector("[data-crop-box]");
     var image = root.querySelector("[data-crop-image]");
     var form = root.querySelector("[data-crop-form]");
+    var paddingInput = root.querySelector("[data-padding-input]");
+    var paddingReadout = root.querySelector("[data-padding-readout]");
+    var preview = root.querySelector("[data-crop-preview]");
+    var previewImage = root.querySelector("[data-preview-image]");
     if (!stage || !box || !image || !form) return;
 
     var state = {
@@ -69,6 +73,22 @@
       box.style.width = state.width * 100 + "%";
       box.style.height = state.height * 100 + "%";
       updateInputs();
+      renderPreview();
+    }
+
+    function renderPreview() {
+      if (!preview || !previewImage || !image.naturalWidth || !image.naturalHeight) return;
+      var padding = clamp(Number(paddingInput ? paddingInput.value : 0), 0, 40) / 100;
+      var previewSize = preview.clientWidth;
+      var innerSize = previewSize * (1 - 2 * padding);
+      var cropWidth = image.naturalWidth * state.width;
+      var cropHeight = image.naturalHeight * state.height;
+      var scale = Math.min(innerSize / cropWidth, innerSize / cropHeight);
+      previewImage.style.width = image.naturalWidth * scale + "px";
+      previewImage.style.height = image.naturalHeight * scale + "px";
+      previewImage.style.left = (previewSize - cropWidth * scale) / 2 - image.naturalWidth * state.x * scale + "px";
+      previewImage.style.top = (previewSize - cropHeight * scale) / 2 - image.naturalHeight * state.y * scale + "px";
+      if (paddingReadout) paddingReadout.textContent = Math.round(padding * 100);
     }
 
     function pointerPosition(event) {
@@ -153,6 +173,7 @@
       image.addEventListener("load", render, { once: true });
     }
     window.addEventListener("resize", render);
+    if (paddingInput) paddingInput.addEventListener("input", renderPreview);
     form.addEventListener("submit", updateInputs);
   }
 
