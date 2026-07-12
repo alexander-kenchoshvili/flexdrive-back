@@ -21,6 +21,7 @@ PRODUCT_IMAGE_FILE_FIELDS = (
     "image_desktop",
     "image_tablet",
     "image_mobile",
+    "image_ai_background",
 )
 
 
@@ -67,6 +68,7 @@ def delete_product_image_files_from_storage(instance, **kwargs):
             | Q(image_desktop=storage_name)
             | Q(image_tablet=storage_name)
             | Q(image_mobile=storage_name)
+            | Q(image_ai_background=storage_name)
         ).exists()
 
     def delete_files():

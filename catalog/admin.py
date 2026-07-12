@@ -5,7 +5,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import F, Q
 from django.forms.models import BaseInlineFormSet
-from django.http import Http404, HttpResponseNotAllowed, HttpResponseRedirect
+from django.http import Http404, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.html import format_html
@@ -14,6 +14,8 @@ from PIL import Image, ImageOps
 from decimal import Decimal
 
 from common.cache_utils import CACHE_GROUP_CATALOG_CATEGORIES, invalidate_groups
+
+from .background_removal import remove_background_to_white
 
 from .models import (
     Brand,
@@ -54,6 +56,18 @@ class ProductImageAdminForm(forms.ModelForm):
         model = ProductImage
         fields = "__all__"
 
+    def clean(self):
+        cleaned_data = super().clean()
+        if (
+            cleaned_data.get("use_ai_background")
+            and not cleaned_data.get("image_ai_background")
+        ):
+            self.add_error(
+                "use_ai_background",
+                "Create and apply an AI background preview before saving.",
+            )
+        return cleaned_data
+
     def validate_constraints(self):
         # The inline formset validates the final submitted primary-image state.
         # Running the model constraint per row sees stale DB values when moving
@@ -88,6 +102,8 @@ class ProductImageInline(admin.TabularInline):
     readonly_fields = ("crop_tools",)
     fields = (
         "image_original",
+        "use_ai_background",
+        "image_ai_background",
         "image_desktop",
         "image_tablet",
         "image_mobile",
@@ -446,15 +462,20 @@ class ProductAdmin(admin.ModelAdmin):
         js = (
             "catalog/admin_product_pricing_preview.js",
             "catalog/admin_product_images_bulk_delete.js",
-            "catalog/admin_product_image_camera_v2.js",
+            "catalog/admin_product_image_camera_v3.js",
         )
         css = {
-            "all": ("catalog/admin_product_image_camera_v2.css",),
+            "all": ("catalog/admin_product_image_camera_v3.css",),
         }
 
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
+            path(
+                "images/ai-background-preview/",
+                self.admin_site.admin_view(self.ai_background_preview_view),
+                name="catalog_productimage_ai_background_preview",
+            ),
             path(
                 "<path:object_id>/images/delete-selected/",
                 self.admin_site.admin_view(self.delete_selected_product_images_view),
@@ -578,6 +599,30 @@ class ProductAdmin(admin.ModelAdmin):
         product = form.instance
         if product.preserve_manual_fitment_content:
             _regenerate_manual_fitment_descriptions(product)
+
+    def ai_background_preview_view(self, request):
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+        if not (
+            self.has_add_permission(request)
+            or self.has_change_permission(request)
+        ):
+            raise PermissionDenied
+
+        upload = request.FILES.get("image")
+        if upload is None:
+            return HttpResponse("Choose or take a photo first.", status=400)
+        if upload.size > 20 * 1024 * 1024:
+            return HttpResponse("The image must be 20 MB or smaller.", status=400)
+
+        try:
+            content = remove_background_to_white(upload)
+        except Exception:
+            return HttpResponse(
+                "Background removal failed. Try another photo.",
+                status=422,
+            )
+        return HttpResponse(content, content_type="image/jpeg")
 
     def delete_selected_product_images_view(self, request, object_id):
         if request.method != "POST":

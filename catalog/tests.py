@@ -3,6 +3,7 @@ from io import BytesIO
 import os
 import tempfile
 from unittest import skipUnless
+from unittest.mock import patch
 
 from django.contrib.admin.sites import site
 from django.contrib.auth import get_user_model
@@ -1870,6 +1871,12 @@ class ProductImageNormalizationTests(TestCase):
                         color=(15, 25, 35),
                         size=(1600, 900),
                     ),
+                    image_ai_background=_generate_test_image(
+                        "organizer-delete-ai.jpg",
+                        color=(35, 25, 15),
+                        size=(1600, 900),
+                    ),
+                    use_ai_background=True,
                     is_primary=True,
                 )
                 image.refresh_from_db()
@@ -1877,6 +1884,7 @@ class ProductImageNormalizationTests(TestCase):
                     getattr(image, field_name).path
                     for field_name in (
                         "image_original",
+                        "image_ai_background",
                         "image_desktop",
                         "image_tablet",
                         "image_mobile",
@@ -1884,7 +1892,7 @@ class ProductImageNormalizationTests(TestCase):
                     if getattr(image, field_name)
                 ]
 
-                self.assertEqual(len(stored_paths), 4)
+                self.assertEqual(len(stored_paths), 5)
                 for stored_path in stored_paths:
                     self.assertTrue(os.path.exists(stored_path))
 
@@ -2043,3 +2051,82 @@ class CategoryCacheTests(APITestCase):
         self.assertEqual(second_response.headers["X-Cache-Status"], "HIT")
         self.assertEqual(third_response.headers["X-Cache-Status"], "MISS")
         self.assertEqual(third_response.data[0]["product_count"], 2)
+
+class ProductImageAiBackgroundAdminTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            username="ai-background-admin",
+            email="ai-background-admin@example.com",
+            password="password",
+        )
+        self.client.force_login(self.user)
+
+    @patch("catalog.admin.remove_background_to_white", return_value=b"processed-jpeg")
+    def test_preview_endpoint_returns_processed_image_without_saving_product(self, remover):
+        upload = _generate_test_image("warehouse-part.jpg")
+
+        response = self.client.post(
+            reverse("admin:catalog_productimage_ai_background_preview"),
+            {"image": upload},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/jpeg")
+        self.assertEqual(response.content, b"processed-jpeg")
+        remover.assert_called_once()
+
+    def test_ai_background_choice_requires_applied_preview_file(self):
+        form = ProductImageAdminForm(
+            data={"use_ai_background": True},
+            files={"image_original": _generate_test_image("original.jpg")},
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("use_ai_background", form.errors)
+
+    @override_settings(
+        STORAGES={
+            "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+            },
+        }
+    )
+    def test_variants_are_generated_from_applied_ai_image_and_original_is_preserved(self):
+        category = Category.objects.create(name="AI test", slug="ai-test")
+        product = Product.objects.create(
+            category=category,
+            name="AI Background Part",
+            slug="ai-background-part",
+            sku="AI-BG-1",
+            price=Decimal("25.00"),
+        )
+        original = _generate_test_image("original-red.jpg", color=(255, 0, 0))
+        processed = _generate_test_image("processed-green.jpg", color=(0, 255, 0))
+
+        image = ProductImage.objects.create(
+            product=product,
+            image_original=original,
+            image_ai_background=processed,
+            use_ai_background=True,
+        )
+
+        image.image_original.open("rb")
+        try:
+            with Image.open(image.image_original) as saved_original:
+                original_center = saved_original.convert("RGB").getpixel((50, 50))
+        finally:
+            image.image_original.close()
+        self.assertGreater(original_center[0], 200)
+        self.assertLess(original_center[1], 50)
+
+        image.image_mobile.open("rb")
+        try:
+            with Image.open(image.image_mobile) as variant:
+                center = variant.convert("RGB").getpixel(
+                    (variant.width // 2, variant.height // 2)
+                )
+        finally:
+            image.image_mobile.close()
+        self.assertGreater(center[1], 200)
+        self.assertLess(center[0], 50)

@@ -1,0 +1,57 @@
+.product-image-camera-input,
+.field-image_ai_background input[type="file"],
+.field-image_ai_background .file-upload,
+th.column-image_ai_background,
+td.field-image_ai_background {
+  display: none;
+}
+
+.product-image-camera-control,
+.product-image-ai-control {
+  display: block;
+  margin-top: 0.5rem;
+}
+
+.product-image-camera-button,
+.product-image-ai-preview-button,
+.product-image-ai-actions .button {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.product-image-ai-status {
+  display: block;
+  margin-top: 0.4rem;
+  max-width: 22rem;
+}
+
+.product-image-ai-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(130px, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+  width: min(420px, 85vw);
+}
+
+.product-image-ai-comparison[hidden],
+.product-image-ai-actions[hidden] {
+  display: none;
+}
+
+.product-image-ai-comparison strong,
+.product-image-ai-comparison img {
+  display: block;
+}
+
+.product-image-ai-comparison img {
+  width: 100%;
+  margin-top: 0.25rem;
+  border: 1px solid var(--border-color, #ccc);
+  border-radius: 4px;
+}
+
+.product-image-ai-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}

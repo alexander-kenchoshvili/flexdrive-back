@@ -8,7 +8,8 @@ django-cors-headers==4.9.0
 djangorestframework==3.16.1
 djangorestframework_simplejwt==5.5.1
 google-auth>=2.45,<3
-pillow==12.0.0
+pillow>=12.1,<13
+rembg[cpu]>=2.0.76,<2.1
 psycopg[binary]>=3.2,<4
 python-dotenv==1.2.1
 requests==2.32.5

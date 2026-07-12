@@ -672,6 +672,13 @@ class ProductImage(TimeStampedModel):
     image_desktop = models.ImageField(upload_to=product_image_upload_to, blank=True, null=True)
     image_tablet = models.ImageField(upload_to=product_image_upload_to, blank=True, null=True)
     image_mobile = models.ImageField(upload_to=product_image_upload_to, blank=True, null=True)
+    image_ai_background = models.ImageField(
+        upload_to=product_image_upload_to, blank=True, null=True
+    )
+    use_ai_background = models.BooleanField(
+        "AI-ით თეთრი ფონის გამოყენება",
+        default=False,
+    )
     alt_text = models.CharField(max_length=255, blank=True)
     is_primary = models.BooleanField(default=False, db_index=True)
     sort_order = models.PositiveIntegerField(default=0)
@@ -713,6 +720,8 @@ class ProductImage(TimeStampedModel):
             "image_desktop",
             "image_tablet",
             "image_mobile",
+            "image_ai_background",
+            "use_ai_background",
             "crop_x",
             "crop_y",
             "crop_width",
@@ -733,12 +742,16 @@ class ProductImage(TimeStampedModel):
             or not crop_fields.isdisjoint(update_field_set)
             or "replace_background_with_white" in update_field_set
             or "image_padding" in update_field_set
+            or "image_ai_background" in update_field_set
+            or "use_ai_background" in update_field_set
         ):
             previous_values = (
                 type(self)
                 .objects.filter(pk=self.pk)
                 .values(
                     "image_original",
+                    "image_ai_background",
+                    "use_ai_background",
                     "crop_x",
                     "crop_y",
                     "crop_width",
@@ -760,6 +773,9 @@ class ProductImage(TimeStampedModel):
                     previous_values["replace_background_with_white"]
                     != self.replace_background_with_white
                     or previous_values["image_padding"] != self.image_padding
+                    or str(previous_values["image_ai_background"] or "")
+                    != str(self.image_ai_background.name or "")
+                    or previous_values["use_ai_background"] != self.use_ai_background
                 )
         elif self.image_original:
             original_changed = True
@@ -793,12 +809,17 @@ class ProductImage(TimeStampedModel):
 
     def _generate_variants_from_original(self):
         generated_fields = []
-        source_name = str(self.image_original.name or "")
+        source_image = (
+            self.image_ai_background
+            if self.use_ai_background and self.image_ai_background
+            else self.image_original
+        )
+        source_name = str(source_image.name or self.image_original.name or "")
         crop_box = self._get_crop_box()
 
         for field_name, (size, suffix) in self.STANDARDIZED_VARIANT_SPECS.items():
             content = build_resized_webp_content(
-                self.image_original,
+                source_image,
                 max_size=size,
                 crop_box=crop_box,
                 padding_ratio=float(self.image_padding or 0) / 100,
