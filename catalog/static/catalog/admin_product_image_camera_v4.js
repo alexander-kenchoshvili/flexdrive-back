@@ -123,7 +123,9 @@
     });
     previewButton.addEventListener("click", async function () {
       var file = originalInput.files && originalInput.files[0];
-      if (!file) {
+      var imageIdInput = field(row, "id");
+      var imageId = imageIdInput ? imageIdInput.value : "";
+      if (!file && !imageId) {
         status.textContent = "ჯერ გადაიღე ან აირჩიე ფოტო.";
         return;
       }
@@ -140,7 +142,11 @@
       actions.hidden = true;
 
       var body = new FormData();
-      body.append("image", file, file.name);
+      if (file) {
+        body.append("image", file, file.name);
+      } else {
+        body.append("image_id", imageId);
+      }
 
       try {
         var response = await fetch(url, {
@@ -152,7 +158,10 @@
         if (!response.ok) throw new Error(await response.text());
 
         resultBlob = await response.blob();
-        comparison.querySelector("[data-ai-original]").src = objectUrl(file);
+        var currentLink = originalInput.parentElement.querySelector("a");
+        comparison.querySelector("[data-ai-original]").src = file
+          ? objectUrl(file)
+          : currentLink.href;
         comparison.querySelector("[data-ai-result]").src = objectUrl(resultBlob);
         comparison.hidden = false;
         actions.hidden = false;
@@ -166,7 +175,11 @@
 
     applyButton.addEventListener("click", function () {
       if (!resultBlob) return;
-      var stem = (originalInput.files[0].name || "product-photo").replace(/\.[^.]+$/, "");
+      var originalFile = originalInput.files && originalInput.files[0];
+      var stem = ((originalFile && originalFile.name) || "product-photo").replace(
+        /\.[^.]+$/,
+        ""
+      );
       var processedFile = new File([resultBlob], stem + "-white-bg.jpg", {
         type: "image/jpeg",
       });

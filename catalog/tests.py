@@ -2130,3 +2130,34 @@ class ProductImageAiBackgroundAdminTests(TestCase):
             image.image_mobile.close()
         self.assertGreater(center[1], 200)
         self.assertLess(center[0], 50)
+    @override_settings(
+        STORAGES={
+            "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+            },
+        }
+    )
+    @patch("catalog.admin.remove_background_to_white", return_value=b"stored-processed")
+    def test_preview_endpoint_processes_already_saved_original(self, remover):
+        category = Category.objects.create(name="Stored AI", slug="stored-ai")
+        product = Product.objects.create(
+            category=category,
+            name="Stored Part",
+            slug="stored-part",
+            sku="STORED-AI-1",
+            price=Decimal("20.00"),
+        )
+        image = ProductImage.objects.create(
+            product=product,
+            image_original=_generate_test_image("stored-original.jpg"),
+        )
+
+        response = self.client.post(
+            reverse("admin:catalog_productimage_ai_background_preview"),
+            {"image_id": str(image.pk)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"stored-processed")
+        remover.assert_called_once()

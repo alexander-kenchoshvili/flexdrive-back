@@ -462,10 +462,10 @@ class ProductAdmin(admin.ModelAdmin):
         js = (
             "catalog/admin_product_pricing_preview.js",
             "catalog/admin_product_images_bulk_delete.js",
-            "catalog/admin_product_image_camera_v3.js",
+            "catalog/admin_product_image_camera_v4.js",
         )
         css = {
-            "all": ("catalog/admin_product_image_camera_v3.css",),
+            "all": ("catalog/admin_product_image_camera_v4.css",),
         }
 
     def get_urls(self):
@@ -610,9 +610,21 @@ class ProductAdmin(admin.ModelAdmin):
             raise PermissionDenied
 
         upload = request.FILES.get("image")
+        stored_image = None
         if upload is None:
-            return HttpResponse("Choose or take a photo first.", status=400)
-        if upload.size > 20 * 1024 * 1024:
+            image_id = request.POST.get("image_id")
+            stored_image = (
+                ProductImage.objects.filter(pk=image_id)
+                .select_related("product")
+                .first()
+            )
+            if stored_image is None or not stored_image.image_original:
+                return HttpResponse("Choose or take a photo first.", status=400)
+            if not self.has_change_permission(request, stored_image.product):
+                raise PermissionDenied
+            upload = stored_image.image_original
+
+        if getattr(upload, "size", 0) > 20 * 1024 * 1024:
             return HttpResponse("The image must be 20 MB or smaller.", status=400)
 
         try:
@@ -622,6 +634,9 @@ class ProductAdmin(admin.ModelAdmin):
                 "Background removal failed. Try another photo.",
                 status=422,
             )
+        finally:
+            if stored_image is not None:
+                stored_image.image_original.close()
         return HttpResponse(content, content_type="image/jpeg")
 
     def delete_selected_product_images_view(self, request, object_id):
