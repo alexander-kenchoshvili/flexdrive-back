@@ -1,0 +1,16 @@
+.product-image-camera-control,
+.product-image-camera-input {
+  display: none;
+}
+
+@media (hover: none) and (pointer: coarse) and (max-width: 900px) {
+  .product-image-camera-control {
+    display: block;
+    margin-top: 0.5rem;
+  }
+
+  .product-image-camera-button {
+    min-height: 44px;
+    white-space: nowrap;
+  }
+}

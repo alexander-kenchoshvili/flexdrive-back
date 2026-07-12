@@ -446,7 +446,11 @@ class ProductAdmin(admin.ModelAdmin):
         js = (
             "catalog/admin_product_pricing_preview.js",
             "catalog/admin_product_images_bulk_delete.js",
+            "catalog/admin_product_image_camera.js",
         )
+        css = {
+            "all": ("catalog/admin_product_image_camera.css",),
+        }
 
     def get_urls(self):
         urls = super().get_urls()
