@@ -96,6 +96,38 @@ class Category(TimeStampedModel):
         ],
         help_text="Default markup percentage used to calculate customer prices for products in this category.",
     )
+    default_shipping_weight_kg = models.DecimalField(
+        max_digits=8,
+        decimal_places=3,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(Decimal("0.001"))],
+        help_text="Default packaged product weight in kilograms for EasyWay quotes.",
+    )
+    default_shipping_length_cm = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(Decimal("0.01"))],
+        help_text="Default packaged product length in centimeters for EasyWay quotes.",
+    )
+    default_shipping_width_cm = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(Decimal("0.01"))],
+        help_text="Default packaged product width in centimeters for EasyWay quotes.",
+    )
+    default_shipping_height_cm = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(Decimal("0.01"))],
+        help_text="Default packaged product height in centimeters for EasyWay quotes.",
+    )
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -408,6 +440,38 @@ class Product(TimeStampedModel):
         null=True,
         validators=[MinValueValidator(Decimal("0.00"))],
     )
+    shipping_weight_kg = models.DecimalField(
+        max_digits=8,
+        decimal_places=3,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(Decimal("0.001"))],
+        help_text="Optional packaged weight override in kilograms. Leave empty to use the category default.",
+    )
+    shipping_length_cm = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(Decimal("0.01"))],
+        help_text="Optional packaged length override in centimeters. Leave empty to use the category default.",
+    )
+    shipping_width_cm = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(Decimal("0.01"))],
+        help_text="Optional packaged width override in centimeters. Leave empty to use the category default.",
+    )
+    shipping_height_cm = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(Decimal("0.01"))],
+        help_text="Optional packaged height override in centimeters. Leave empty to use the category default.",
+    )
     placement = models.CharField(
         max_length=20,
         choices=ProductPlacement.choices,
@@ -555,6 +619,56 @@ class Product(TimeStampedModel):
             return category.markup_percent
 
         return Decimal("0.00")
+
+    def _effective_shipping_value(self, product_field, category_field):
+        value = getattr(self, product_field)
+        if value is not None:
+            return value
+
+        category = getattr(self, "category", None)
+        if category is None:
+            return None
+        return getattr(category, category_field)
+
+    @property
+    def effective_shipping_weight_kg(self):
+        return self._effective_shipping_value(
+            "shipping_weight_kg",
+            "default_shipping_weight_kg",
+        )
+
+    @property
+    def effective_shipping_length_cm(self):
+        return self._effective_shipping_value(
+            "shipping_length_cm",
+            "default_shipping_length_cm",
+        )
+
+    @property
+    def effective_shipping_width_cm(self):
+        return self._effective_shipping_value(
+            "shipping_width_cm",
+            "default_shipping_width_cm",
+        )
+
+    @property
+    def effective_shipping_height_cm(self):
+        return self._effective_shipping_value(
+            "shipping_height_cm",
+            "default_shipping_height_cm",
+        )
+
+    @property
+    def has_complete_shipping_measurements(self):
+        return all(
+            value is not None
+            for value in (
+                self.effective_shipping_weight_kg,
+                self.effective_shipping_length_cm,
+                self.effective_shipping_width_cm,
+                self.effective_shipping_height_cm,
+            )
+        )
 
     def calculate_customer_price(self):
         if self.supplier_price is None:

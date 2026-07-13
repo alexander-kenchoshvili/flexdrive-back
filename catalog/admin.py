@@ -263,6 +263,7 @@ class CategoryAdmin(admin.ModelAdmin):
         "parent",
         "sort_order",
         "markup_percent",
+        "has_shipping_defaults",
         "is_active",
         "has_image",
         "updated_at",
@@ -284,6 +285,21 @@ class CategoryAdmin(admin.ModelAdmin):
                     "markup_percent",
                     "is_active",
                 )
+            },
+        ),
+        (
+            "Delivery defaults",
+            {
+                "fields": (
+                    "default_shipping_weight_kg",
+                    "default_shipping_length_cm",
+                    "default_shipping_width_cm",
+                    "default_shipping_height_cm",
+                ),
+                "description": (
+                    "Packaged weight and dimensions used when a product does not "
+                    "have its own EasyWay override."
+                ),
             },
         ),
         (
@@ -315,6 +331,18 @@ class CategoryAdmin(admin.ModelAdmin):
     @admin.display(boolean=True, description="image")
     def has_image(self, obj):
         return bool(obj.desktop_image or obj.tablet_image or obj.mobile_image)
+
+    @admin.display(boolean=True, description="shipping defaults")
+    def has_shipping_defaults(self, obj):
+        return all(
+            value is not None
+            for value in (
+                obj.default_shipping_weight_kg,
+                obj.default_shipping_length_cm,
+                obj.default_shipping_width_cm,
+                obj.default_shipping_height_cm,
+            )
+        )
 
     def save_model(self, request, obj, form, change):
         previous_markup = None
@@ -412,6 +440,7 @@ class ProductAdmin(admin.ModelAdmin):
         "is_featured",
         "is_universal_fitment",
         "stock_qty",
+        "has_shipping_measurements",
         "in_stock_flag",
         "updated_at",
     )
@@ -447,6 +476,7 @@ class ProductAdmin(admin.ModelAdmin):
         "calculated_customer_price_readonly",
         "on_sale_readonly",
         "in_stock_readonly",
+        "effective_shipping_measurements_readonly",
         "created_at",
         "updated_at",
     )
@@ -532,6 +562,22 @@ class ProductAdmin(admin.ModelAdmin):
             },
         ),
         (
+            "Delivery measurements",
+            {
+                "fields": (
+                    "shipping_weight_kg",
+                    "shipping_length_cm",
+                    "shipping_width_cm",
+                    "shipping_height_cm",
+                    "effective_shipping_measurements_readonly",
+                ),
+                "description": (
+                    "Optional packaged weight and dimension overrides. Leave fields "
+                    "empty to use the category defaults."
+                ),
+            },
+        ),
+        (
             "Parts metadata",
             {
                 "fields": (
@@ -554,6 +600,10 @@ class ProductAdmin(admin.ModelAdmin):
     @admin.display(boolean=True, description="In stock")
     def in_stock_flag(self, obj):
         return obj.in_stock
+
+    @admin.display(boolean=True, description="Shipping data")
+    def has_shipping_measurements(self, obj):
+        return obj.has_complete_shipping_measurements
 
     @admin.display(description="On sale")
     def on_sale_readonly(self, obj):
@@ -587,6 +637,17 @@ class ProductAdmin(admin.ModelAdmin):
         if calculated_price is None:
             return ""
         return f"{calculated_price:.2f} GEL"
+
+    @admin.display(description="Applied delivery measurements")
+    def effective_shipping_measurements_readonly(self, obj):
+        if not obj or not obj.has_complete_shipping_measurements:
+            return "Incomplete - add product overrides or category defaults"
+        return (
+            f"{obj.effective_shipping_weight_kg} kg; "
+            f"{obj.effective_shipping_length_cm} x "
+            f"{obj.effective_shipping_width_cm} x "
+            f"{obj.effective_shipping_height_cm} cm"
+        )
 
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = list(super().get_readonly_fields(request, obj))

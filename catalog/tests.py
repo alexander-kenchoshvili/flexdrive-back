@@ -58,6 +58,60 @@ def _generate_test_image(filename="sample.jpg", color=(255, 0, 0), size=(100, 10
     return SimpleUploadedFile(filename, file_obj.read(), content_type="image/jpeg")
 
 
+class ProductShippingMeasurementsTests(TestCase):
+    def setUp(self):
+        self.category = Category.objects.create(
+            name="Body parts",
+            slug="body-parts",
+            default_shipping_weight_kg=Decimal("8.500"),
+            default_shipping_length_cm=Decimal("90.00"),
+            default_shipping_width_cm=Decimal("45.00"),
+            default_shipping_height_cm=Decimal("25.00"),
+        )
+        self.product = Product.objects.create(
+            category=self.category,
+            name="Test body part",
+            slug="test-body-part",
+            sku="TEST-SHIPPING-1",
+            price=Decimal("100.00"),
+        )
+
+    def test_product_uses_category_shipping_defaults(self):
+        self.assertEqual(
+            self.product.effective_shipping_weight_kg,
+            Decimal("8.500"),
+        )
+        self.assertEqual(
+            self.product.effective_shipping_length_cm,
+            Decimal("90.00"),
+        )
+        self.assertTrue(self.product.has_complete_shipping_measurements)
+
+    def test_product_override_replaces_only_matching_category_default(self):
+        self.product.shipping_weight_kg = Decimal("12.250")
+        self.product.shipping_length_cm = Decimal("110.00")
+        self.product.save(
+            update_fields=["shipping_weight_kg", "shipping_length_cm", "updated_at"]
+        )
+
+        self.assertEqual(
+            self.product.effective_shipping_weight_kg,
+            Decimal("12.250"),
+        )
+        self.assertEqual(
+            self.product.effective_shipping_length_cm,
+            Decimal("110.00"),
+        )
+        self.assertEqual(
+            self.product.effective_shipping_width_cm,
+            Decimal("45.00"),
+        )
+        self.assertEqual(
+            self.product.effective_shipping_height_cm,
+            Decimal("25.00"),
+        )
+
+
 def _generate_whitespace_test_image(filename="part.jpg", size=(800, 600)):
     file_obj = BytesIO()
     image = Image.new("RGB", size, (255, 255, 255))
