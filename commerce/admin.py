@@ -44,6 +44,22 @@ from .services import (
 )
 
 
+def _bog_reconciliation_message_level(result):
+    if result in {
+        "refund_rejected",
+        "rejected",
+        "paid_fulfillment_blocked",
+    }:
+        return messages.ERROR
+    if (
+        "pending" in result
+        or "required" in result
+        or "review" in result
+    ):
+        return messages.WARNING
+    return messages.SUCCESS
+
+
 class CartItemInline(admin.TabularInline):
     model = CartItem
     extra = 0
@@ -638,7 +654,7 @@ class OrderAdmin(admin.ModelAdmin):
                 self.message_user(
                     request,
                     f"BOG status reconciliation result: {result.result}.",
-                    level=messages.SUCCESS,
+                    level=_bog_reconciliation_message_level(result.result),
                 )
             return HttpResponseRedirect(
                 reverse("admin:commerce_order_change", args=[order.pk])
@@ -909,7 +925,7 @@ class PaymentTransactionAdmin(admin.ModelAdmin):
                 self.message_user(
                     request,
                     f"BOG status reconciliation result: {result.result}.",
-                    level=messages.SUCCESS,
+                    level=_bog_reconciliation_message_level(result.result),
                 )
             return HttpResponseRedirect(
                 reverse(
