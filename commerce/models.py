@@ -96,6 +96,10 @@ class EasywayShipmentState(models.TextChoices):
     CREATED = "created", "Created"
     FAILED = "failed", "Rejected - retry allowed"
     UNKNOWN = "unknown", "Unknown - manual check required"
+    CANCELLING = "cancelling", "Cancelling - verify before retry"
+    CANCELLED = "cancelled", "Cancelled"
+    CANCEL_FAILED = "cancel_failed", "Cancellation rejected"
+    CANCEL_UNKNOWN = "cancel_unknown", "Cancellation unknown - manual check required"
 
 
 class EasywayRegion(TimeStampedModel):

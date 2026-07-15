@@ -15,7 +15,9 @@ from .bog_refunds import (
 )
 from .easyway_shipments import (
     EasywayShipmentError,
+    can_cancel_easyway_shipment,
     can_submit_easyway_shipment,
+    cancel_easyway_shipment,
     submit_easyway_shipment,
 )
 from .models import (
@@ -368,6 +370,11 @@ class OrderAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.easyway_submit_view),
                 name="commerce_order_easyway_submit",
             ),
+            path(
+                "<path:object_id>/easyway-cancel/",
+                self.admin_site.admin_view(self.easyway_cancel_view),
+                name="commerce_order_easyway_cancel",
+            ),
         ]
         return custom_urls + super().get_urls()
 
@@ -389,6 +396,9 @@ class OrderAdmin(admin.ModelAdmin):
             extra_context["show_easyway_submit"] = bool(
                 order and can_submit_easyway_shipment(order)
             )
+            extra_context["show_easyway_cancel"] = bool(
+                order and can_cancel_easyway_shipment(order)
+            )
             if order:
                 extra_context["bog_refund_url"] = reverse(
                     "admin:commerce_order_bog_refund",
@@ -402,11 +412,16 @@ class OrderAdmin(admin.ModelAdmin):
                     "admin:commerce_order_easyway_submit",
                     args=[order.pk],
                 )
+                extra_context["easyway_cancel_url"] = reverse(
+                    "admin:commerce_order_easyway_cancel",
+                    args=[order.pk],
+                )
         else:
             extra_context["show_cancel_and_restore_stock"] = False
             extra_context["show_bog_full_refund"] = False
             extra_context["show_bog_reconciliation"] = False
             extra_context["show_easyway_submit"] = False
+            extra_context["show_easyway_cancel"] = False
 
         return super().changeform_view(request, object_id, form_url, extra_context)
 
@@ -542,6 +557,52 @@ class OrderAdmin(admin.ModelAdmin):
                 "This sends a real shipment request to EasyWay. Submit only a paid "
                 "regional order that is ready for courier pickup. The same request "
                 "must not be sent twice."
+            ),
+            cancel_url=reverse(
+                "admin:commerce_order_change",
+                args=[order.pk],
+            ),
+        )
+
+    def easyway_cancel_view(self, request, object_id):
+        order = self._get_action_order(request, object_id)
+        if request.method == "POST":
+            try:
+                cancel_easyway_shipment(order)
+            except DjangoValidationError as error:
+                self.message_user(
+                    request,
+                    error.messages[0],
+                    level=messages.ERROR,
+                )
+            except EasywayShipmentError as error:
+                self.message_user(
+                    request,
+                    error.detail,
+                    level=(
+                        messages.WARNING
+                        if error.outcome_unknown
+                        else messages.ERROR
+                    ),
+                )
+            else:
+                self.message_user(
+                    request,
+                    "EasyWay shipment cancelled successfully.",
+                    level=messages.SUCCESS,
+                )
+            return HttpResponseRedirect(
+                reverse("admin:commerce_order_change", args=[order.pk])
+            )
+
+        return self._confirmation_response(
+            request,
+            original=order,
+            title=f"Cancel EasyWay shipment for {order.order_number}",
+            action_label="Cancel EasyWay shipment",
+            warning=(
+                f"EasyWay shipment {order.easyway_order_id} will be cancelled. "
+                "This does not refund the card payment or cancel the FlexDrive order."
             ),
             cancel_url=reverse(
                 "admin:commerce_order_change",

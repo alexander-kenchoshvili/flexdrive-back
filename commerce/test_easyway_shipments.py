@@ -10,6 +10,7 @@ from .easyway import EasywayResponseError, EasywayTransportError
 from .easyway_shipments import (
     EasywayShipmentError,
     build_easyway_order_payload,
+    cancel_easyway_shipment,
     submit_easyway_shipment,
     _easyway_order_date,
 )
@@ -170,3 +171,76 @@ class EasywayShipmentTests(TestCase):
             EasywayShipmentState.NOT_SENT,
         )
         client.create_order.assert_not_called()
+
+    def test_successful_cancellation_updates_shipment_state(self):
+        self.order.easyway_order_id = 1689531
+        self.order.easyway_shipment_state = EasywayShipmentState.CREATED
+        self.order.save(
+            update_fields=[
+                "easyway_order_id",
+                "easyway_shipment_state",
+                "updated_at",
+            ]
+        )
+        client = Mock()
+
+        cancelled = cancel_easyway_shipment(self.order, client=client)
+
+        client.cancel_order.assert_called_once_with(1689531)
+        self.assertEqual(
+            cancelled.easyway_shipment_state,
+            EasywayShipmentState.CANCELLED,
+        )
+
+    def test_rejected_cancellation_is_recorded(self):
+        self.order.easyway_order_id = 1689531
+        self.order.easyway_shipment_state = EasywayShipmentState.CREATED
+        self.order.save(
+            update_fields=[
+                "easyway_order_id",
+                "easyway_shipment_state",
+                "updated_at",
+            ]
+        )
+        client = Mock()
+        client.cancel_order.side_effect = EasywayResponseError(
+            "Order cannot be cancelled",
+            status_code=422,
+        )
+
+        with self.assertRaises(EasywayShipmentError) as caught:
+            cancel_easyway_shipment(self.order, client=client)
+
+        self.order.refresh_from_db()
+        self.assertFalse(caught.exception.outcome_unknown)
+        self.assertEqual(
+            self.order.easyway_shipment_state,
+            EasywayShipmentState.CANCEL_FAILED,
+        )
+        self.assertIn("Order cannot be cancelled", self.order.easyway_last_error)
+
+    def test_unknown_cancellation_blocks_duplicate_attempt(self):
+        self.order.easyway_order_id = 1689531
+        self.order.easyway_shipment_state = EasywayShipmentState.CREATED
+        self.order.save(
+            update_fields=[
+                "easyway_order_id",
+                "easyway_shipment_state",
+                "updated_at",
+            ]
+        )
+        client = Mock()
+        client.cancel_order.side_effect = EasywayTransportError("Timeout")
+
+        with self.assertRaises(EasywayShipmentError) as caught:
+            cancel_easyway_shipment(self.order, client=client)
+
+        self.order.refresh_from_db()
+        self.assertTrue(caught.exception.outcome_unknown)
+        self.assertEqual(
+            self.order.easyway_shipment_state,
+            EasywayShipmentState.CANCEL_UNKNOWN,
+        )
+        with self.assertRaises(ValidationError):
+            cancel_easyway_shipment(self.order, client=client)
+        client.cancel_order.assert_called_once()

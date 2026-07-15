@@ -26,4 +26,9 @@
   <a class="button" href="{{ easyway_submit_url }}">Send to EasyWay</a>
 </div>
 {% endif %}
+{% if show_easyway_cancel %}
+<div class="submit-row">
+  <a class="button" href="{{ easyway_cancel_url }}">Cancel EasyWay shipment</a>
+</div>
+{% endif %}
 {% endblock %}

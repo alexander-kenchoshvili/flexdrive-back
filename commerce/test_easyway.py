@@ -135,6 +135,25 @@ class EasywayClientTests(SimpleTestCase):
         self.assertIn("invalid_order_date", str(caught.exception))
         self.assertIn("Order date must be tomorrow", str(caught.exception))
 
+    def test_cancel_order_uses_documented_get_endpoint(self):
+        response = Mock(status_code=200)
+        http_client = Mock()
+        http_client.request.return_value = response
+
+        self.build_client(http_client).cancel_order(1689531)
+
+        http_client.request.assert_called_once_with(
+            "GET",
+            "https://easyway.example/api/order/cancel/1689531",
+            headers={
+                "Accept": "application/json",
+                "Authorization": "Bearer 12345:secret-key",
+            },
+            params=None,
+            timeout=(5.0, 15.0),
+        )
+        response.json.assert_not_called()
+
     def test_http_error_preserves_safe_provider_message(self):
         response = Mock(status_code=422)
         response.json.return_value = {

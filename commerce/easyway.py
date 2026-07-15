@@ -172,13 +172,25 @@ class EasywayClient:
             )
         return normalized_order_id
 
-    def _get(self, path, *, params=None):
-        return self._request("GET", path, params=params)
+    def cancel_order(self, order_id):
+        normalized_order_id = self._positive_integer(order_id, "order ID")
+        self._get(
+            f"/order/cancel/{normalized_order_id}",
+            expect_json=False,
+        )
+
+    def _get(self, path, *, params=None, expect_json=True):
+        return self._request(
+            "GET",
+            path,
+            params=params,
+            expect_json=expect_json,
+        )
 
     def _post(self, path, *, json=None):
         return self._request("POST", path, json=json)
 
-    def _request(self, method, path, *, params=None, json=None):
+    def _request(self, method, path, *, params=None, json=None, expect_json=True):
         url = f"{self.api_base_url}{path}"
         headers = {
             "Accept": "application/json",
@@ -214,6 +226,9 @@ class EasywayClient:
                     or response.status_code in {408, 429}
                 ),
             )
+
+        if not expect_json:
+            return None
 
         try:
             return response.json()

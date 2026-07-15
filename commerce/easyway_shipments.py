@@ -42,6 +42,14 @@ def can_submit_easyway_shipment(order):
     )
 
 
+def can_cancel_easyway_shipment(order):
+    return bool(
+        order
+        and order.easyway_order_id is not None
+        and order.easyway_shipment_state == EasywayShipmentState.CREATED
+    )
+
+
 def submit_easyway_shipment(order, *, client=None):
     with transaction.atomic():
         locked_order = Order.objects.select_for_update().get(pk=order.pk)
@@ -129,6 +137,96 @@ def submit_easyway_shipment(order, *, client=None):
                 "easyway_shipment_state",
                 "easyway_last_error",
                 "easyway_submitted_at",
+                "updated_at",
+            ]
+        )
+    return locked_order
+
+
+def cancel_easyway_shipment(order, *, client=None):
+    with transaction.atomic():
+        locked_order = Order.objects.select_for_update().get(pk=order.pk)
+        if not can_cancel_easyway_shipment(locked_order):
+            raise ValidationError(
+                "Only a created EasyWay shipment can be cancelled."
+            )
+        locked_order.easyway_shipment_state = EasywayShipmentState.CANCELLING
+        locked_order.easyway_last_error = ""
+        locked_order.easyway_last_attempt_at = timezone.now()
+        locked_order.save(
+            update_fields=[
+                "easyway_shipment_state",
+                "easyway_last_error",
+                "easyway_last_attempt_at",
+                "updated_at",
+            ]
+        )
+
+    try:
+        (client or EasywayClient.from_settings()).cancel_order(
+            locked_order.easyway_order_id
+        )
+    except EasywayTransportError as error:
+        _record_cancellation_failure(
+            locked_order.pk,
+            detail=(
+                "EasyWay-ის გაუქმების პასუხი ვერ მივიღეთ. "
+                "ხელახლა ცდამდე გადაამოწმეთ გზავნილი."
+            ),
+            outcome_unknown=True,
+        )
+        raise EasywayShipmentError(
+            "EasyWay-ის გაუქმების შედეგი გაურკვეველია.",
+            code="easyway_cancellation_unknown",
+            outcome_unknown=True,
+        ) from error
+    except EasywayResponseError as error:
+        outcome_unknown = bool(error.outcome_unknown)
+        summary = (
+            "EasyWay-ის გაუქმების პასუხი გაურკვეველია."
+            if outcome_unknown
+            else "EasyWay-მ გზავნილის გაუქმება უარყო."
+        )
+        detail = f"{summary} {error}"
+        _record_cancellation_failure(
+            locked_order.pk,
+            detail=detail,
+            outcome_unknown=outcome_unknown,
+        )
+        raise EasywayShipmentError(
+            detail,
+            code=(
+                "easyway_cancellation_unknown"
+                if outcome_unknown
+                else "easyway_cancellation_rejected"
+            ),
+            outcome_unknown=outcome_unknown,
+        ) from error
+    except EasywayConfigurationError as error:
+        _record_cancellation_failure(
+            locked_order.pk,
+            detail=str(error),
+            outcome_unknown=False,
+        )
+        raise EasywayShipmentError(
+            str(error),
+            code="easyway_configuration_error",
+        ) from error
+
+    with transaction.atomic():
+        locked_order = Order.objects.select_for_update().get(pk=order.pk)
+        if locked_order.easyway_shipment_state != EasywayShipmentState.CANCELLING:
+            raise EasywayShipmentError(
+                "EasyWay cancellation state changed concurrently.",
+                code="easyway_cancellation_state_changed",
+                outcome_unknown=True,
+            )
+        locked_order.easyway_shipment_state = EasywayShipmentState.CANCELLED
+        locked_order.easyway_last_error = ""
+        locked_order.save(
+            update_fields=[
+                "easyway_shipment_state",
+                "easyway_last_error",
                 "updated_at",
             ]
         )
@@ -252,6 +350,22 @@ def _record_failure(order_id, *, detail, outcome_unknown):
     Order.objects.filter(
         pk=order_id,
         easyway_shipment_state=EasywayShipmentState.SUBMITTING,
+    ).update(
+        easyway_shipment_state=state,
+        easyway_last_error=detail[:1000],
+        updated_at=timezone.now(),
+    )
+
+
+def _record_cancellation_failure(order_id, *, detail, outcome_unknown):
+    state = (
+        EasywayShipmentState.CANCEL_UNKNOWN
+        if outcome_unknown
+        else EasywayShipmentState.CANCEL_FAILED
+    )
+    Order.objects.filter(
+        pk=order_id,
+        easyway_shipment_state=EasywayShipmentState.CANCELLING,
     ).update(
         easyway_shipment_state=state,
         easyway_last_error=detail[:1000],
