@@ -1,5 +1,7 @@
+from datetime import datetime
 from decimal import Decimal
 from unittest.mock import Mock
+from zoneinfo import ZoneInfo
 
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
@@ -9,6 +11,7 @@ from .easyway_shipments import (
     EasywayShipmentError,
     build_easyway_order_payload,
     submit_easyway_shipment,
+    _easyway_order_date,
 )
 from .models import (
     EasywayShipmentState,
@@ -119,6 +122,7 @@ class EasywayShipmentTests(TestCase):
             self.order.easyway_shipment_state,
             EasywayShipmentState.FAILED,
         )
+        self.assertIn("Rejected", self.order.easyway_last_error)
 
     def test_transport_error_blocks_automatic_retry(self):
         client = Mock()
@@ -135,3 +139,34 @@ class EasywayShipmentTests(TestCase):
         )
         with self.assertRaises(ValidationError):
             submit_easyway_shipment(self.order, client=client)
+
+    def test_order_date_moves_to_next_day_at_four_pm(self):
+        local_time = datetime(
+            2026,
+            7,
+            15,
+            16,
+            30,
+            tzinfo=ZoneInfo("Asia/Tbilisi"),
+        )
+
+        self.assertEqual(
+            _easyway_order_date(local_time),
+            "2026-07-16 16:30:00",
+        )
+
+    def test_invalid_phone_returns_controlled_error_before_request(self):
+        self.order.phone = "123123123"
+        self.order.save(update_fields=["phone", "updated_at"])
+        client = Mock()
+
+        with self.assertRaises(EasywayShipmentError) as caught:
+            submit_easyway_shipment(self.order, client=client)
+
+        self.order.refresh_from_db()
+        self.assertEqual(caught.exception.code, "easyway_configuration_error")
+        self.assertEqual(
+            self.order.easyway_shipment_state,
+            EasywayShipmentState.NOT_SENT,
+        )
+        client.create_order.assert_not_called()

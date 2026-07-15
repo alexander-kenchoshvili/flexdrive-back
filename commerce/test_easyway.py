@@ -105,6 +105,53 @@ class EasywayClientTests(SimpleTestCase):
             ("POST", "https://easyway.example/api/order/insert"),
         )
 
+    def test_create_order_accepts_single_order_id_list(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {"order_id": [123456]}
+        http_client = Mock()
+        http_client.request.return_value = response
+
+        order_id = self.build_client(http_client).create_order(
+            {"tracking_code": "TEST-1"}
+        )
+
+        self.assertEqual(order_id, 123456)
+
+    def test_explicit_provider_error_is_preserved_without_unknown_outcome(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "error": "invalid_order_date",
+            "message": "Order date must be tomorrow",
+        }
+        http_client = Mock()
+        http_client.request.return_value = response
+
+        with self.assertRaises(EasywayResponseError) as caught:
+            self.build_client(http_client).create_order(
+                {"tracking_code": "TEST-1"}
+            )
+
+        self.assertFalse(caught.exception.outcome_unknown)
+        self.assertIn("invalid_order_date", str(caught.exception))
+        self.assertIn("Order date must be tomorrow", str(caught.exception))
+
+    def test_http_error_preserves_safe_provider_message(self):
+        response = Mock(status_code=422)
+        response.json.return_value = {
+            "message": "receiver_phone is invalid",
+            "request": {"api_key": "must-not-appear"},
+        }
+        http_client = Mock()
+        http_client.request.return_value = response
+
+        with self.assertRaises(EasywayResponseError) as caught:
+            self.build_client(http_client).create_order(
+                {"tracking_code": "TEST-1"}
+            )
+
+        self.assertIn("receiver_phone is invalid", str(caught.exception))
+        self.assertNotIn("api_key", str(caught.exception))
+
     def test_shipping_price_uses_documented_payload_and_returns_decimal(self):
         response = Mock(status_code=200)
         response.json.return_value = {"price": 9}

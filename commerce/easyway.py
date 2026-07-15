@@ -144,6 +144,20 @@ class EasywayClient:
             )
         response = self._post("/order/insert", json=payload)
         order_id = response.get("order_id") if isinstance(response, dict) else response
+        if isinstance(order_id, (list, tuple)):
+            if len(order_id) != 1:
+                raise EasywayResponseError(
+                    "EasyWay API returned an unexpected order_id list.",
+                    outcome_unknown=True,
+                )
+            order_id = order_id[0]
+        if order_id is None and isinstance(response, dict):
+            provider_detail = self._safe_provider_detail(response)
+            if provider_detail:
+                raise EasywayResponseError(
+                    f"EasyWay rejected the order: {provider_detail}",
+                    outcome_unknown=False,
+                )
         try:
             normalized_order_id = int(order_id)
         except (TypeError, ValueError) as error:
@@ -186,8 +200,14 @@ class EasywayClient:
             ) from error
 
         if response.status_code >= 400:
+            provider_detail = self._safe_provider_detail_from_response(response)
+            message = (
+                f"EasyWay API rejected the request with HTTP {response.status_code}."
+            )
+            if provider_detail:
+                message = f"{message} {provider_detail}"
             raise EasywayResponseError(
-                f"EasyWay API rejected the request with HTTP {response.status_code}.",
+                message,
                 status_code=response.status_code,
                 outcome_unknown=(
                     response.status_code >= 500
@@ -228,6 +248,26 @@ class EasywayClient:
                 f"EasyWay API returned an invalid {key} response."
             )
         return payload[key]
+
+    @classmethod
+    def _safe_provider_detail_from_response(cls, response):
+        try:
+            payload = response.json()
+        except ValueError:
+            return ""
+        return cls._safe_provider_detail(payload)
+
+    @staticmethod
+    def _safe_provider_detail(payload):
+        if not isinstance(payload, dict):
+            return ""
+
+        parts = []
+        for key in ("code", "error", "message", "detail"):
+            value = payload.get(key)
+            if isinstance(value, (str, int, float)) and str(value).strip():
+                parts.append(f"{key}={str(value).strip()}")
+        return "; ".join(parts)[:500]
 
     @staticmethod
     def _positive_timeout(value, label):

@@ -1,3 +1,6 @@
+from datetime import time, timedelta
+from zoneinfo import ZoneInfo
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -15,6 +18,8 @@ from .models import (
     OrderPaymentStatus,
     OrderStatus,
 )
+
+EASYWAY_TIME_ZONE = ZoneInfo("Asia/Tbilisi")
 
 
 class EasywayShipmentError(Exception):
@@ -41,7 +46,13 @@ def submit_easyway_shipment(order, *, client=None):
     with transaction.atomic():
         locked_order = Order.objects.select_for_update().get(pk=order.pk)
         _validate_submission(locked_order)
-        payload = build_easyway_order_payload(locked_order)
+        try:
+            payload = build_easyway_order_payload(locked_order)
+        except EasywayConfigurationError as error:
+            raise EasywayShipmentError(
+                str(error),
+                code="easyway_configuration_error",
+            ) from error
         locked_order.easyway_shipment_state = EasywayShipmentState.SUBMITTING
         locked_order.easyway_last_error = ""
         locked_order.easyway_last_attempt_at = timezone.now()
@@ -69,11 +80,12 @@ def submit_easyway_shipment(order, *, client=None):
         ) from error
     except EasywayResponseError as error:
         outcome_unknown = bool(error.outcome_unknown)
-        detail = (
+        summary = (
             "EasyWay-ის პასუხი გაურკვეველია. ხელახლა გაგზავნამდე გადაამოწმეთ გზავნილი."
             if outcome_unknown
             else "EasyWay-მ გზავნილის შექმნის მოთხოვნა უარყო."
         )
+        detail = f"{summary} {error}"
         _record_failure(
             locked_order.pk,
             detail=detail,
@@ -164,7 +176,7 @@ def build_easyway_order_payload(order):
         "pay_method": "cashless",
         "cgd": 0,
         "comment": (order.note or "")[:250],
-        "order_date": timezone.localtime().strftime("%Y-%m-%d %H:%M:%S"),
+        "order_date": _easyway_order_date(),
         "weight": float(order.shipping_weight_kg),
         "quantity": quantity,
         "items": items,
@@ -201,6 +213,16 @@ def _normalize_georgian_mobile(value, label):
             f"EasyWay {label} must be a Georgian mobile number."
         )
     return digits
+
+
+def _easyway_order_date(now=None):
+    local_now = timezone.localtime(
+        now or timezone.now(),
+        timezone=EASYWAY_TIME_ZONE,
+    )
+    if local_now.time() >= time(hour=16):
+        local_now += timedelta(days=1)
+    return local_now.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _validate_submission(order):
