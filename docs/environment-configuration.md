@@ -87,6 +87,35 @@ frontend, and controlled real-environment verification are complete. A browser
 redirect is never proof that payment succeeded; only the signed callback or an
 authenticated BOG payment-details response may finalize payment.
 
+## EasyWay delivery quotes
+
+Regional checkout pricing is returned by EasyWay's `/price` endpoint. The
+backend adds the configured customer margin and signs a short-lived quote so the
+frontend cannot alter delivery totals.
+
+```env
+EASYWAY_API_USER=<EasyWay user ID>
+EASYWAY_API_KEY=<EasyWay API key>
+EASYWAY_API_BASE_URL=https://easyway.ge/api
+EASYWAY_SENDER_NAME=<company name>
+EASYWAY_SENDER_TAX_CODE=<company tax code>
+EASYWAY_SENDER_ADDRESS=<courier pickup address>
+EASYWAY_SENDER_PHONE=<courier pickup contact phone>
+EASYWAY_SENDER_REGION_ID=24
+EASYWAY_SENDER_CITY_ID=<EasyWay city ID for the real pickup location>
+EASYWAY_SENDER_LEGAL_FORM_ID=3
+EASYWAY_RECEIVER_TAX_CODE_PLACEHOLDER=11111111111
+EASYWAY_STANDARD_PACKAGE_ID=2
+EASYWAY_DELIVERY_MARGIN_GEL=2.00
+EASYWAY_INTERNAL_DELIVERY_PRICE_GEL=0.00
+EASYWAY_QUOTE_MAX_AGE_SECONDS=900
+```
+
+`EASYWAY_SENDER_CITY_ID` is mandatory for regional quotes and must not be
+guessed: it is the EasyWay city ID corresponding to FlexDrive's real pickup
+location. Tbilisi/internal delivery does not call EasyWay and currently returns
+zero delivery cost.
+
 ## Meta Purchase delivery
 
 Eligible Meta Purchase events are sent directly after the related database

@@ -21,4 +21,9 @@
   {% endif %}
 </div>
 {% endif %}
+{% if show_easyway_submit %}
+<div class="submit-row">
+  <a class="button" href="{{ easyway_submit_url }}">Send to EasyWay</a>
+</div>
+{% endif %}
 {% endblock %}

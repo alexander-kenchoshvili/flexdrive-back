@@ -1,1 +1,1 @@
-
+"""Commerce management commands."""

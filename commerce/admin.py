@@ -13,10 +13,17 @@ from .bog_refunds import (
     get_bog_sale_payment_for_order,
     request_bog_full_refund,
 )
+from .easyway_shipments import (
+    EasywayShipmentError,
+    can_submit_easyway_shipment,
+    submit_easyway_shipment,
+)
 from .models import (
     Cart,
     CartItem,
     CheckoutAttempt,
+    EasywayCity,
+    EasywayRegion,
     Order,
     OrderItem,
     OrderStatus,
@@ -40,6 +47,71 @@ class CartItemInline(admin.TabularInline):
     extra = 0
     fields = ("product", "quantity", "created_at")
     readonly_fields = ("created_at",)
+
+
+@admin.register(EasywayRegion)
+class EasywayRegionAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "external_id",
+        "is_internal_delivery",
+        "is_active",
+        "last_synced_at",
+    )
+    list_filter = ("is_internal_delivery", "is_active")
+    search_fields = ("name", "external_id")
+    readonly_fields = (
+        "external_id",
+        "name",
+        "is_active",
+        "last_synced_at",
+        "created_at",
+        "updated_at",
+    )
+    fields = (
+        "external_id",
+        "name",
+        "is_internal_delivery",
+        "is_active",
+        "last_synced_at",
+        "created_at",
+        "updated_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(EasywayCity)
+class EasywayCityAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "region",
+        "external_id",
+        "is_active",
+        "last_synced_at",
+    )
+    list_filter = ("is_active", "region")
+    search_fields = ("name", "external_id", "region__name")
+    list_select_related = ("region",)
+    readonly_fields = (
+        "region",
+        "external_id",
+        "name",
+        "is_active",
+        "last_synced_at",
+        "created_at",
+        "updated_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(Cart)
@@ -150,6 +222,24 @@ class OrderAdmin(admin.ModelAdmin):
         "order_number",
         "public_token",
         "subtotal",
+        "delivery_provider",
+        "delivery_region_id",
+        "delivery_region_name",
+        "delivery_city_id",
+        "delivery_city_name",
+        "carrier_delivery_cost",
+        "delivery_margin",
+        "delivery_price",
+        "shipping_weight_kg",
+        "shipping_length_cm",
+        "shipping_width_cm",
+        "shipping_height_cm",
+        "delivery_package_id",
+        "easyway_shipment_state",
+        "easyway_order_id",
+        "easyway_last_error",
+        "easyway_last_attempt_at",
+        "easyway_submitted_at",
         "total",
         "payment_method",
         "payment_status",
@@ -190,8 +280,41 @@ class OrderAdmin(admin.ModelAdmin):
             },
         ),
         ("Customer", {"fields": ("first_name", "last_name", "email", "phone")}),
-        ("Delivery", {"fields": ("city", "address_line", "note")}),
-        ("Totals", {"fields": ("subtotal", "total")}),
+        (
+            "Delivery",
+            {
+                "fields": (
+                    "delivery_provider",
+                    "delivery_region_id",
+                    "delivery_region_name",
+                    "delivery_city_id",
+                    "delivery_city_name",
+                    "city",
+                    "address_line",
+                    "note",
+                    "carrier_delivery_cost",
+                    "delivery_margin",
+                    "shipping_weight_kg",
+                    "shipping_length_cm",
+                    "shipping_width_cm",
+                    "shipping_height_cm",
+                    "delivery_package_id",
+                )
+            },
+        ),
+        ("Totals", {"fields": ("subtotal", "delivery_price", "total")}),
+        (
+            "EasyWay shipment",
+            {
+                "fields": (
+                    "easyway_shipment_state",
+                    "easyway_order_id",
+                    "easyway_last_error",
+                    "easyway_last_attempt_at",
+                    "easyway_submitted_at",
+                )
+            },
+        ),
         (
             "Legal acceptance",
             {
@@ -240,6 +363,11 @@ class OrderAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.bog_reconcile_view),
                 name="commerce_order_bog_reconcile",
             ),
+            path(
+                "<path:object_id>/easyway-submit/",
+                self.admin_site.admin_view(self.easyway_submit_view),
+                name="commerce_order_easyway_submit",
+            ),
         ]
         return custom_urls + super().get_urls()
 
@@ -258,6 +386,9 @@ class OrderAdmin(admin.ModelAdmin):
             extra_context["show_bog_reconciliation"] = bool(
                 sale_payment and sale_payment.provider_order_id
             )
+            extra_context["show_easyway_submit"] = bool(
+                order and can_submit_easyway_shipment(order)
+            )
             if order:
                 extra_context["bog_refund_url"] = reverse(
                     "admin:commerce_order_bog_refund",
@@ -267,10 +398,15 @@ class OrderAdmin(admin.ModelAdmin):
                     "admin:commerce_order_bog_reconcile",
                     args=[order.pk],
                 )
+                extra_context["easyway_submit_url"] = reverse(
+                    "admin:commerce_order_easyway_submit",
+                    args=[order.pk],
+                )
         else:
             extra_context["show_cancel_and_restore_stock"] = False
             extra_context["show_bog_full_refund"] = False
             extra_context["show_bog_reconciliation"] = False
+            extra_context["show_easyway_submit"] = False
 
         return super().changeform_view(request, object_id, form_url, extra_context)
 
@@ -356,6 +492,56 @@ class OrderAdmin(admin.ModelAdmin):
                 f"BOG will receive a full GEL {order.total} refund request. "
                 "The request cannot be cancelled. Stock will be restored only "
                 "after BOG confirms the refund."
+            ),
+            cancel_url=reverse(
+                "admin:commerce_order_change",
+                args=[order.pk],
+            ),
+        )
+
+    def easyway_submit_view(self, request, object_id):
+        order = self._get_action_order(request, object_id)
+        if request.method == "POST":
+            try:
+                submitted_order = submit_easyway_shipment(order)
+            except DjangoValidationError as error:
+                self.message_user(
+                    request,
+                    error.messages[0],
+                    level=messages.ERROR,
+                )
+            except EasywayShipmentError as error:
+                self.message_user(
+                    request,
+                    error.detail,
+                    level=(
+                        messages.WARNING
+                        if error.outcome_unknown
+                        else messages.ERROR
+                    ),
+                )
+            else:
+                self.message_user(
+                    request,
+                    (
+                        "EasyWay shipment created successfully. "
+                        f"EasyWay order ID: {submitted_order.easyway_order_id}."
+                    ),
+                    level=messages.SUCCESS,
+                )
+            return HttpResponseRedirect(
+                reverse("admin:commerce_order_change", args=[order.pk])
+            )
+
+        return self._confirmation_response(
+            request,
+            original=order,
+            title=f"Send {order.order_number} to EasyWay",
+            action_label="Create EasyWay shipment",
+            warning=(
+                "This sends a real shipment request to EasyWay. Submit only a paid "
+                "regional order that is ready for courier pickup. The same request "
+                "must not be sent twice."
             ),
             cancel_url=reverse(
                 "admin:commerce_order_change",

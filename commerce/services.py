@@ -17,6 +17,7 @@ from rest_framework.exceptions import APIException, ValidationError
 from catalog.models import Product, ProductImage, ProductStatus
 
 from .images import build_product_primary_image_snapshot
+from .delivery_quotes import delivery_order_fields, resolve_checkout_delivery
 from .models import (
     BuyNowSession,
     Cart,
@@ -1078,6 +1079,13 @@ def create_order_from_cart(
             }
         )
 
+    delivery_quote = resolve_checkout_delivery(
+        validated_data=validated_data,
+        source=OrderCheckoutSource.CART,
+        items=cart_items,
+    )
+    delivery_fields = delivery_order_fields(delivery_quote)
+    total = subtotal + delivery_fields["delivery_price"]
     terms_fields = terms_acceptance.to_order_fields()
     order = Order.objects.create(
         user=user if user and user.is_authenticated else None,
@@ -1090,14 +1098,15 @@ def create_order_from_cart(
         payment_method=validated_data["payment_method"],
         status=OrderStatus.NEW,
         subtotal=subtotal,
-        total=subtotal,
+        total=total,
         first_name=validated_data["first_name"],
         last_name=validated_data["last_name"],
         email=validated_data.get("email", ""),
         phone=validated_data["phone"],
-        city=validated_data["city"],
+        city=delivery_fields["delivery_city_name"],
         address_line=validated_data["address_line"],
         note=validated_data.get("note", ""),
+        **delivery_fields,
         **terms_fields,
     )
     order.order_number = build_order_number(order)
@@ -1214,6 +1223,14 @@ def create_order_from_buy_now_session(
 
     line_total = locked_product.price * locked_session.quantity
 
+    delivery_quote = resolve_checkout_delivery(
+        validated_data=validated_data,
+        source=OrderCheckoutSource.BUY_NOW,
+        items=[locked_session],
+    )
+    delivery_fields = delivery_order_fields(delivery_quote)
+    total = line_total + delivery_fields["delivery_price"]
+
     terms_fields = terms_acceptance.to_order_fields()
     order = Order.objects.create(
         user=user if user and user.is_authenticated else None,
@@ -1227,14 +1244,15 @@ def create_order_from_buy_now_session(
         payment_method=validated_data["payment_method"],
         status=OrderStatus.NEW,
         subtotal=line_total,
-        total=line_total,
+        total=total,
         first_name=validated_data["first_name"],
         last_name=validated_data["last_name"],
         email=validated_data.get("email", ""),
         phone=validated_data["phone"],
-        city=validated_data["city"],
+        city=delivery_fields["delivery_city_name"],
         address_line=validated_data["address_line"],
         note=validated_data.get("note", ""),
+        **delivery_fields,
         **terms_fields,
     )
     order.order_number = build_order_number(order)

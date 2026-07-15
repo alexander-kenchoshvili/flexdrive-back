@@ -90,6 +90,52 @@ class OrderStatus(models.TextChoices):
     CANCELLED = "cancelled", "Cancelled"
 
 
+class EasywayShipmentState(models.TextChoices):
+    NOT_SENT = "not_sent", "Not sent"
+    SUBMITTING = "submitting", "Sending - verify before retry"
+    CREATED = "created", "Created"
+    FAILED = "failed", "Rejected - retry allowed"
+    UNKNOWN = "unknown", "Unknown - manual check required"
+
+
+class EasywayRegion(TimeStampedModel):
+    external_id = models.PositiveIntegerField(unique=True)
+    name = models.CharField(max_length=120)
+    is_active = models.BooleanField(default=True, db_index=True)
+    is_internal_delivery = models.BooleanField(default=False, db_index=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("name", "external_id")
+        indexes = [
+            models.Index(fields=["is_active", "name"]),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class EasywayCity(TimeStampedModel):
+    region = models.ForeignKey(
+        EasywayRegion,
+        related_name="cities",
+        on_delete=models.PROTECT,
+    )
+    external_id = models.PositiveIntegerField(unique=True)
+    name = models.CharField(max_length=160)
+    is_active = models.BooleanField(default=True, db_index=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("region__name", "name", "external_id")
+        indexes = [
+            models.Index(fields=["region", "is_active", "name"]),
+        ]
+
+    def __str__(self):
+        return f"{self.region.name} - {self.name}"
+
+
 class Cart(TimeStampedModel):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -393,6 +439,56 @@ class Order(TimeStampedModel):
     phone = models.CharField(max_length=50)
     city = models.CharField(max_length=120)
     address_line = models.CharField(max_length=255)
+    delivery_provider = models.CharField(max_length=20, blank=True, default="")
+    delivery_region_id = models.PositiveIntegerField(null=True, blank=True)
+    delivery_region_name = models.CharField(max_length=120, blank=True, default="")
+    delivery_city_id = models.PositiveIntegerField(null=True, blank=True)
+    delivery_city_name = models.CharField(max_length=120, blank=True, default="")
+    carrier_delivery_cost = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
+    delivery_margin = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
+    delivery_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
+    shipping_weight_kg = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    shipping_length_cm = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    shipping_width_cm = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    shipping_height_cm = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    delivery_package_id = models.PositiveIntegerField(null=True, blank=True)
+    easyway_shipment_state = models.CharField(
+        max_length=20,
+        choices=EasywayShipmentState.choices,
+        default=EasywayShipmentState.NOT_SENT,
+        db_index=True,
+    )
+    easyway_order_id = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        unique=True,
+    )
+    easyway_last_error = models.TextField(blank=True, default="")
+    easyway_last_attempt_at = models.DateTimeField(null=True, blank=True)
+    easyway_submitted_at = models.DateTimeField(null=True, blank=True)
     note = models.TextField(blank=True)
     terms_accepted_at = models.DateTimeField(null=True, blank=True)
     terms_version = models.CharField(max_length=80, blank=True, default="")

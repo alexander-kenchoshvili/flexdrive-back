@@ -28,6 +28,7 @@ from .bog_payments import (
     parse_bog_payment_details,
 )
 from .card_payments import is_checkout_snapshot_intact
+from .delivery_quotes import delivery_order_fields
 from .models import (
     BuyNowSession,
     Cart,
@@ -555,13 +556,18 @@ def _create_order_from_paid_snapshot(payment):
         buyer_type = OrderBuyerType(snapshot["buyer"]["buyer_type"])
         total = _snapshot_money(snapshot["totals"]["total"])
         subtotal = _snapshot_money(snapshot["totals"]["subtotal"])
+        delivery_amount = _snapshot_money(snapshot["totals"].get("delivery", "0.00"))
         currency = str(snapshot["totals"]["currency"]).upper()
         terms_accepted_at = _snapshot_datetime(
             snapshot["terms"]["accepted_at"]
         )
     except (KeyError, TypeError, ValueError) as error:
         raise BogFulfillmentError("paid_snapshot_invalid") from error
-    if total != payment.amount or subtotal != total or currency != "GEL":
+    if (
+        total != payment.amount
+        or subtotal + delivery_amount != total
+        or currency != "GEL"
+    ):
         raise BogFulfillmentError("paid_snapshot_total_mismatch")
 
     reservation = (
@@ -605,7 +611,7 @@ def _create_order_from_paid_snapshot(payment):
     if sum(
         (item["line_total"] for item in normalized_items),
         Decimal("0.00"),
-    ) != total:
+    ) != subtotal:
         raise BogFulfillmentError("paid_snapshot_item_total_mismatch")
     expected_quantities = {
         item["product_id"]: item["quantity"]
@@ -668,6 +674,12 @@ def _create_order_from_paid_snapshot(payment):
     buyer = snapshot["buyer"]
     terms = snapshot["terms"]
     marketing = snapshot.get("marketing") or {}
+    delivery_payload = snapshot.get("delivery")
+    delivery_fields = (
+        delivery_order_fields(delivery_payload)
+        if isinstance(delivery_payload, dict)
+        else {}
+    )
     order = Order.objects.create(
         user_id=reservation.user_id,
         checkout_source=source,
@@ -688,6 +700,7 @@ def _create_order_from_paid_snapshot(payment):
         city=str(buyer["city"]),
         address_line=str(buyer["address_line"]),
         note=str(buyer.get("note") or ""),
+        **delivery_fields,
         terms_accepted_at=terms_accepted_at,
         terms_version=str(terms.get("version") or ""),
         terms_content_hash=str(terms.get("content_hash") or ""),

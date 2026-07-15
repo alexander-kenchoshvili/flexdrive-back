@@ -21,9 +21,27 @@ from .views import (
     WishlistItemListAPIView,
     CardPaymentStatusAPIView,
     CardPaymentAvailabilityAPIView,
+    DeliveryCityListAPIView,
+    DeliveryQuoteAPIView,
+    DeliveryRegionListAPIView,
 )
 
 urlpatterns = [
+    path(
+        "delivery/regions/",
+        DeliveryRegionListAPIView.as_view(),
+        name="commerce-delivery-region-list",
+    ),
+    path(
+        "delivery/regions/<int:region_id>/cities/",
+        DeliveryCityListAPIView.as_view(),
+        name="commerce-delivery-city-list",
+    ),
+    path(
+        "delivery/quote/",
+        DeliveryQuoteAPIView.as_view(),
+        name="commerce-delivery-quote",
+    ),
     path("buy-now/session/", BuyNowSessionAPIView.as_view(), name="commerce-buy-now-session"),
     path(
         "buy-now/session/confirm/",

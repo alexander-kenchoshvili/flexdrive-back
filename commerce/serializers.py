@@ -14,6 +14,8 @@ from .models import (
     BuyNowSession,
     Cart,
     CartItem,
+    EasywayCity,
+    EasywayRegion,
     Order,
     OrderBuyerType,
     OrderItem,
@@ -115,7 +117,10 @@ class CheckoutSerializer(serializers.Serializer):
     last_name = serializers.CharField(max_length=150)
     email = serializers.EmailField(required=False, allow_blank=True, default="")
     phone = serializers.CharField(max_length=50)
-    city = serializers.CharField(max_length=120)
+    delivery_region_id = serializers.IntegerField(min_value=1)
+    delivery_city_id = serializers.IntegerField(min_value=1)
+    delivery_quote_token = serializers.CharField(write_only=True)
+    city = serializers.CharField(max_length=120, required=False, allow_blank=True)
     address_line = serializers.CharField(max_length=255)
     note = serializers.CharField(allow_blank=True, required=False)
     terms_accepted = serializers.BooleanField(
@@ -139,6 +144,24 @@ class CheckoutSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs):
+        region = EasywayRegion.objects.filter(
+            external_id=attrs["delivery_region_id"],
+            is_active=True,
+        ).first()
+        city = EasywayCity.objects.filter(
+            external_id=attrs["delivery_city_id"],
+            region=region,
+            is_active=True,
+        ).first()
+        location_errors = {}
+        if region is None:
+            location_errors["delivery_region_id"] = "არჩეული რეგიონი ვერ მოიძებნა."
+        if city is None:
+            location_errors["delivery_city_id"] = "არჩეული ქალაქი ვერ მოიძებნა."
+        if location_errors:
+            raise serializers.ValidationError(location_errors)
+        attrs["city"] = city.name
+
         buyer_type = attrs.get("buyer_type", OrderBuyerType.INDIVIDUAL)
 
         if buyer_type != OrderBuyerType.LEGAL_ENTITY:
@@ -170,6 +193,33 @@ class CheckoutSerializer(serializers.Serializer):
 
         attrs["company_name"] = company_name
         attrs["company_identification_code"] = company_identification_code
+        return attrs
+
+
+class DeliveryQuoteRequestSerializer(serializers.Serializer):
+    source = serializers.ChoiceField(choices=("cart", "buy_now"))
+    delivery_region_id = serializers.IntegerField(min_value=1)
+    delivery_city_id = serializers.IntegerField(min_value=1)
+
+    def validate(self, attrs):
+        region = EasywayRegion.objects.filter(
+            external_id=attrs["delivery_region_id"],
+            is_active=True,
+        ).first()
+        city = EasywayCity.objects.filter(
+            external_id=attrs["delivery_city_id"],
+            region=region,
+            is_active=True,
+        ).first()
+        errors = {}
+        if region is None:
+            errors["delivery_region_id"] = "არჩეული რეგიონი ვერ მოიძებნა."
+        if city is None:
+            errors["delivery_city_id"] = "არჩეული ქალაქი ვერ მოიძებნა."
+        if errors:
+            raise serializers.ValidationError(errors)
+        attrs["region"] = region
+        attrs["city"] = city
         return attrs
 
 
@@ -609,12 +659,18 @@ class OrderSummarySerializer(serializers.ModelSerializer):
             "payment_status",
             "status",
             "subtotal",
+            "delivery_price",
             "total",
             "first_name",
             "last_name",
             "email",
             "phone",
             "city",
+            "delivery_provider",
+            "delivery_region_id",
+            "delivery_region_name",
+            "delivery_city_id",
+            "delivery_city_name",
             "address_line",
             "note",
             "items",
@@ -637,6 +693,7 @@ class PublicOrderSummarySerializer(serializers.ModelSerializer):
             "payment_status",
             "status",
             "subtotal",
+            "delivery_price",
             "total",
             "items",
             "created_at",

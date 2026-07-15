@@ -19,6 +19,7 @@ from .bog_payments import (
     BogValidationError,
 )
 from .images import build_product_primary_image_snapshot
+from .delivery_quotes import delivery_order_fields, resolve_checkout_delivery
 from .models import (
     BuyNowSession,
     Cart,
@@ -618,7 +619,7 @@ def _build_checkout_snapshot(
     marketing_context,
 ):
     reservation_items = list(
-        reservation.items.select_related("product")
+        reservation.items.select_related("product", "product__category")
         .prefetch_related("product__images")
         .order_by("id")
     )
@@ -655,6 +656,13 @@ def _build_checkout_snapshot(
             }
         )
 
+    delivery_quote = resolve_checkout_delivery(
+        validated_data=validated_data,
+        source=source,
+        items=reservation_items,
+    )
+    delivery_fields = delivery_order_fields(delivery_quote)
+    delivery_price = delivery_fields["delivery_price"]
     terms_fields = terms_acceptance.to_order_fields()
     snapshot = {
         "version": CHECKOUT_SNAPSHOT_VERSION,
@@ -678,15 +686,16 @@ def _build_checkout_snapshot(
             "last_name": validated_data["last_name"],
             "email": validated_data.get("email", ""),
             "phone": validated_data["phone"],
-            "city": validated_data["city"],
+            "city": delivery_fields["delivery_city_name"],
             "address_line": validated_data["address_line"],
             "note": validated_data.get("note", ""),
         },
         "items": items,
+        "delivery": delivery_quote,
         "totals": {
             "subtotal": _decimal_string(subtotal),
-            "delivery": "0.00",
-            "total": _decimal_string(subtotal),
+            "delivery": _decimal_string(delivery_price),
+            "total": _decimal_string(subtotal + delivery_price),
             "currency": "GEL",
         },
         "terms": {

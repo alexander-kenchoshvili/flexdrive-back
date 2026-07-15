@@ -1,1 +1,1 @@
-
+"""Commerce management command package."""

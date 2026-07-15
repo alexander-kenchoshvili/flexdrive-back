@@ -24,13 +24,20 @@ from .card_payments import (
     start_buy_now_card_payment,
     start_cart_card_payment,
 )
+from .delivery_quotes import DeliveryQuoteError, build_delivery_quote
 from .bog_callbacks import (
     BogCallbackError,
     apply_bog_callback,
     parse_bog_callback,
     verify_bog_callback_signature,
 )
-from .models import Order, OrderCheckoutSource, OrderStatus
+from .models import (
+    EasywayCity,
+    EasywayRegion,
+    Order,
+    OrderCheckoutSource,
+    OrderStatus,
+)
 from .meta_conversions import build_marketing_context, has_marketing_consent
 from .legal import build_terms_acceptance_snapshot
 from .serializers import (
@@ -42,6 +49,7 @@ from .serializers import (
     CartItemUpdateSerializer,
     CartSerializer,
     CheckoutSerializer,
+    DeliveryQuoteRequestSerializer,
     OrderListSerializer,
     OrderListSummarySerializer,
     OrderLookupSerializer,
@@ -109,6 +117,66 @@ def _required_checkout_idempotency_key(request):
             }
         )
     return idempotency_key
+
+
+def _delivery_quote_error_response(error):
+    return Response(
+        {"detail": error.detail, "code": error.code},
+        status=error.status_code,
+    )
+
+
+class DeliveryRegionListAPIView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        regions = EasywayRegion.objects.filter(is_active=True).order_by(
+            "name",
+            "external_id",
+        )
+        return Response(
+            {
+                "results": [
+                    {
+                        "id": region.external_id,
+                        "name": region.name,
+                        "is_internal_delivery": region.is_internal_delivery,
+                    }
+                    for region in regions
+                ]
+            }
+        )
+
+
+class DeliveryCityListAPIView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, region_id):
+        region = get_object_or_404(
+            EasywayRegion,
+            external_id=region_id,
+            is_active=True,
+        )
+        cities = EasywayCity.objects.filter(
+            region=region,
+            is_active=True,
+        ).order_by("name", "external_id")
+        return Response(
+            {
+                "region": {
+                    "id": region.external_id,
+                    "name": region.name,
+                    "is_internal_delivery": region.is_internal_delivery,
+                },
+                "results": [
+                    {
+                        "id": city.external_id,
+                        "name": city.name,
+                    }
+                    for city in cities
+                ],
+            }
+        )
 
 
 def _card_payment_error_response(request, error):
@@ -434,6 +502,9 @@ class CartCardPaymentStartAPIView(CartResponseMixin, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
             return self.apply_cart_cookie(response, resolved_cart)
+        except DeliveryQuoteError as error:
+            response = _delivery_quote_error_response(error)
+            return self.apply_cart_cookie(response, resolved_cart)
         except CardPaymentError as error:
             response = _card_payment_error_response(request, error)
             return self.apply_cart_cookie(response, resolved_cart)
@@ -468,6 +539,48 @@ class CardPaymentAvailabilityAPIView(APIView):
                 "redirect_checkout": True,
             }
         )
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class DeliveryQuoteAPIView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = "checkout"
+
+    def post(self, request):
+        serializer = DeliveryQuoteRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        source = serializer.validated_data["source"]
+
+        if source == OrderCheckoutSource.CART:
+            resolved_cart = resolve_cart(request)
+            items = list(
+                resolved_cart.cart.items.select_related(
+                    "product",
+                    "product__category",
+                ).order_by("id")
+            )
+        else:
+            try:
+                resolved_session = resolve_buy_now_session(request)
+            except BuyNowSessionStateError as error:
+                return Response(error.to_response_data(), status=error.status_code)
+            items = [resolved_session.session]
+
+        try:
+            quote = build_delivery_quote(
+                source=source,
+                items=items,
+                region=serializer.validated_data["region"],
+                city=serializer.validated_data["city"],
+            )
+        except DeliveryQuoteError as error:
+            return Response(
+                {"detail": error.detail, "code": error.code},
+                status=error.status_code,
+            )
+
+        response = Response(quote, status=status.HTTP_200_OK)
         response["Cache-Control"] = "no-store"
         return response
 
@@ -533,6 +646,9 @@ class BuyNowCardPaymentStartAPIView(BuyNowSessionResponseMixin, APIView):
                 resolved_session,
                 error,
             )
+        except DeliveryQuoteError as error:
+            response = _delivery_quote_error_response(error)
+            return self.apply_buy_now_cookie(response, resolved_session)
         except CardPaymentError as error:
             response = _card_payment_error_response(request, error)
             return self.apply_buy_now_cookie(response, resolved_session)
@@ -665,6 +781,8 @@ class OrderCheckoutAPIView(APIView):
                 availability_error.to_response_data(),
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except DeliveryQuoteError as error:
+            return _delivery_quote_error_response(error)
 
         if result.created:
             Order.objects.filter(pk=result.order.pk).update(
@@ -793,6 +911,11 @@ class BuyNowCheckoutAPIView(BuyNowSessionResponseMixin, APIView):
             return self.build_buy_now_state_error_response(error)
         except BuyNowConflictError as error:
             return self.build_buy_now_conflict_response(resolved_session, error)
+        except DeliveryQuoteError as error:
+            return self.apply_buy_now_cookie(
+                _delivery_quote_error_response(error),
+                resolved_session,
+            )
 
         if result.created:
             Order.objects.filter(pk=result.order.pk).update(
