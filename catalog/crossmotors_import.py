@@ -11,7 +11,7 @@ import hashlib
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 from urllib.parse import urljoin
@@ -20,6 +20,7 @@ import requests
 from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.utils.text import slugify
 
 from catalog.models import (
@@ -31,9 +32,15 @@ from catalog.models import (
     ProductSide,
     ProductSpec,
     ProductStatus,
+    ProductSupplierSource,
     SupplierProductBlock,
     VehicleMake,
     VehicleModel,
+)
+from commerce.supplier_stock import (
+    calculate_effective_supplier_stock,
+    expire_supplier_stock_holds,
+    get_active_supplier_hold_quantities,
 )
 
 
@@ -479,6 +486,7 @@ def import_crossmotors_report(report, *, archive_missing=False):
         raise ValueError("Cannot import Cross Motors data with validation errors.")
 
     counters = _ImportCounters()
+    supplier_synced_at = _normalize_supplier_sync_time(report.synced_at)
     category_sort_orders = {}
     categories_by_name = {}
     brand_sort_orders = {}
@@ -523,7 +531,12 @@ def import_crossmotors_report(report, *, archive_missing=False):
             )
             _increment_counter(counters, "brands", brand_created)
 
-        product, product_created = _upsert_product(values, category=category, brand=brand)
+        product, product_created = _upsert_product(
+            values,
+            category=category,
+            brand=brand,
+            synced_at=supplier_synced_at,
+        )
         if product_created:
             counters.created_products += 1
         else:
@@ -554,6 +567,13 @@ def import_crossmotors_report(report, *, archive_missing=False):
             .update(status=ProductStatus.ARCHIVED)
         )
 
+    imported_product_ids = Product.objects.filter(
+        sku__in=imported_skus,
+    ).values_list("pk", flat=True)
+    expire_supplier_stock_holds(
+        now=supplier_synced_at,
+        product_ids=imported_product_ids,
+    )
     return counters.to_result()
 
 
@@ -563,6 +583,7 @@ def import_crossmotors_report_bulk(report, *, archive_missing=False, batch_size=
         raise ValueError("Cannot import Cross Motors data with validation errors.")
 
     counters = _ImportCounters()
+    supplier_synced_at = _normalize_supplier_sync_time(report.synced_at)
     valid_rows = [row for row in report.rows if row.is_valid]
     original_skus = [
         row.values.get("sku")
@@ -604,6 +625,7 @@ def import_crossmotors_report_bulk(report, *, archive_missing=False, batch_size=
         categories=categories,
         brands=brands,
         now=now,
+        synced_at=supplier_synced_at,
         batch_size=batch_size,
     )
     counters.created_products = product_result["created"]
@@ -638,7 +660,26 @@ def import_crossmotors_report_bulk(report, *, archive_missing=False, batch_size=
             .update(status=ProductStatus.ARCHIVED, updated_at=now)
         )
 
+    expire_supplier_stock_holds(
+        now=supplier_synced_at,
+        product_ids=[
+            product.pk
+            for product in product_result["products"].values()
+        ],
+    )
     return counters.to_result()
+
+
+def _normalize_supplier_sync_time(value):
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        parsed = parse_datetime(str(value or "").strip())
+    if parsed is None:
+        return timezone.now()
+    if timezone.is_naive(parsed):
+        return timezone.make_aware(parsed, timezone.get_current_timezone())
+    return parsed
 
 
 def _bulk_get_or_create_categories(rows, counters, now, batch_size, *, existing_skus):
@@ -839,12 +880,26 @@ def _bulk_get_or_create_vehicle_models(rows, makes, counters, now, batch_size):
     return refreshed
 
 
-def _bulk_upsert_products(rows, *, categories, brands, now, batch_size):
+def _bulk_upsert_products(
+    rows,
+    *,
+    categories,
+    brands,
+    now,
+    synced_at,
+    batch_size,
+):
     skus = [row.values["sku"] for row in rows]
     existing = {
         product.sku: product
-        for product in Product.objects.filter(sku__in=skus).select_related("category")
+        for product in Product.objects.select_for_update()
+        .filter(sku__in=skus)
+        .select_related("category")
     }
+    active_hold_quantities = get_active_supplier_hold_quantities(
+        product_ids=[product.pk for product in existing.values()],
+        now=synced_at,
+    )
     created = []
     updated = []
     existing_slugs = set(Product.objects.values_list("slug", flat=True))
@@ -880,7 +935,13 @@ def _bulk_upsert_products(rows, *, categories, brands, now, batch_size):
         product.old_price = None
         product.placement = values["placement"]
         product.side = values["side"]
-        product.stock_qty = values["stock_qty"]
+        product.supplier_source = ProductSupplierSource.CROSS_MOTORS
+        product.supplier_stock_qty = values["stock_qty"]
+        product.supplier_stock_synced_at = synced_at
+        product.stock_qty = calculate_effective_supplier_stock(
+            supplier_stock_qty=values["stock_qty"],
+            active_hold_quantity=active_hold_quantities.get(product.pk, 0),
+        )
         product.status = ProductStatus.PUBLISHED
         product.seo_title = f"{values['clean_name'] or values['name']} | FlexDrive"
         if not product.preserve_manual_fitment_content:
@@ -910,6 +971,9 @@ def _bulk_upsert_products(rows, *, categories, brands, now, batch_size):
                 "placement",
                 "side",
                 "stock_qty",
+                "supplier_source",
+                "supplier_stock_qty",
+                "supplier_stock_synced_at",
                 "status",
                 "seo_title",
                 "seo_description",
@@ -1374,8 +1438,12 @@ def _archive_product_by_sku(sku):
     return True
 
 
-def _upsert_product(values, *, category, brand):
-    product = Product.objects.filter(sku=values["sku"]).first()
+def _upsert_product(values, *, category, brand, synced_at):
+    product = (
+        Product.objects.select_for_update()
+        .filter(sku=values["sku"])
+        .first()
+    )
     created = product is None
     if product is None:
         product = Product(
@@ -1399,7 +1467,19 @@ def _upsert_product(values, *, category, brand):
     product.old_price = None
     product.placement = values["placement"]
     product.side = values["side"]
-    product.stock_qty = values["stock_qty"]
+    active_hold_quantity = 0
+    if product.pk:
+        active_hold_quantity = get_active_supplier_hold_quantities(
+            product_ids=[product.pk],
+            now=synced_at,
+        ).get(product.pk, 0)
+    product.supplier_source = ProductSupplierSource.CROSS_MOTORS
+    product.supplier_stock_qty = values["stock_qty"]
+    product.supplier_stock_synced_at = synced_at
+    product.stock_qty = calculate_effective_supplier_stock(
+        supplier_stock_qty=values["stock_qty"],
+        active_hold_quantity=active_hold_quantity,
+    )
     product.status = ProductStatus.PUBLISHED
     product.seo_title = f"{values['clean_name'] or values['name']} | FlexDrive"
     if not product.preserve_manual_fitment_content:

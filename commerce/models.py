@@ -57,6 +57,13 @@ class StockReservationStatus(models.TextChoices):
     RELEASED = "released", "Released"
 
 
+class SupplierStockHoldStatus(models.TextChoices):
+    ACTIVE = "active", "მოქმედი"
+    EXPIRED = "expired", "ვადაგასული"
+    MANUALLY_RELEASED = "manually_released", "ხელით მოხსნილი"
+    ORDER_CANCELLED = "order_cancelled", "შეკვეთა გაუქმდა"
+
+
 class PaymentProvider(models.TextChoices):
     MOCK = "mock", "Mock"
     MANUAL = "manual", "Manual"
@@ -612,6 +619,85 @@ class OrderItem(TimeStampedModel):
                 "Hard deletion is disabled for order items."
             )
         return super().delete(*args, **kwargs)
+
+
+class SupplierStockHold(TimeStampedModel):
+    order_item = models.OneToOneField(
+        OrderItem,
+        verbose_name="შეკვეთის პროდუქტი",
+        related_name="supplier_stock_hold",
+        on_delete=models.PROTECT,
+    )
+    product = models.ForeignKey(
+        Product,
+        verbose_name="პროდუქტი",
+        related_name="supplier_stock_holds",
+        on_delete=models.PROTECT,
+    )
+    quantity = models.PositiveIntegerField(
+        "რაოდენობა",
+        validators=[MinValueValidator(1)],
+    )
+    supplier_stock_at_sale = models.PositiveIntegerField(
+        "Cross Motors-ის ნაშთი გაყიდვისას",
+        null=True,
+        blank=True,
+    )
+    status = models.CharField(
+        "მდგომარეობა",
+        max_length=32,
+        choices=SupplierStockHoldStatus.choices,
+        default=SupplierStockHoldStatus.ACTIVE,
+        db_index=True,
+    )
+    expires_at = models.DateTimeField("მოქმედებს თარიღამდე", db_index=True)
+    released_at = models.DateTimeField(
+        "მოხსნის დრო",
+        null=True,
+        blank=True,
+    )
+    released_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name="ვინ მოხსნა",
+        related_name="released_supplier_stock_holds",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    release_note = models.CharField(
+        "მოხსნის მიზეზი",
+        max_length=500,
+        blank=True,
+        default="",
+    )
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+        verbose_name = "Cross Motors-ის დროებითი ჩამოკლება"
+        verbose_name_plural = "Cross Motors-ის დროებითი ჩამოკლებები"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(quantity__gte=1),
+                name="commerce_supplier_hold_quantity_positive",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["status", "expires_at"]),
+            models.Index(fields=["product", "status"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.order_item.order.order_number}: "
+            f"{self.product.sku} x {self.quantity}"
+        )
+
+    @property
+    def is_active(self):
+        return (
+            self.status == SupplierStockHoldStatus.ACTIVE
+            and self.expires_at > timezone.now()
+        )
 
 
 class StockReservation(TimeStampedModel):

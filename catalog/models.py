@@ -385,6 +385,11 @@ class ProductSide(models.TextChoices):
     CENTER = "center", "Center"
 
 
+class ProductSupplierSource(models.TextChoices):
+    MANUAL = "manual", "ხელით დამატებული"
+    CROSS_MOTORS = "cross_motors", "Cross Motors"
+
+
 class Product(TimeStampedModel):
     category = models.ForeignKey(
         Category,
@@ -483,6 +488,23 @@ class Product(TimeStampedModel):
         blank=True,
     )
     stock_qty = models.PositiveIntegerField(default=0)
+    supplier_source = models.CharField(
+        "მომწოდებელი",
+        max_length=32,
+        choices=ProductSupplierSource.choices,
+        default=ProductSupplierSource.MANUAL,
+        db_index=True,
+    )
+    supplier_stock_qty = models.PositiveIntegerField(
+        "Cross Motors-ის ბოლო ნაშთი",
+        null=True,
+        blank=True,
+    )
+    supplier_stock_synced_at = models.DateTimeField(
+        "ბოლო სინქრონიზაცია",
+        null=True,
+        blank=True,
+    )
     is_new = models.BooleanField(default=False, db_index=True)
     is_featured = models.BooleanField(default=False, db_index=True)
     is_universal_fitment = models.BooleanField(default=False, db_index=True)
@@ -592,6 +614,10 @@ class Product(TimeStampedModel):
     @property
     def customer_available_stock_qty(self):
         return max(self.stock_qty - CUSTOMER_STOCK_RESERVE_QTY, 0)
+
+    @property
+    def is_cross_motors_product(self):
+        return self.supplier_source == ProductSupplierSource.CROSS_MOTORS
 
     @property
     def in_stock(self):

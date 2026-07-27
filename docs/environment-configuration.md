@@ -87,6 +87,25 @@ frontend, and controlled real-environment verification are complete. A browser
 redirect is never proof that payment succeeded; only the signed callback or an
 authenticated BOG payment-details response may finalize payment.
 
+## Cross Motors delayed stock protection
+
+Cross Motors stock refreshes preserve a temporary local deduction for recently
+completed FlexDrive sales. The default protection window is 24 hours:
+
+```env
+CROSSMOTORS_SALE_HOLD_SECONDS=86400
+```
+
+Keep the supplier cron running every 15 minutes. A successful import records the
+raw supplier quantity separately and calculates effective stock after active
+local deductions. Expired deductions are retired only during a successful
+supplier import, so an unavailable supplier API cannot increase customer-facing
+stock from stale data.
+
+The protection window can be tuned after measuring the real Cross Motors update
+delay. Do not reduce it below the observed worst-case delay without retaining an
+appropriate safety margin.
+
 ## EasyWay delivery quotes
 
 Regional checkout pricing is returned by EasyWay's `/price` endpoint. The

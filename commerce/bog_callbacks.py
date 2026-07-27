@@ -50,6 +50,7 @@ from .models import (
     StockReservationStatus,
 )
 from .services import build_order_number, transition_order_payment_status
+from .supplier_stock import create_supplier_stock_holds_for_order
 
 
 BOG_CALLBACK_EVENT = "order_payment"
@@ -734,6 +735,7 @@ def _create_order_from_paid_snapshot(payment):
         product.stock_qty -= expected_quantities[product.pk]
         product.updated_at = now
     Product.objects.bulk_update(products, ["stock_qty", "updated_at"])
+    create_supplier_stock_holds_for_order(order=order, now=now)
 
     reservation.status = StockReservationStatus.COMPLETED
     reservation.completed_order = order

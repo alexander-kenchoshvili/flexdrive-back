@@ -14,7 +14,12 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import APIException, ValidationError
 
-from catalog.models import Product, ProductImage, ProductStatus
+from catalog.models import (
+    Product,
+    ProductImage,
+    ProductStatus,
+    ProductSupplierSource,
+)
 
 from .images import build_product_primary_image_snapshot
 from .delivery_quotes import delivery_order_fields, resolve_checkout_delivery
@@ -41,6 +46,10 @@ from .models import (
 )
 from .payment_providers import get_provider_method_for_action
 from .meta_conversions import send_meta_purchase_event
+from .supplier_stock import (
+    create_supplier_stock_holds_for_order,
+    release_order_supplier_stock_holds,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1135,6 +1144,7 @@ def create_order_from_cart(
         locked_products.append(product)
 
     Product.objects.bulk_update(locked_products, ["stock_qty"])
+    create_supplier_stock_holds_for_order(order=order)
     locked_cart.items.all().delete()
     _finalize_checkout_reservations(
         reservation_ids=checkout_reservation_ids,
@@ -1271,6 +1281,7 @@ def create_order_from_buy_now_session(
 
     locked_product.stock_qty -= locked_session.quantity
     locked_product.save(update_fields=["stock_qty", "updated_at"])
+    create_supplier_stock_holds_for_order(order=order)
     locked_session.delete()
     _finalize_checkout_reservations(
         reservation_ids=checkout_reservation_ids,
@@ -2040,16 +2051,31 @@ def _restore_order_stock_and_cancel(locked_order):
             "Cannot restore stock because one or more order items are no longer linked to a product."
         )
 
-    if stock_restoration_rows:
+    supplier_product_ids = {
+        product.pk
+        for product in Product.objects.filter(
+            pk__in=product_ids,
+            supplier_source=ProductSupplierSource.CROSS_MOTORS,
+        )
+    }
+    release_order_supplier_stock_holds(order=locked_order)
+
+    manual_stock_rows = [
+        row
+        for row in stock_restoration_rows
+        if row["product_id"] not in supplier_product_ids
+    ]
+    if manual_stock_rows:
+        manual_product_ids = [row["product_id"] for row in manual_stock_rows]
         quantity_increment = Case(
             *[
                 When(pk=row["product_id"], then=row["quantity"])
-                for row in stock_restoration_rows
+                for row in manual_stock_rows
             ],
             default=0,
             output_field=IntegerField(),
         )
-        Product.objects.filter(pk__in=product_ids).update(
+        Product.objects.filter(pk__in=manual_product_ids).update(
             stock_qty=F("stock_qty") + quantity_increment,
             updated_at=timezone.now(),
         )

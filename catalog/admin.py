@@ -3,21 +3,25 @@ from django.contrib import admin
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F, IntegerField, Q, Sum, Value
+from django.db.models.functions import Coalesce
 from django.forms.models import BaseInlineFormSet
 from django.http import Http404, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
+from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.http import urlencode
 from PIL import Image, ImageOps
 from decimal import Decimal
+from datetime import timedelta
 
 from common.cache_utils import CACHE_GROUP_CATALOG_CATEGORIES, invalidate_groups
 
 from .background_removal import remove_background_to_white
 
 from .models import (
+    CUSTOMER_STOCK_RESERVE_QTY,
     Brand,
     Category,
     Product,
@@ -27,11 +31,13 @@ from .models import (
     ProductSide,
     ProductSpec,
     ProductStatus,
+    ProductSupplierSource,
     SupplierProductBlock,
     VehicleEngine,
     VehicleMake,
     VehicleModel,
 )
+from commerce.models import SupplierStockHold, SupplierStockHoldStatus
 
 CROSSMOTORS_SOURCE_NAME = "Cross Motors"
 CROSSMOTORS_SKU_PREFIX = "CM-"
@@ -130,6 +136,26 @@ class ProductImageInline(admin.TabularInline):
         if obj.has_crop():
             label = "Edit crop / reset"
         return format_html('<a class="button" href="{}">{}</a>', url, label)
+
+
+class SupplierStockHoldInline(admin.TabularInline):
+    model = SupplierStockHold
+    fk_name = "product"
+    extra = 0
+    can_delete = False
+    show_change_link = True
+    fields = (
+        "order_item",
+        "quantity",
+        "status",
+        "expires_at",
+        "released_at",
+        "released_by",
+    )
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None):
+        return False
 
 
 class ProductSpecInline(admin.TabularInline):
@@ -249,9 +275,31 @@ class InStockListFilter(admin.SimpleListFilter):
     def queryset(self, request, queryset):
         value = self.value()
         if value == "yes":
-            return queryset.filter(stock_qty__gt=0)
+            return queryset.filter(stock_qty__gt=CUSTOMER_STOCK_RESERVE_QTY)
         if value == "no":
-            return queryset.filter(stock_qty=0)
+            return queryset.filter(stock_qty__lte=CUSTOMER_STOCK_RESERVE_QTY)
+        return queryset
+
+
+class ActiveSupplierHoldListFilter(admin.SimpleListFilter):
+    title = "დროებითი დაცვა"
+    parameter_name = "active_supplier_hold"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("yes", "მოქმედებს"),
+            ("no", "არ მოქმედებს"),
+        )
+
+    def queryset(self, request, queryset):
+        active_filter = Q(
+            supplier_stock_holds__status=SupplierStockHoldStatus.ACTIVE,
+            supplier_stock_holds__expires_at__gt=timezone.now(),
+        )
+        if self.value() == "yes":
+            return queryset.filter(active_filter).distinct()
+        if self.value() == "no":
+            return queryset.exclude(active_filter).distinct()
         return queryset
 
 
@@ -439,7 +487,11 @@ class ProductAdmin(admin.ModelAdmin):
         "is_new",
         "is_featured",
         "is_universal_fitment",
-        "stock_qty",
+        "supplier_stock_list",
+        "temporary_hold_list",
+        "site_sellable_stock_list",
+        "supplier_stock_health_list",
+        "supplier_stock_synced_at",
         "has_shipping_measurements",
         "in_stock_flag",
         "updated_at",
@@ -453,6 +505,8 @@ class ProductAdmin(admin.ModelAdmin):
         "is_new",
         "is_featured",
         "is_universal_fitment",
+        "supplier_source",
+        ActiveSupplierHoldListFilter,
         OnSaleListFilter,
         InStockListFilter,
     )
@@ -469,13 +523,23 @@ class ProductAdmin(admin.ModelAdmin):
     prepopulated_fields = {"slug": ("name",)}
     list_select_related = ("category", "brand")
     autocomplete_fields = ("brand",)
-    inlines = (ProductImageInline, ProductSpecInline, ProductFitmentInline)
+    inlines = (
+        ProductImageInline,
+        ProductSpecInline,
+        ProductFitmentInline,
+        SupplierStockHoldInline,
+    )
     readonly_fields = (
         "category_markup_readonly",
         "effective_markup_percent_readonly",
         "calculated_customer_price_readonly",
         "on_sale_readonly",
         "in_stock_readonly",
+        "supplier_source",
+        "supplier_stock_qty",
+        "supplier_stock_synced_at",
+        "temporary_hold_readonly",
+        "site_sellable_stock_readonly",
         "effective_shipping_measurements_readonly",
         "created_at",
         "updated_at",
@@ -589,7 +653,20 @@ class ProductAdmin(admin.ModelAdmin):
             },
         ),
         ("Flags", {"fields": ("is_new", "is_featured")}),
-        ("Inventory", {"fields": ("stock_qty", "in_stock_readonly")}),
+        (
+            "Inventory",
+            {
+                "fields": (
+                    "supplier_source",
+                    "supplier_stock_qty",
+                    "temporary_hold_readonly",
+                    "stock_qty",
+                    "site_sellable_stock_readonly",
+                    "supplier_stock_synced_at",
+                    "in_stock_readonly",
+                )
+            },
+        ),
         ("Timestamps", {"fields": ("created_at", "updated_at"), "classes": ("collapse",)}),
     )
 
@@ -616,6 +693,88 @@ class ProductAdmin(admin.ModelAdmin):
         if not obj:
             return False
         return obj.in_stock
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).annotate(
+            _active_supplier_hold_qty=Coalesce(
+                Sum(
+                    "supplier_stock_holds__quantity",
+                    filter=Q(
+                        supplier_stock_holds__status=SupplierStockHoldStatus.ACTIVE,
+                        supplier_stock_holds__expires_at__gt=timezone.now(),
+                    ),
+                ),
+                Value(0),
+                output_field=IntegerField(),
+            )
+        )
+
+    @admin.display(description="Cross Motors-ის ნაშთი", ordering="supplier_stock_qty")
+    def supplier_stock_list(self, obj):
+        if obj.supplier_source != ProductSupplierSource.CROSS_MOTORS:
+            return "—"
+        return obj.supplier_stock_qty if obj.supplier_stock_qty is not None else "—"
+
+    @admin.display(description="დროებით დაკავებული")
+    def temporary_hold_list(self, obj):
+        if obj.supplier_source != ProductSupplierSource.CROSS_MOTORS:
+            return "—"
+        return getattr(obj, "_active_supplier_hold_qty", 0)
+
+    @admin.display(description="საიტზე გასაყიდი", ordering="stock_qty")
+    def site_sellable_stock_list(self, obj):
+        return obj.customer_available_stock_qty
+
+    @admin.display(description="მდგომარეობა")
+    def supplier_stock_health_list(self, obj):
+        if obj.supplier_source != ProductSupplierSource.CROSS_MOTORS:
+            return "—"
+        active_hold_qty = getattr(obj, "_active_supplier_hold_qty", 0)
+        if obj.supplier_stock_synced_at is None:
+            return format_html(
+                '<strong style="color:#ba2121">{}</strong>',
+                "სინქრონიზაცია არ არის",
+            )
+        if obj.supplier_stock_synced_at < timezone.now() - timedelta(minutes=30):
+            return format_html(
+                '<strong style="color:#ba2121">{}</strong>',
+                "სინქრონიზაცია დაგვიანებულია",
+            )
+        if (
+            obj.supplier_stock_qty is not None
+            and active_hold_qty > obj.supplier_stock_qty
+        ):
+            return format_html(
+                '<strong style="color:#ba2121">{}</strong>',
+                "ხელით შემოწმებაა საჭირო",
+            )
+        if active_hold_qty:
+            return format_html(
+                '<strong style="color:#b36b00">{}</strong>',
+                "დაცვა მოქმედებს",
+            )
+        return format_html(
+            '<strong style="color:#138a36">{}</strong>',
+            "ნორმალურია",
+        )
+
+    @admin.display(description="დროებით დაკავებული")
+    def temporary_hold_readonly(self, obj):
+        if not obj or obj.supplier_source != ProductSupplierSource.CROSS_MOTORS:
+            return 0
+        return (
+            obj.supplier_stock_holds.filter(
+                status=SupplierStockHoldStatus.ACTIVE,
+                expires_at__gt=timezone.now(),
+            ).aggregate(total=Sum("quantity"))["total"]
+            or 0
+        )
+
+    @admin.display(description="საიტზე გასაყიდი")
+    def site_sellable_stock_readonly(self, obj):
+        if not obj:
+            return 0
+        return obj.customer_available_stock_qty
 
     @admin.display(description="Category markup")
     def category_markup_readonly(self, obj):
@@ -653,6 +812,12 @@ class ProductAdmin(admin.ModelAdmin):
         readonly_fields = list(super().get_readonly_fields(request, obj))
         if obj and obj.supplier_price is not None and "price" not in readonly_fields:
             readonly_fields.append("price")
+        if (
+            obj
+            and obj.supplier_source == ProductSupplierSource.CROSS_MOTORS
+            and "stock_qty" not in readonly_fields
+        ):
+            readonly_fields.append("stock_qty")
         return readonly_fields
 
     def save_related(self, request, form, formsets, change):

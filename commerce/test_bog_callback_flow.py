@@ -14,7 +14,12 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITransactionTestCase
 
-from catalog.models import Category, Product, ProductStatus
+from catalog.models import (
+    Category,
+    Product,
+    ProductStatus,
+    ProductSupplierSource,
+)
 
 from .bog_callbacks import (
     reconcile_bog_payment,
@@ -27,18 +32,23 @@ from .bog_payments import (
     BogTransportError,
 )
 from .bog_refunds import request_bog_full_refund
+from .delivery_quotes import build_delivery_quote
 from .models import (
     BuyNowSession,
     Cart,
     CartItem,
     CheckoutAttempt,
+    EasywayCity,
+    EasywayRegion,
     Order,
+    OrderCheckoutSource,
     OrderPaymentMethod,
     OrderPaymentStatus,
     PaymentTransaction,
     PaymentTransactionStatus,
     StockReservation,
     StockReservationStatus,
+    SupplierStockHold,
 )
 CALLBACK_TEST_SETTINGS = {
     "BOG_PAYMENTS_ENABLED": True,
@@ -85,6 +95,12 @@ class BogCallbackFlowTests(APITransactionTestCase):
         )
         self.settings_override.enable()
         self.addCleanup(self.settings_override.disable)
+        self.stock_reserve_patcher = patch(
+            "catalog.models.CUSTOMER_STOCK_RESERVE_QTY",
+            0,
+        )
+        self.stock_reserve_patcher.start()
+        self.addCleanup(self.stock_reserve_patcher.stop)
 
         self.user = get_user_model().objects.create_user(
             username="callback-buyer@example.com",
@@ -97,6 +113,16 @@ class BogCallbackFlowTests(APITransactionTestCase):
             slug="callback-brakes",
             sort_order=1,
         )
+        self.delivery_region = EasywayRegion.objects.create(
+            external_id=1,
+            name="თბილისი",
+            is_internal_delivery=True,
+        )
+        self.delivery_city = EasywayCity.objects.create(
+            region=self.delivery_region,
+            external_id=10,
+            name="თბილისი",
+        )
         self.product = Product.objects.create(
             category=self.category,
             name="Callback brake disc",
@@ -106,6 +132,10 @@ class BogCallbackFlowTests(APITransactionTestCase):
             description="Brake disc",
             price=Decimal("90.00"),
             stock_qty=3,
+            shipping_weight_kg=Decimal("1.000"),
+            shipping_length_cm=Decimal("20.00"),
+            shipping_width_cm=Decimal("15.00"),
+            shipping_height_cm=Decimal("10.00"),
             status=ProductStatus.PUBLISHED,
         )
         self.client.force_authenticate(user=self.user)
@@ -124,13 +154,33 @@ class BogCallbackFlowTests(APITransactionTestCase):
         self.provider_patcher.start()
         self.addCleanup(self.provider_patcher.stop)
 
-    def _checkout_payload(self):
+    def _checkout_payload(
+        self,
+        *,
+        source=OrderCheckoutSource.CART,
+        items=None,
+    ):
+        if items is None:
+            items = (
+                Cart.objects.get(user=self.user)
+                .items.select_related("product")
+                .order_by("id")
+            )
+        quote = build_delivery_quote(
+            source=source,
+            items=items,
+            region=self.delivery_region,
+            city=self.delivery_city,
+        )
         return {
             "first_name": "Nino",
             "last_name": "Beridze",
             "email": "nino@example.com",
             "phone": "555123456",
             "city": "Tbilisi",
+            "delivery_region_id": self.delivery_region.external_id,
+            "delivery_city_id": self.delivery_city.external_id,
+            "delivery_quote_token": quote["quote_token"],
             "address_line": "Saburtalo 1",
             "note": "",
             "terms_accepted": True,
@@ -189,7 +239,10 @@ class BogCallbackFlowTests(APITransactionTestCase):
         )
         response = self.client.post(
             reverse("commerce-buy-now-card-payment-start"),
-            self._checkout_payload(),
+            self._checkout_payload(
+                source=OrderCheckoutSource.BUY_NOW,
+                items=[session],
+            ),
             format="json",
             HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
         )
@@ -334,6 +387,36 @@ class BogCallbackFlowTests(APITransactionTestCase):
         self.assertEqual(Order.objects.count(), 1)
         self.assertEqual(Order.objects.get().items.count(), 1)
         self.assertEqual(self.product.stock_qty, 2)
+
+    def test_completed_callback_creates_one_supplier_hold_for_cross_motors_item(self):
+        self.product.stock_qty = 10
+        self.product.supplier_source = ProductSupplierSource.CROSS_MOTORS
+        self.product.supplier_stock_qty = 10
+        self.product.supplier_stock_synced_at = timezone.now()
+        self.product.save(
+            update_fields=[
+                "stock_qty",
+                "supplier_source",
+                "supplier_stock_qty",
+                "supplier_stock_synced_at",
+                "updated_at",
+            ]
+        )
+        _, _, payment = self._start_cart_payment(quantity=2)
+        payload = self._callback_payload(payment)
+
+        first = self._signed_callback_request(payload)
+        second = self._signed_callback_request(payload)
+
+        self.product.refresh_from_db()
+        payment.refresh_from_db()
+        hold = SupplierStockHold.objects.get()
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.data["result"], "already_completed")
+        self.assertEqual(self.product.stock_qty, 8)
+        self.assertEqual(hold.quantity, 2)
+        self.assertEqual(hold.order_item.order, payment.order)
+        self.assertEqual(SupplierStockHold.objects.count(), 1)
 
     def test_callback_without_signature_changes_nothing(self):
         _, _, payment = self._start_cart_payment()

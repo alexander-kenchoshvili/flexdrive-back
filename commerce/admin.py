@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import Http404, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
+from django.utils.html import format_html_join
 
 from .bog_callbacks import BogCallbackError, reconcile_bog_payment
 from .bog_payments import BogPaymentError
@@ -35,6 +36,8 @@ from .models import (
     PaymentTransactionStatus,
     StockReservation,
     StockReservationItem,
+    SupplierStockHold,
+    SupplierStockHoldStatus,
 )
 from .services import (
     can_cancel_order,
@@ -42,6 +45,7 @@ from .services import (
     cancel_order_and_restore_stock,
     transition_order_status,
 )
+from .supplier_stock import release_supplier_stock_hold
 
 
 def _bog_reconciliation_message_level(result):
@@ -269,6 +273,7 @@ class OrderAdmin(admin.ModelAdmin):
         "terms_ip_address",
         "terms_user_agent",
         "stock_restored_at",
+        "supplier_stock_holds_readonly",
         "created_at",
         "updated_at",
     )
@@ -349,6 +354,12 @@ class OrderAdmin(admin.ModelAdmin):
             },
         ),
         (
+            "Cross Motors-ის მარაგის დაცვა",
+            {
+                "fields": ("supplier_stock_holds_readonly",),
+            },
+        ),
+        (
             "Timestamps",
             {
                 "fields": ("stock_restored_at", "created_at", "updated_at"),
@@ -360,6 +371,35 @@ class OrderAdmin(admin.ModelAdmin):
     @admin.display(description="Customer")
     def customer_name(self, obj):
         return f"{obj.first_name} {obj.last_name}".strip()
+
+    @admin.display(description="დროებითი ჩამოკლებები")
+    def supplier_stock_holds_readonly(self, obj):
+        if not obj:
+            return "—"
+        holds = list(
+            SupplierStockHold.objects.filter(order_item__order=obj)
+            .select_related("product")
+            .order_by("product__sku", "id")
+        )
+        if not holds:
+            return "არ არის"
+        return format_html_join(
+            "",
+            '<div><a href="{}">{} — {} ცალი</a> ({}, {}-მდე)</div>',
+            (
+                (
+                    reverse(
+                        "admin:commerce_supplierstockhold_change",
+                        args=[hold.pk],
+                    ),
+                    hold.product.sku,
+                    hold.quantity,
+                    hold.get_status_display(),
+                    hold.expires_at,
+                )
+                for hold in holds
+            ),
+        )
 
     def has_delete_permission(self, request, obj=None):
         return False
@@ -749,6 +789,129 @@ class StockReservationAdmin(admin.ModelAdmin):
     @admin.display(description="Owner")
     def owner_display(self, obj):
         return obj.user or obj.guest_token
+
+
+@admin.register(SupplierStockHold)
+class SupplierStockHoldAdmin(admin.ModelAdmin):
+    change_form_template = "admin/commerce/supplierstockhold/change_form.html"
+    list_display = (
+        "id",
+        "product",
+        "order_number",
+        "quantity",
+        "supplier_stock_at_sale",
+        "status",
+        "expires_at",
+        "released_at",
+        "released_by",
+        "created_at",
+    )
+    list_filter = ("status", "expires_at", "created_at")
+    search_fields = (
+        "product__name",
+        "product__sku",
+        "order_item__order__order_number",
+    )
+    list_select_related = (
+        "product",
+        "order_item__order",
+        "released_by",
+    )
+    readonly_fields = tuple(
+        field.name for field in SupplierStockHold._meta.fields
+    )
+
+    @admin.display(description="შეკვეთა", ordering="order_item__order__order_number")
+    def order_number(self, obj):
+        return obj.order_item.order.order_number
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        actions.pop("delete_selected", None)
+        return actions
+
+    def get_urls(self):
+        custom_urls = [
+            path(
+                "<path:object_id>/release/",
+                self.admin_site.admin_view(self.release_view),
+                name="commerce_supplierstockhold_release",
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
+    def changeform_view(
+        self,
+        request,
+        object_id=None,
+        form_url="",
+        extra_context=None,
+    ):
+        extra_context = extra_context or {}
+        hold = self.get_object(request, object_id) if object_id else None
+        extra_context["show_manual_release"] = bool(
+            hold and hold.status == SupplierStockHoldStatus.ACTIVE
+        )
+        if hold:
+            extra_context["manual_release_url"] = reverse(
+                "admin:commerce_supplierstockhold_release",
+                args=[hold.pk],
+            )
+        return super().changeform_view(
+            request,
+            object_id,
+            form_url,
+            extra_context,
+        )
+
+    def release_view(self, request, object_id):
+        hold = self.get_object(request, object_id)
+        if hold is None:
+            raise Http404
+        if not self.has_change_permission(request, hold):
+            raise PermissionDenied
+
+        cancel_url = reverse(
+            "admin:commerce_supplierstockhold_change",
+            args=[hold.pk],
+        )
+        if request.method == "POST":
+            hold, released = release_supplier_stock_hold(
+                hold=hold,
+                released_by=request.user,
+                note="ადმინისტრატორმა დროებითი ჩამოკლება ხელით მოხსნა.",
+            )
+            if released:
+                self.message_user(
+                    request,
+                    "დროებითი ჩამოკლება მოიხსნა და მარაგი თავიდან გადაითვალა.",
+                    level=messages.SUCCESS,
+                )
+            else:
+                self.message_user(
+                    request,
+                    "ჩანაწერი უკვე აღარ იყო მოქმედი; მარაგი არ შეცვლილა.",
+                    level=messages.WARNING,
+                )
+            return HttpResponseRedirect(cancel_url)
+
+        return TemplateResponse(
+            request,
+            "admin/commerce/supplierstockhold/release_confirmation.html",
+            {
+                **self.admin_site.each_context(request),
+                "opts": self.model._meta,
+                "original": hold,
+                "title": "დროებითი ჩამოკლების ხელით მოხსნა",
+                "cancel_url": cancel_url,
+            },
+        )
 
 
 @admin.register(PaymentTransaction)

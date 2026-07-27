@@ -247,3 +247,25 @@ This file exists so the project context does not need to be re-explained in ever
   - During the 2026-07-02 sync, the expected verified shape was 353 products with images, 1207 `ProductImage` rows, and 4828 Cloudinary files because each row stores original + desktop + tablet + mobile variants.
   - Cloudinary credentials must be supplied only as temporary command environment variables when needed. Never write them into repo files, `.env`, AGENTS.md, scripts, reports, or logs.
   - Temporary sync scripts/snapshots are acceptable for one-off operations, but remove them before finishing unless the user explicitly asks to keep a reusable tool.
+
+## Cross Motors Delayed Stock Protection - 2026-07-27
+
+- Cross Motors API stock is delayed and does not immediately reflect FlexDrive
+  sales. Supplier-reported stock and FlexDrive effective stock must remain
+  separate.
+- `Product.supplier_stock_qty` stores the last raw Cross Motors quantity;
+  `Product.stock_qty` stores effective stock after active supplier sale holds.
+- Completed Cross Motors order items create a `SupplierStockHold`. The default
+  hold window is controlled by `CROSSMOTORS_SALE_HOLD_SECONDS` and defaults to
+  24 hours.
+- Cross Motors imports must calculate effective stock as raw supplier stock
+  minus active holds. Both normal and bulk importer paths must keep identical
+  behavior.
+- Expired holds are retired only as part of a successful supplier import.
+  Supplier API failure must never increase stock from stale data.
+- Cancelling/refunding a Cross Motors order releases its hold and recalculates
+  from the latest supplier snapshot; never blindly increment supplier stock.
+  Manual/local products retain the original stock restoration behavior.
+- Django admin exposes supplier stock, active holds, customer-sellable stock,
+  last sync time, hold history, and an audited confirmation-protected manual
+  release action.

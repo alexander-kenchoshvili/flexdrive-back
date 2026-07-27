@@ -1,0 +1,39 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+  &rsaquo;
+  <a href="{% url opts|admin_urlname:'changelist' %}">
+    {{ opts.verbose_name_plural|capfirst }}
+  </a>
+  &rsaquo; <a href="{{ cancel_url }}">{{ original }}</a>
+  &rsaquo; ხელით მოხსნა
+</div>
+{% endblock %}
+
+{% block content %}
+<p>
+  ამ მოქმედების შემდეგ დროებითი დაცვა მოიხსნება და პროდუქტის გასაყიდი
+  რაოდენობა Cross Motors-ის ბოლო მიღებული ნაშთიდან თავიდან გადაითვლება.
+</p>
+<p>
+  გამოიყენეთ მხოლოდ მაშინ, როცა დარწმუნებული ხართ, რომ მომწოდებლის ნაშთი
+  უკვე განახლებულია ან ამ შეკვეთის დაცვა აღარ არის საჭირო.
+</p>
+<ul>
+  <li>პროდუქტი: {{ original.product }}</li>
+  <li>რაოდენობა: {{ original.quantity }}</li>
+  <li>შეკვეთა: {{ original.order_item.order.order_number }}</li>
+  <li>Cross Motors-ის ბოლო ნაშთი: {{ original.product.supplier_stock_qty }}</li>
+  <li>ბოლო სინქრონიზაცია: {{ original.product.supplier_stock_synced_at }}</li>
+</ul>
+<form method="post">
+  {% csrf_token %}
+  <div class="submit-row">
+    <input type="submit" value="დიახ, დროებითი ჩამოკლება მოიხსნას">
+    <a class="button cancel-link" href="{{ cancel_url }}">გაუქმება</a>
+  </div>
+</form>
+{% endblock %}
