@@ -1,6 +1,7 @@
 import logging
 import smtplib
 import time
+from email.utils import formataddr
 
 import requests
 from django.conf import settings
@@ -74,11 +75,15 @@ def _send_via_brevo_api(
     reply_to=None,
 ):
     sender_email = str(settings.DEFAULT_FROM_EMAIL).strip()
+    sender_name = str(getattr(settings, "DEFAULT_FROM_NAME", "")).strip()
     if not sender_email:
         raise EmailDeliveryError("The sender email is not configured.")
 
     payload = {
-        "sender": {"email": sender_email},
+        "sender": {
+            "email": sender_email,
+            **({"name": sender_name} if sender_name else {}),
+        },
         "to": [{"email": email} for email in recipients],
         "subject": subject,
         "textContent": text_content,
@@ -127,12 +132,18 @@ def _send_via_django_mail(
     recipients,
     reply_to=None,
 ):
+    sender_email = str(settings.DEFAULT_FROM_EMAIL).strip()
+    sender_name = str(getattr(settings, "DEFAULT_FROM_NAME", "")).strip()
+    from_email = (
+        formataddr((sender_name, sender_email)) if sender_name else sender_email
+    )
+
     def send_once():
         try:
             message = EmailMultiAlternatives(
                 subject=subject,
                 body=text_content,
-                from_email=settings.DEFAULT_FROM_EMAIL,
+                from_email=from_email,
                 to=recipients,
                 reply_to=[reply_to] if reply_to else None,
             )

@@ -1084,6 +1084,14 @@ class AuthEmailDeliveryAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertFalse(user.is_active)
         mock_send_auth_email.assert_called_once()
+        email_kwargs = mock_send_auth_email.call_args.kwargs
+        self.assertEqual(
+            email_kwargs["subject"],
+            "გაააქტიურე FlexDrive ანგარიში",
+        )
+        self.assertIn("რეგისტრაციის დასასრულებლად", email_kwargs["text_content"])
+        self.assertIn("ანგარიშის გააქტიურება", email_kwargs["html_content"])
+        self.assertIn("ეს წერილი უგულებელყავი", email_kwargs["html_content"])
 
     def test_register_returns_503_and_removes_user_when_email_delivery_fails(self):
         with (
@@ -1309,6 +1317,7 @@ class AuthEmailFormattingTests(SimpleTestCase):
         BREVO_API_KEY="test-key",
         BREVO_API_TIMEOUT=10,
         DEFAULT_FROM_EMAIL="noreply@example.com",
+        DEFAULT_FROM_NAME="FlexDrive",
     )
     @patch("accounts.email_delivery.requests.post")
     def test_send_auth_email_includes_html_content_for_brevo(self, mock_post):
@@ -1323,6 +1332,10 @@ class AuthEmailFormattingTests(SimpleTestCase):
 
         payload = mock_post.call_args.kwargs["json"]
 
+        self.assertEqual(
+            payload["sender"],
+            {"email": "noreply@example.com", "name": "FlexDrive"},
+        )
         self.assertEqual(payload["textContent"], "Plain text body")
         self.assertEqual(
             payload["htmlContent"],
@@ -1379,6 +1392,7 @@ class AuthEmailFormattingTests(SimpleTestCase):
         BREVO_API_KEY="",
         EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
         DEFAULT_FROM_EMAIL="noreply@example.com",
+        DEFAULT_FROM_NAME="FlexDrive",
     )
     def test_send_auth_email_attaches_html_alternative_for_django_backend(self):
         send_auth_email(
@@ -1389,6 +1403,7 @@ class AuthEmailFormattingTests(SimpleTestCase):
         )
 
         self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].from_email, "FlexDrive <noreply@example.com>")
         self.assertEqual(mail.outbox[0].body, "Plain text body")
         self.assertEqual(
             mail.outbox[0].alternatives,
@@ -1399,6 +1414,7 @@ class AuthEmailFormattingTests(SimpleTestCase):
         BREVO_API_KEY="test-key",
         BREVO_API_TIMEOUT=10,
         DEFAULT_FROM_EMAIL="noreply@flexdrive.ge",
+        DEFAULT_FROM_NAME="FlexDrive",
     )
     @patch("accounts.email_delivery.requests.post")
     def test_send_transactional_email_includes_reply_to_for_brevo(self, mock_post):
@@ -1413,6 +1429,9 @@ class AuthEmailFormattingTests(SimpleTestCase):
 
         payload = mock_post.call_args.kwargs["json"]
 
-        self.assertEqual(payload["sender"], {"email": "noreply@flexdrive.ge"})
+        self.assertEqual(
+            payload["sender"],
+            {"email": "noreply@flexdrive.ge", "name": "FlexDrive"},
+        )
         self.assertEqual(payload["to"], [{"email": "support@flexdrive.ge"}])
         self.assertEqual(payload["replyTo"], {"email": "customer@example.com"})

@@ -699,6 +699,7 @@ EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', '10'))
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '91c063001@smtp-brevo.com')
 EMAIL_HOST_PASSWORD = os.getenv("BREVO_SMTP_KEY")
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@flexdrive.ge')
+DEFAULT_FROM_NAME = os.getenv('DEFAULT_FROM_NAME', 'FlexDrive').strip()
 CONTACT_NOTIFICATION_EMAIL = os.getenv(
     "CONTACT_NOTIFICATION_EMAIL",
     "support@flexdrive.ge",

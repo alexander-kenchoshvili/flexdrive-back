@@ -28,18 +28,28 @@ User = get_user_model()
 TOKEN_TTL = timedelta(hours=1)
 
 
-def _build_link_email_html(*, intro_text, action_label, url):
+def _build_link_email_html(*, intro_text, action_label, url, security_note):
     return format_html(
         (
             "<p>{}</p>"
             "<p><a href=\"{}\">{}</a></p>"
-            "<p>If the link above does not work, copy and paste this URL into your browser:</p>"
+            "<p>თუ ღილაკი არ მუშაობს, გახსენი ქვემოთ მოცემული ბმული:</p>"
+            "<p>{}</p>"
             "<p>{}</p>"
         ),
         intro_text,
         url,
         action_label,
         url,
+        security_note,
+    )
+
+
+def _build_link_email_text(*, intro_text, url, security_note):
+    return (
+        f"{intro_text}\n\n"
+        f"ბმული: {url}\n\n"
+        f"{security_note}"
     )
 
 
@@ -133,12 +143,29 @@ class UserProfileSerializer(serializers.Serializer):
                 f"{instance.email_change_token}/"
             )
             send_auth_email(
-                subject="Confirm your new email",
-                text_content=f"Confirm your new email: {confirmation_link}",
-                html_content=_build_link_email_html(
-                    intro_text="Confirm your new email address.",
-                    action_label="Confirm email",
+                subject="დაადასტურე ახალი ელფოსტა | FlexDrive",
+                text_content=_build_link_email_text(
+                    intro_text=(
+                        "FlexDrive ანგარიშზე ახალი ელფოსტის დასადასტურებლად "
+                        "გახსენი ქვემოთ მოცემული ბმული."
+                    ),
                     url=confirmation_link,
+                    security_note=(
+                        "თუ ელფოსტის შეცვლა შენ არ მოგითხოვია, "
+                        "ეს წერილი უგულებელყავი."
+                    ),
+                ),
+                html_content=_build_link_email_html(
+                    intro_text=(
+                        "FlexDrive ანგარიშზე ახალი ელფოსტის დასადასტურებლად "
+                        "დააჭირე ღილაკს."
+                    ),
+                    action_label="ელფოსტის დადასტურება",
+                    url=confirmation_link,
+                    security_note=(
+                        "თუ ელფოსტის შეცვლა შენ არ მოგითხოვია, "
+                        "ეს წერილი უგულებელყავი."
+                    ),
                 ),
                 recipients=[requested_email],
             )
@@ -232,15 +259,28 @@ class UserCreateSerializer(serializers.ModelSerializer):
             )
 
         activation_link = f"{settings.FRONTEND_BASE_URL}/activate/{user.activation_token}/"
-        activation_text = f"Click the link to activate your account: {activation_link}"
-        activation_html = _build_link_email_html(
-            intro_text="Click the button below to activate your account.",
-            action_label="Activate your account",
+        activation_text = _build_link_email_text(
+            intro_text=(
+                "FlexDrive-ზე რეგისტრაციის დასასრულებლად დაადასტურე შენი ელფოსტა."
+            ),
             url=activation_link,
+            security_note=(
+                "თუ FlexDrive ანგარიში შენ არ შეგიქმნია, ეს წერილი უგულებელყავი."
+            ),
+        )
+        activation_html = _build_link_email_html(
+            intro_text=(
+                "FlexDrive-ზე რეგისტრაციის დასასრულებლად დაადასტურე შენი ელფოსტა."
+            ),
+            action_label="ანგარიშის გააქტიურება",
+            url=activation_link,
+            security_note=(
+                "თუ FlexDrive ანგარიში შენ არ შეგიქმნია, ეს წერილი უგულებელყავი."
+            ),
         )
         try:
             send_auth_email(
-                subject="Activate your account",
+                subject="გაააქტიურე FlexDrive ანგარიში",
                 text_content=activation_text,
                 html_content=activation_html,
                 recipients=[user.email],
@@ -292,15 +332,28 @@ class ResendActivationSerializer(serializers.Serializer):
         user.save(update_fields=["activation_token", "activation_token_created_at"])
 
         activation_link = f"{settings.FRONTEND_BASE_URL}/activate/{user.activation_token}/"
-        activation_text = f"Click the link to activate your account: {activation_link}"
-        activation_html = _build_link_email_html(
-            intro_text="Click the button below to activate your account.",
-            action_label="Activate your account",
+        activation_text = _build_link_email_text(
+            intro_text=(
+                "FlexDrive-ზე რეგისტრაციის დასასრულებლად დაადასტურე შენი ელფოსტა."
+            ),
             url=activation_link,
+            security_note=(
+                "თუ FlexDrive ანგარიში შენ არ შეგიქმნია, ეს წერილი უგულებელყავი."
+            ),
+        )
+        activation_html = _build_link_email_html(
+            intro_text=(
+                "FlexDrive-ზე რეგისტრაციის დასასრულებლად დაადასტურე შენი ელფოსტა."
+            ),
+            action_label="ანგარიშის გააქტიურება",
+            url=activation_link,
+            security_note=(
+                "თუ FlexDrive ანგარიში შენ არ შეგიქმნია, ეს წერილი უგულებელყავი."
+            ),
         )
         try:
             send_auth_email(
-                subject="Activate your account",
+                subject="გაააქტიურე FlexDrive ანგარიში",
                 text_content=activation_text,
                 html_content=activation_html,
                 recipients=[user.email],
@@ -588,15 +641,26 @@ class ForgotPasswordSerializer(serializers.Serializer):
 
         reset_link = f"{settings.FRONTEND_BASE_URL}/reset-password/{user.reset_password_token}/"
 
-        reset_text = f"Click the link to reset your password: {reset_link}"
-        reset_html = _build_link_email_html(
-            intro_text="Click the button below to reset your password.",
-            action_label="Reset your password",
+        reset_text = _build_link_email_text(
+            intro_text=(
+                "FlexDrive ანგარიშის პაროლის შესაცვლელად გახსენი ქვემოთ მოცემული ბმული."
+            ),
             url=reset_link,
+            security_note=(
+                "თუ პაროლის აღდგენა შენ არ მოგითხოვია, ეს წერილი უგულებელყავი."
+            ),
+        )
+        reset_html = _build_link_email_html(
+            intro_text="FlexDrive ანგარიშის პაროლის შესაცვლელად დააჭირე ღილაკს.",
+            action_label="პაროლის შეცვლა",
+            url=reset_link,
+            security_note=(
+                "თუ პაროლის აღდგენა შენ არ მოგითხოვია, ეს წერილი უგულებელყავი."
+            ),
         )
         try:
             send_auth_email(
-                subject="Reset Your Password",
+                subject="აღადგინე FlexDrive ანგარიშის პაროლი",
                 text_content=reset_text,
                 html_content=reset_html,
                 recipients=[user.email],
