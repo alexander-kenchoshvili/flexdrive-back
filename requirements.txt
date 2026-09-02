@@ -13,6 +13,8 @@ rembg[cpu]>=2.0.76,<2.1
 psycopg[binary]>=3.2,<4
 python-dotenv==1.2.1
 requests==2.32.5
+reportlab==5.0.1
+svglib==2.2.0
 redis>=6,<7
 uvicorn==0.40.0
 whitenoise==6.11.0

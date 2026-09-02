@@ -29,6 +29,7 @@ from .models import (
     EasywayRegion,
     Order,
     OrderItem,
+    OrderReceipt,
     OrderStatus,
     PaymentProvider,
     PaymentTransaction,
@@ -172,6 +173,23 @@ class PaymentTransactionInline(admin.TabularInline):
     can_delete = False
 
 
+class OrderReceiptInline(admin.StackedInline):
+    model = OrderReceipt
+    extra = 0
+    fields = (
+        "public_token",
+        "template_version",
+        "content_hash",
+        "issued_at",
+        "created_at",
+    )
+    readonly_fields = fields
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
 class OrderAdminForm(forms.ModelForm):
     class Meta:
         model = Order
@@ -277,7 +295,7 @@ class OrderAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
-    inlines = (OrderItemInline, PaymentTransactionInline)
+    inlines = (OrderItemInline, PaymentTransactionInline, OrderReceiptInline)
 
     fieldsets = (
         (

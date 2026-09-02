@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.conf import settings
+from django.http import HttpResponse
 from django.db.models import Count, DecimalField, IntegerField, Max, Q, Sum, Value
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
@@ -37,6 +38,15 @@ from .models import (
     Order,
     OrderCheckoutSource,
     OrderStatus,
+)
+from .receipts import (
+    ReceiptAccessError,
+    ReceiptUnavailableError,
+    authorize_receipt_request,
+    build_receipt_access_payload,
+    get_or_create_order_receipt,
+    receipt_filename,
+    render_order_receipt_pdf,
 )
 from .meta_conversions import build_marketing_context, has_marketing_consent
 from .legal import build_terms_acceptance_snapshot
@@ -117,6 +127,14 @@ def _required_checkout_idempotency_key(request):
             }
         )
     return idempotency_key
+
+
+def _order_response_payload(order, request, serializer_class=OrderSummarySerializer):
+    payload = dict(serializer_class(order, context={"request": request}).data)
+    receipt_access = build_receipt_access_payload(order, request)
+    if receipt_access:
+        payload.update(receipt_access)
+    return payload
 
 
 def _delivery_quote_error_response(error):
@@ -679,12 +697,60 @@ class CardPaymentStatusAPIView(APIView):
                 {"detail": "გადახდა ვერ მოიძებნა."},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        return Response(
+        payload = dict(
             CardPaymentSerializer(
                 payment,
                 context={"request": request},
             ).data
         )
+        if payment.order_id:
+            receipt_access = build_receipt_access_payload(payment.order, request)
+            if receipt_access:
+                payload.update(receipt_access)
+        return Response(payload)
+
+
+class OrderReceiptAPIView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, public_token):
+        order = get_object_or_404(
+            Order.objects.select_related("user").prefetch_related(
+                "items",
+                "payment_transactions",
+            ),
+            public_token=public_token,
+        )
+        try:
+            receipt = get_or_create_order_receipt(order)
+            authorize_receipt_request(request, receipt)
+        except ReceiptUnavailableError as error:
+            return Response(
+                {"detail": error.detail, "code": error.code},
+                status=error.status_code,
+            )
+        except ReceiptAccessError as error:
+            return Response(
+                {"detail": error.detail, "code": error.code},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            pdf_bytes = render_order_receipt_pdf(receipt)
+        except ReceiptUnavailableError as error:
+            return Response(
+                {"detail": error.detail, "code": error.code},
+                status=error.status_code,
+            )
+        filename, encoded_filename = receipt_filename(order.order_number)
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'attachment; filename="{filename}"; filename*=UTF-8\'\'{encoded_filename}'
+        )
+        response["Cache-Control"] = "private, no-store, max-age=0"
+        response["Pragma"] = "no-cache"
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
 
 
 class BogPaymentCallbackAPIView(APIView):
@@ -791,11 +857,9 @@ class OrderCheckoutAPIView(APIView):
             )
             result.order.refresh_from_db()
 
+        payload = _order_response_payload(result.order, request)
         response = Response(
-            OrderSummarySerializer(
-                result.order,
-                context={"request": request},
-            ).data,
+            payload,
             status=(
                 status.HTTP_201_CREATED
                 if result.created
@@ -861,10 +925,7 @@ class BuyNowCheckoutAPIView(BuyNowSessionResponseMixin, APIView):
             )
             if existing_order:
                 response = Response(
-                    OrderSummarySerializer(
-                        existing_order,
-                        context={"request": request},
-                    ).data,
+                    _order_response_payload(existing_order, request),
                     status=status.HTTP_200_OK,
                 )
                 response["Idempotency-Replayed"] = "true"
@@ -882,10 +943,7 @@ class BuyNowCheckoutAPIView(BuyNowSessionResponseMixin, APIView):
                 )
                 if existing_order:
                     response = Response(
-                        OrderSummarySerializer(
-                            existing_order,
-                            context={"request": request},
-                        ).data,
+                        _order_response_payload(existing_order, request),
                         status=status.HTTP_200_OK,
                     )
                     response["Idempotency-Replayed"] = "true"
@@ -925,10 +983,7 @@ class BuyNowCheckoutAPIView(BuyNowSessionResponseMixin, APIView):
             result.order.refresh_from_db()
 
         response = Response(
-            OrderSummarySerializer(
-                result.order,
-                context={"request": request},
-            ).data,
+            _order_response_payload(result.order, request),
             status=(
                 status.HTTP_201_CREATED
                 if result.created
@@ -976,7 +1031,11 @@ class OrderLookupAPIView(APIView):
             return Response({"detail": self.not_found_detail}, status=status.HTTP_404_NOT_FOUND)
 
         summary_serializer = OrderLookupSummarySerializer(order, context={"request": request})
-        return Response(summary_serializer.data)
+        payload = dict(summary_serializer.data)
+        receipt_access = build_receipt_access_payload(order, request)
+        if receipt_access:
+            payload.update(receipt_access)
+        return Response(payload)
 
 
 class OwnedOrderListAPIView(generics.ListAPIView):
@@ -1044,5 +1103,4 @@ class OwnedOrderDetailAPIView(APIView):
             user=request.user,
             public_token=public_token,
         )
-        serializer = OrderSummarySerializer(order, context={"request": request})
-        return Response(serializer.data)
+        return Response(_order_response_payload(order, request))

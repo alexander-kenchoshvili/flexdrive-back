@@ -466,6 +466,44 @@ EASYWAY_QUOTE_MAX_AGE_SECONDS = _parse_int_env(
     900,
 )
 
+ORDER_RECEIPTS_ENABLED = _parse_bool_env("ORDER_RECEIPTS_ENABLED", True)
+ORDER_RECEIPT_ALLOW_COD_PREVIEW = _parse_bool_env(
+    "ORDER_RECEIPT_ALLOW_COD_PREVIEW",
+    True,  # Temporary receipt QA switch; restore to False after COD is hidden again.
+)
+ORDER_RECEIPT_GUEST_TOKEN_MAX_AGE_SECONDS = max(
+    _parse_int_env("ORDER_RECEIPT_GUEST_TOKEN_MAX_AGE_SECONDS", 60 * 60 * 24),
+    60,
+)
+ORDER_RECEIPT_TEMPLATE_VERSION = (
+    os.getenv("ORDER_RECEIPT_TEMPLATE_VERSION", "compact-v1").strip()
+    or "compact-v1"
+)
+ORDER_RECEIPT_SELLER_NAME = (
+    os.getenv("ORDER_RECEIPT_SELLER_NAME", EASYWAY_SENDER_NAME or "FlexDrive").strip()
+    or "FlexDrive"
+)
+ORDER_RECEIPT_SELLER_TAX_ID = os.getenv(
+    "ORDER_RECEIPT_SELLER_TAX_ID",
+    EASYWAY_SENDER_TAX_CODE,
+).strip()
+ORDER_RECEIPT_SELLER_ADDRESS = os.getenv(
+    "ORDER_RECEIPT_SELLER_ADDRESS",
+    EASYWAY_SENDER_ADDRESS,
+).strip()
+ORDER_RECEIPT_SELLER_PHONE = os.getenv(
+    "ORDER_RECEIPT_SELLER_PHONE",
+    EASYWAY_SENDER_PHONE,
+).strip()
+ORDER_RECEIPT_SELLER_EMAIL = os.getenv(
+    "ORDER_RECEIPT_SELLER_EMAIL",
+    "support@flexdrive.ge",
+).strip()
+ORDER_RECEIPT_SELLER_WEBSITE = os.getenv(
+    "ORDER_RECEIPT_SELLER_WEBSITE",
+    "flexdrive.ge",
+).strip()
+
 SECURE_SSL_REDIRECT = _parse_bool_env("SECURE_SSL_REDIRECT", not DEBUG)
 USE_X_FORWARDED_HOST = _parse_bool_env("USE_X_FORWARDED_HOST", not DEBUG)
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -501,6 +539,7 @@ CORS_ALLOW_HEADERS = (
     *default_headers,
     "idempotency-key",
     "x-flexdrive-marketing-consent",
+    "x-receipt-token",
 )
 CSRF_TRUSTED_ORIGINS = _dedupe(
     default_frontend_origins + _parse_csv_env("CSRF_TRUSTED_ORIGINS")

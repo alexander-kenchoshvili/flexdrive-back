@@ -923,3 +923,37 @@ class PaymentTransaction(TimeStampedModel):
                 "Hard deletion is disabled for payment transactions."
             )
         return super().delete(*args, **kwargs)
+
+
+class OrderReceipt(TimeStampedModel):
+    """Immutable data snapshot used to reproduce an issued order receipt."""
+
+    objects = ProtectedFinancialManager()
+
+    order = models.OneToOneField(
+        Order,
+        related_name="receipt",
+        on_delete=models.PROTECT,
+    )
+    public_token = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+    )
+    template_version = models.CharField(max_length=32)
+    document_snapshot = models.JSONField(default=dict)
+    content_hash = models.CharField(max_length=64, db_index=True)
+    issued_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ("-issued_at", "-id")
+
+    def __str__(self):
+        return f"Receipt {self.order.order_number} ({self.template_version})"
+
+    def delete(self, *args, allow_hard_delete=False, **kwargs):
+        if not allow_hard_delete:
+            raise ValidationError(
+                "Hard deletion is disabled for order receipts."
+            )
+        return super().delete(*args, **kwargs)
