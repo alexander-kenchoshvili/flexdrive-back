@@ -686,6 +686,7 @@ def _create_order_from_paid_snapshot(payment):
         checkout_source=source,
         buyer_type=buyer_type,
         company_name=str(buyer.get("company_name") or ""),
+        company_is_vat_registered=buyer.get("company_is_vat_registered"),
         company_identification_code=str(
             buyer.get("company_identification_code") or ""
         ),

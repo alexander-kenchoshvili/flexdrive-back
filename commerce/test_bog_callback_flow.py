@@ -335,6 +335,88 @@ class BogCallbackFlowTests(APITransactionTestCase):
             HTTP_CALLBACK_SIGNATURE=signature,
         )
 
+    def test_company_vat_status_validation_and_fingerprint(self):
+        from .serializers import CheckoutSerializer
+        from .services import build_checkout_request_fingerprint
+
+        cart = Cart.objects.create(user=self.user)
+        CartItem.objects.create(cart=cart, product=self.product, quantity=1, unit_price_snapshot=self.product.price)
+        payload = {
+            **self._checkout_payload(), "payment_method": "cash_on_delivery", "buyer_type": "legal_entity",
+            "company_name": "Test LLC", "company_identification_code": "123456789",
+        }
+        for value in (None, "invalid"):
+            serializer = CheckoutSerializer(data={**payload, "company_is_vat_registered": value})
+            self.assertFalse(serializer.is_valid())
+            self.assertIn("company_is_vat_registered", serializer.errors)
+        fingerprints = []
+        for value in (True, False):
+            serializer = CheckoutSerializer(data={**payload, "company_is_vat_registered": value})
+            self.assertTrue(serializer.is_valid(), serializer.errors)
+            self.assertIs(serializer.validated_data["company_is_vat_registered"], value)
+            fingerprints.append(build_checkout_request_fingerprint(source="cart", validated_data=serializer.validated_data))
+        self.assertNotEqual(*fingerprints)
+        serializer = CheckoutSerializer(data={**payload, "buyer_type": "individual", "company_is_vat_registered": True})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertIsNone(serializer.validated_data["company_is_vat_registered"])
+
+    def _assert_guest_company_vat_checkout(self, source, answer):
+        from .services import CART_TOKEN_COOKIE_NAME, BUY_NOW_TOKEN_COOKIE_NAME
+        token = uuid.uuid4()
+        self.client.force_authenticate(user=None)
+        if source == "cart":
+            cart = Cart.objects.create(guest_token=token)
+            CartItem.objects.create(cart=cart, product=self.product, quantity=1, unit_price_snapshot=self.product.price)
+            items = cart.items.select_related("product").all()
+            self.client.cookies[CART_TOKEN_COOKIE_NAME] = str(token)
+            endpoint = "commerce-order-checkout"
+        else:
+            session = BuyNowSession.objects.create(guest_token=token, product=self.product, quantity=1, unit_price_snapshot=self.product.price)
+            items = [session]
+            self.client.cookies[BUY_NOW_TOKEN_COOKIE_NAME] = str(token)
+            endpoint = "commerce-buy-now-checkout"
+        payload = {
+            **self._checkout_payload(source=source, items=items),
+            "payment_method": "cash_on_delivery", "buyer_type": "legal_entity",
+            "company_name": "Guest LLC", "company_identification_code": "123456789",
+            "company_is_vat_registered": answer,
+        }
+        response = self.client.post(reverse(endpoint), payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        order = Order.objects.get()
+        self.assertIsNone(order.user_id)
+        self.assertIs(order.company_is_vat_registered, answer)
+        self.assertIs(response.data["company_is_vat_registered"], answer)
+
+    def test_guest_cart_company_vat_yes(self):
+        self._assert_guest_company_vat_checkout("cart", True)
+
+    def test_guest_buy_now_company_vat_no(self):
+        self._assert_guest_company_vat_checkout("buy_now", False)
+
+    def _assert_company_vat_payment(self, value):
+        original_payload = self._checkout_payload
+        def legal_payload(*args, **kwargs):
+            return {
+                **original_payload(*args, **kwargs),
+                "buyer_type": "legal_entity", "company_name": "VAT Test LLC",
+                "company_identification_code": "123456789",
+                "company_is_vat_registered": value,
+            }
+        with patch.object(self, "_checkout_payload", side_effect=legal_payload):
+            _, start_response, payment = self._start_cart_payment()
+        self.assertEqual(start_response.status_code, status.HTTP_201_CREATED)
+        self.assertIs(payment.checkout_snapshot["buyer"]["company_is_vat_registered"], value)
+        response = self._signed_callback_request(self._callback_payload(payment))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIs(Order.objects.get().company_is_vat_registered, value)
+
+    def test_company_vat_yes_survives_payment_callback(self):
+        self._assert_company_vat_payment(True)
+
+    def test_company_vat_no_survives_payment_callback(self):
+        self._assert_company_vat_payment(False)
+
     def test_valid_completed_callback_creates_paid_order_once(self):
         cart, start_response, payment = self._start_cart_payment(quantity=2)
 

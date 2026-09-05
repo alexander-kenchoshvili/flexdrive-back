@@ -40,6 +40,7 @@ def delete_user_account(user):
         note="",
         company_name="",
         company_identification_code="",
+        company_is_vat_registered=None,
         terms_ip_address=None,
         terms_user_agent="",
         updated_at=timezone.now(),

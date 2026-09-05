@@ -96,6 +96,9 @@ class WishlistItemCreateSerializer(serializers.Serializer):
 
 
 class CheckoutSerializer(serializers.Serializer):
+    company_is_vat_registered = serializers.BooleanField(
+        required=False, allow_null=True, default=None,
+    )
     buyer_type = serializers.ChoiceField(
         choices=OrderBuyerType.choices,
         default=OrderBuyerType.INDIVIDUAL,
@@ -167,6 +170,7 @@ class CheckoutSerializer(serializers.Serializer):
         if buyer_type != OrderBuyerType.LEGAL_ENTITY:
             attrs["company_name"] = ""
             attrs["company_identification_code"] = ""
+            attrs["company_is_vat_registered"] = None
             return attrs
 
         company_name = str(attrs.get("company_name", "")).strip()
@@ -175,6 +179,10 @@ class CheckoutSerializer(serializers.Serializer):
         ).strip()
 
         errors = {}
+        if attrs.get("company_is_vat_registered") is None:
+            errors["company_is_vat_registered"] = (
+                "აირჩიე, არის თუ არა კომპანია დღგ-ის გადამხდელი."
+            )
         if not company_name:
             errors["company_name"] = "შეიყვანე კომპანიის დასახელება."
 
@@ -655,6 +663,7 @@ class OrderSummarySerializer(serializers.ModelSerializer):
             "buyer_type",
             "company_name",
             "company_identification_code",
+            "company_is_vat_registered",
             "payment_method",
             "payment_status",
             "status",

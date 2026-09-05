@@ -246,6 +246,9 @@ def build_checkout_request_fingerprint(*, source, validated_data):
             for field in fields
         },
     }
+    # Preserve fingerprints for existing requests without a declared VAT status.
+    if validated_data.get("company_is_vat_registered") is not None:
+        payload["company_is_vat_registered"] = validated_data["company_is_vat_registered"]
     canonical_payload = json.dumps(
         payload,
         ensure_ascii=False,
@@ -1100,6 +1103,7 @@ def create_order_from_cart(
         user=user if user and user.is_authenticated else None,
         buyer_type=validated_data.get("buyer_type", OrderBuyerType.INDIVIDUAL),
         company_name=validated_data.get("company_name", ""),
+        company_is_vat_registered=validated_data.get("company_is_vat_registered"),
         company_identification_code=validated_data.get(
             "company_identification_code",
             "",
@@ -1247,6 +1251,7 @@ def create_order_from_buy_now_session(
         checkout_source=OrderCheckoutSource.BUY_NOW,
         buyer_type=validated_data.get("buyer_type", OrderBuyerType.INDIVIDUAL),
         company_name=validated_data.get("company_name", ""),
+        company_is_vat_registered=validated_data.get("company_is_vat_registered"),
         company_identification_code=validated_data.get(
             "company_identification_code",
             "",

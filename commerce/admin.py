@@ -227,6 +227,14 @@ class OrderAdminForm(forms.ModelForm):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
+    @admin.display(description="დღგ-ის გადამხდელი (მყიდველის მითითებით)", ordering="company_is_vat_registered")
+    def company_vat_status(self, obj):
+        if obj.buyer_type != "legal_entity":
+            return "არ ეხება"
+        if obj.company_is_vat_registered is None:
+            return "არ მიუთითებია"
+        return "დიახ" if obj.company_is_vat_registered else "არა"
+
     form = OrderAdminForm
     change_form_template = "admin/commerce/order/change_form.html"
     list_display = (
@@ -234,6 +242,7 @@ class OrderAdmin(admin.ModelAdmin):
         "customer_name",
         "buyer_type",
         "company_name",
+        "company_vat_status",
         "phone",
         "email",
         "payment_method",
@@ -244,6 +253,7 @@ class OrderAdmin(admin.ModelAdmin):
     )
     list_filter = (
         "buyer_type",
+        "company_is_vat_registered",
         "status",
         "payment_status",
         "payment_method",
@@ -259,6 +269,7 @@ class OrderAdmin(admin.ModelAdmin):
         "company_identification_code",
     )
     readonly_fields = (
+        "company_vat_status",
         "order_number",
         "public_token",
         "subtotal",
@@ -317,6 +328,7 @@ class OrderAdmin(admin.ModelAdmin):
                 "fields": (
                     "company_name",
                     "company_identification_code",
+                    "company_vat_status",
                 )
             },
         ),

@@ -410,6 +410,11 @@ class Order(TimeStampedModel):
     )
     company_name = models.CharField(max_length=255, blank=True, default="")
     company_identification_code = models.CharField(max_length=32, blank=True, default="")
+    company_is_vat_registered = models.BooleanField(
+        "დღგ-ის გადამხდელი (მყიდველის მითითებით)",
+        null=True, blank=True, default=None,
+        help_text="მყიდველის პასუხი შეკვეთის გაფორმებისას; სტატუსი ავტომატურად არ მოწმდება.",
+    )
     checkout_source = models.CharField(
         max_length=20,
         choices=OrderCheckoutSource.choices,
