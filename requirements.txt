@@ -1,4 +1,4 @@
-Django==6.0
+Django==6.0.8
 bleach==6.3.0
 cloudinary>=1.44,<2
 cryptography>=46,<49

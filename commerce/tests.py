@@ -110,6 +110,7 @@ def _generate_test_image(filename="sample.jpg", color=(255, 0, 0)):
     return SimpleUploadedFile(filename, file_obj.read(), content_type="image/jpeg")
 
 
+@override_settings(CASH_ON_DELIVERY_ENABLED=True)
 class CommerceAPITests(APITestCase):
     def setUp(self):
         WishlistItem.objects.all().delete()

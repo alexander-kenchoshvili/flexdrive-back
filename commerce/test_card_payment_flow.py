@@ -49,6 +49,7 @@ from .services import (
 
 
 BOG_TEST_SETTINGS = {
+    "CASH_ON_DELIVERY_ENABLED": True,
     "BOG_PAYMENTS_ENABLED": True,
     "BOG_CLIENT_ID": "test-client",
     "BOG_CLIENT_SECRET": "test-secret",

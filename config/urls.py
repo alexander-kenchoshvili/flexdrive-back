@@ -18,7 +18,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    path('manager-fd/', admin.site.urls),
     path('api/catalog/', include('catalog.urls')),  
     path('api/commerce/', include('commerce.urls')),
     path('api/pages/', include('pages.urls')),

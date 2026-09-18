@@ -358,6 +358,8 @@ CROSSMOTORS_SALE_HOLD_SECONDS = max(
     _parse_int_env("CROSSMOTORS_SALE_HOLD_SECONDS", 60 * 60 * 24),
     60,
 )
+# Set to true in the environment to re-enable cash checkout for testing.
+CASH_ON_DELIVERY_ENABLED = _parse_bool_env("CASH_ON_DELIVERY_ENABLED", False)
 BOG_PAYMENTS_ENABLED = _parse_bool_env("BOG_PAYMENTS_ENABLED", False)
 BOG_CLIENT_ID = os.getenv("BOG_CLIENT_ID", "").strip()
 BOG_CLIENT_SECRET = os.getenv("BOG_CLIENT_SECRET", "").strip()

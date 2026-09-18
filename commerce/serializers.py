@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.urls import reverse
 from rest_framework import serializers
 
@@ -142,6 +143,8 @@ class CheckoutSerializer(serializers.Serializer):
         return value
 
     def validate_payment_method(self, value):
+        if value == OrderPaymentMethod.CASH_ON_DELIVERY and not settings.CASH_ON_DELIVERY_ENABLED:
+            raise serializers.ValidationError("ნაღდი ანგარიშსწორებით გადახდა ამჟამად მიუწვდომელია.")
         if value == OrderPaymentMethod.CARD:
             raise serializers.ValidationError("Card payments are temporarily unavailable.")
         return value

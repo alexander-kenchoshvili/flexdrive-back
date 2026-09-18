@@ -269,3 +269,20 @@ This file exists so the project context does not need to be re-explained in ever
 - Django admin exposes supplier stock, active holds, customer-sellable stock,
   last sync time, hold history, and an audited confirmation-protected manual
   release action.
+
+## Deferred Payment Monitoring - 2026-09-18
+
+- The user explicitly deferred automatic payment reconciliation and alerts until
+  the production launch phase; there are currently no real buyers. Do not
+  implement or provision this work now unless requested.
+- Revisit during production deployment planning: periodically check stale or
+  unresolved BOG payments against the bank, using the existing verified,
+  idempotent reconciliation flow. This must work even if the customer closes
+  the browser; a paid cron service is not necessarily required. Choose a
+  scheduler after checking hosting capabilities and cost.
+- Add operator notifications and clear admin visibility for unresolved failures,
+  especially confirmed paid transactions without an order. Rechecking a payment
+  must not charge the customer again or blindly recreate a blocked order.
+- Existing manual bank reconciliation is available in Django admin. Operators
+  currently need to inspect payment transactions, not only the orders list;
+  automatic monitoring/alerts are still outstanding.
