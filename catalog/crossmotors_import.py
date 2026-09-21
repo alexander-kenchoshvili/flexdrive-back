@@ -23,6 +23,9 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.text import slugify
 
+from common.cache_utils import CACHE_GROUP_CATALOG_CATEGORIES, invalidate_groups
+from catalog.search_cache import invalidate_vehicle_search_catalog
+
 from catalog.models import (
     Brand,
     Category,
@@ -383,6 +386,8 @@ def fetch_crossmotors_stock(
     max_pages=DEFAULT_MAX_PAGES,
     in_stock_only=None,
 ):
+    if page_size <= 0 or max_pages <= 0:
+        raise ValueError("Page size and max pages must be positive.")
     if not token:
         raise ValueError("Cross Motors API token is required.")
 
@@ -417,6 +422,11 @@ def fetch_crossmotors_stock(
         batch = payload["items"]
         if page == 1:
             synced_at = str(payload.get("synced_at") or "")
+
+        elif str(payload.get("synced_at") or "") != synced_at:
+            raise ValueError("Supplier snapshot changed during pagination; retry the import.")
+        if any(not isinstance(item, dict) for item in batch):
+            raise ValueError(f"Unexpected supplier item on page {page}.")
 
         items.extend(batch)
         page_sizes.append(len(batch))
@@ -480,11 +490,66 @@ def build_crossmotors_report(
     )
 
 
-@transaction.atomic
-def import_crossmotors_report(report, *, archive_missing=False):
+def _invalidate_import_caches():
+    invalidate_groups(CACHE_GROUP_CATALOG_CATEGORIES)
+    invalidate_vehicle_search_catalog()
+
+
+def _apply_supplier_publication(product, *, created):
+    if created:
+        product.status = ProductStatus.DRAFT
+    elif product.status == ProductStatus.ARCHIVED and product.supplier_missing:
+        product.status = ProductStatus.PUBLISHED
+    product.supplier_missing = False
+
+
+def _missing_products(report):
+    # Presence, not eligibility/stock, determines whether a product disappeared.
+    present_skus = {row.values.get("sku") for row in report.rows}
+    return Product.objects.filter(
+        sku__startswith=CROSSMOTORS_SKU_PREFIX,
+        status=ProductStatus.PUBLISHED,
+    ).exclude(sku__in=present_skus)
+
+
+def validate_import_safety(report, *, archive_missing=False, max_missing_percent=20):
     if report.error_count:
         raise ValueError("Cannot import Cross Motors data with validation errors.")
+    skus = [row.values.get("sku") for row in report.rows]
+    if len(skus) != len(set(skus)):
+        raise ValueError("Duplicate supplier SKUs; refusing an inconsistent feed.")
+    if not archive_missing:
+        return 0
+    if not 0 <= max_missing_percent <= 100:
+        raise ValueError("Max missing percent must be between 0 and 100.")
+    if not report.valid_row_count:
+        raise ValueError("No importable supplier products; refusing archive-missing.")
+    published_count = Product.objects.filter(
+        sku__startswith=CROSSMOTORS_SKU_PREFIX, status=ProductStatus.PUBLISHED,
+    ).count()
+    missing_count = _missing_products(report).count()
+    if published_count and missing_count * 100 > published_count * max_missing_percent:
+        raise ValueError(
+            f"Refusing to archive {missing_count}/{published_count} published products "
+            f"(limit {max_missing_percent}%). Check the complete supplier feed first. "
+            "Use --max-missing-percent only after manual review."
+        )
+    return missing_count
 
+
+def _archive_missing_products(report):
+    return _missing_products(report).update(
+        status=ProductStatus.ARCHIVED,
+        supplier_missing=True,
+        updated_at=timezone.now(),
+    )
+
+
+@transaction.atomic
+def import_crossmotors_report(report, *, archive_missing=False, max_missing_percent=20):
+    validate_import_safety(
+        report, archive_missing=archive_missing, max_missing_percent=max_missing_percent,
+    )
     counters = _ImportCounters()
     supplier_synced_at = _normalize_supplier_sync_time(report.synced_at)
     category_sort_orders = {}
@@ -558,14 +623,7 @@ def import_crossmotors_report(report, *, archive_missing=False):
             _increment_counter(counters, key, created)
 
     if archive_missing:
-        counters.archived_missing_products = (
-            Product.objects.filter(
-                sku__startswith=CROSSMOTORS_SKU_PREFIX,
-                status=ProductStatus.PUBLISHED,
-            )
-            .exclude(sku__in=imported_skus)
-            .update(status=ProductStatus.ARCHIVED)
-        )
+        counters.archived_missing_products = _archive_missing_products(report)
 
     imported_product_ids = Product.objects.filter(
         sku__in=imported_skus,
@@ -574,14 +632,17 @@ def import_crossmotors_report(report, *, archive_missing=False):
         now=supplier_synced_at,
         product_ids=imported_product_ids,
     )
+    transaction.on_commit(_invalidate_import_caches)
     return counters.to_result()
 
 
 @transaction.atomic
-def import_crossmotors_report_bulk(report, *, archive_missing=False, batch_size=1000):
-    if report.error_count:
-        raise ValueError("Cannot import Cross Motors data with validation errors.")
-
+def import_crossmotors_report_bulk(
+    report, *, archive_missing=False, batch_size=1000, max_missing_percent=20,
+):
+    validate_import_safety(
+        report, archive_missing=archive_missing, max_missing_percent=max_missing_percent,
+    )
     counters = _ImportCounters()
     supplier_synced_at = _normalize_supplier_sync_time(report.synced_at)
     valid_rows = [row for row in report.rows if row.is_valid]
@@ -597,10 +658,14 @@ def import_crossmotors_report_bulk(report, *, archive_missing=False, batch_size=
             sku__in=original_skus,
         ).exclude(status=ProductStatus.ARCHIVED).update(
             status=ProductStatus.ARCHIVED,
+            supplier_missing=False,
             updated_at=now,
         )
 
     if not valid_rows:
+        if archive_missing:
+            counters.archived_missing_products = _archive_missing_products(report)
+        transaction.on_commit(_invalidate_import_caches)
         return counters.to_result()
 
     existing_skus = set(
@@ -650,15 +715,7 @@ def import_crossmotors_report_bulk(report, *, archive_missing=False, batch_size=
     )
 
     if archive_missing:
-        imported_skus = {row.values["sku"] for row in valid_rows}
-        counters.archived_missing_products = (
-            Product.objects.filter(
-                sku__startswith=CROSSMOTORS_SKU_PREFIX,
-                status=ProductStatus.PUBLISHED,
-            )
-            .exclude(sku__in=imported_skus)
-            .update(status=ProductStatus.ARCHIVED, updated_at=now)
-        )
+        counters.archived_missing_products = _archive_missing_products(report)
 
     expire_supplier_stock_holds(
         now=supplier_synced_at,
@@ -667,6 +724,7 @@ def import_crossmotors_report_bulk(report, *, archive_missing=False, batch_size=
             for product in product_result["products"].values()
         ],
     )
+    transaction.on_commit(_invalidate_import_caches)
     return counters.to_result()
 
 
@@ -942,7 +1000,7 @@ def _bulk_upsert_products(
             supplier_stock_qty=values["stock_qty"],
             active_hold_quantity=active_hold_quantities.get(product.pk, 0),
         )
-        product.status = ProductStatus.PUBLISHED
+        _apply_supplier_publication(product, created=is_created)
         product.seo_title = f"{values['clean_name'] or values['name']} | FlexDrive"
         if not product.preserve_manual_fitment_content:
             product.seo_description = values["short_description"]
@@ -975,6 +1033,7 @@ def _bulk_upsert_products(
                 "supplier_stock_qty",
                 "supplier_stock_synced_at",
                 "status",
+                "supplier_missing",
                 "seo_title",
                 "seo_description",
                 "is_universal_fitment",
@@ -1434,7 +1493,8 @@ def _archive_product_by_sku(sku):
     if not product or product.status == ProductStatus.ARCHIVED:
         return False
     product.status = ProductStatus.ARCHIVED
-    product.save(update_fields=["status", "updated_at"])
+    product.supplier_missing = False
+    product.save(update_fields=["status", "supplier_missing", "updated_at"])
     return True
 
 
@@ -1480,7 +1540,7 @@ def _upsert_product(values, *, category, brand, synced_at):
         supplier_stock_qty=values["stock_qty"],
         active_hold_quantity=active_hold_quantity,
     )
-    product.status = ProductStatus.PUBLISHED
+    _apply_supplier_publication(product, created=created)
     product.seo_title = f"{values['clean_name'] or values['name']} | FlexDrive"
     if not product.preserve_manual_fitment_content:
         product.seo_description = values["short_description"]

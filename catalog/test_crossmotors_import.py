@@ -205,7 +205,7 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(product.stock_qty, 6)
         self.assertEqual(product.placement, ProductPlacement.FRONT)
         self.assertEqual(product.side, ProductSide.RIGHT)
-        self.assertEqual(product.status, ProductStatus.PUBLISHED)
+        self.assertEqual(product.status, ProductStatus.DRAFT)
         self.assertTrue(product.price_available)
         self.assertTrue(product.purchasable)
 
@@ -275,7 +275,7 @@ class CrossMotorsImportTests(TestCase):
         self.assertFalse(Category.objects.filter(name="ბამპერები და ცხაურები").exists())
         self.assertFalse(Category.objects.filter(name="ძრავი, ზეთები და ფილტრები").exists())
 
-    def test_import_report_publishes_missing_price_with_zero_placeholder(self):
+    def test_import_report_drafts_missing_price_with_zero_placeholder(self):
         report = build_crossmotors_report(
             [
                 {
@@ -302,7 +302,7 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(product.supplier_price, None)
         self.assertEqual(product.price, Decimal("0.00"))
         self.assertEqual(product.stock_qty, 3)
-        self.assertEqual(product.status, ProductStatus.PUBLISHED)
+        self.assertEqual(product.status, ProductStatus.DRAFT)
         self.assertFalse(product.price_available)
         self.assertFalse(product.purchasable)
 

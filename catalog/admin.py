@@ -498,6 +498,7 @@ class ProductAdmin(admin.ModelAdmin):
     )
     list_filter = (
         "status",
+        "supplier_missing",
         "category",
         "brand",
         "placement",
@@ -530,6 +531,7 @@ class ProductAdmin(admin.ModelAdmin):
         SupplierStockHoldInline,
     )
     readonly_fields = (
+        "supplier_missing",
         "category_markup_readonly",
         "effective_markup_percent_readonly",
         "calculated_customer_price_readonly",
@@ -595,6 +597,7 @@ class ProductAdmin(admin.ModelAdmin):
                     "brand",
                     "category",
                     "status",
+                    "supplier_missing",
                 )
             },
         ),
@@ -819,6 +822,11 @@ class ProductAdmin(admin.ModelAdmin):
         ):
             readonly_fields.append("stock_qty")
         return readonly_fields
+
+    def save_model(self, request, obj, form, change):
+        if "status" in form.changed_data:
+            obj.supplier_missing = False
+        super().save_model(request, obj, form, change)
 
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
@@ -1046,14 +1054,14 @@ class ProductAdmin(admin.ModelAdmin):
 
     @admin.action(description="Publish selected products")
     def action_publish(self, request, queryset):
-        queryset.update(status=ProductStatus.PUBLISHED)
+        queryset.update(status=ProductStatus.PUBLISHED, supplier_missing=False)
         transaction.on_commit(
             lambda: invalidate_groups(CACHE_GROUP_CATALOG_CATEGORIES)
         )
 
     @admin.action(description="Move selected products to draft")
     def action_unpublish(self, request, queryset):
-        queryset.update(status=ProductStatus.DRAFT)
+        queryset.update(status=ProductStatus.DRAFT, supplier_missing=False)
         transaction.on_commit(
             lambda: invalidate_groups(CACHE_GROUP_CATALOG_CATEGORIES)
         )
@@ -1090,7 +1098,7 @@ class ProductAdmin(admin.ModelAdmin):
                 ],
                 ignore_conflicts=True,
             )
-            Product.objects.filter(sku__in=skus).update(status=ProductStatus.ARCHIVED)
+            Product.objects.filter(sku__in=skus).update(status=ProductStatus.ARCHIVED, supplier_missing=False)
 
         transaction.on_commit(
             lambda: invalidate_groups(CACHE_GROUP_CATALOG_CATEGORIES)

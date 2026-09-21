@@ -11,7 +11,9 @@ from catalog.crossmotors_import import (
     fetch_crossmotors_stock,
     import_crossmotors_report,
     import_crossmotors_report_bulk,
+    validate_import_safety,
 )
+from catalog.supplier_sync import crossmotors_sync_lock
 
 
 ENV_BASE_URL = "CROSSMOTORS_API_BASE_URL"
@@ -27,6 +29,10 @@ class Command(BaseCommand):
     )
 
     def add_arguments(self, parser):
+        parser.add_argument(
+            "--max-missing-percent", type=float, default=20,
+            help="Stop before any writes if archive-missing would hide more than this percent of published supplier products (default 20).",
+        )
         parser.add_argument(
             "--base-url",
             help=f"Cross Motors API base URL. If omitted, {ENV_BASE_URL} or {DEFAULT_BASE_URL} is used.",
@@ -84,6 +90,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         try:
+            with crossmotors_sync_lock():
+                self._run_import(options)
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
+
+    def _run_import(self, options):
+        try:
             resolved_options = _resolve_import_options(options, os.environ)
             items, api_meta = fetch_crossmotors_stock(
                 base_url=resolved_options["base_url"],
@@ -112,6 +125,13 @@ class Command(BaseCommand):
                 "Cross Motors data has validation errors. No database changes were made."
             )
 
+        missing_count = validate_import_safety(
+            report, archive_missing=options["archive_missing"],
+            max_missing_percent=options["max_missing_percent"],
+        )
+        self._write(f"Published products to archive as missing: {missing_count}")
+        self._write("New products enter Draft; existing Draft products stay hidden.")
+
         if not options["commit"]:
             self._write("")
             self._write("Dry-run only. No database changes were made.")
@@ -123,14 +143,16 @@ class Command(BaseCommand):
                 result = import_crossmotors_report_bulk(
                     report,
                     archive_missing=options["archive_missing"],
+                    max_missing_percent=options["max_missing_percent"],
                     batch_size=options["batch_size"],
-        )
+                )
             else:
                 result = import_crossmotors_report(
                     report,
                     archive_missing=options["archive_missing"],
-        )
-           
+                    max_missing_percent=options["max_missing_percent"],
+                )
+
         except Exception as exc:
             raise CommandError(str(exc)) from exc
 

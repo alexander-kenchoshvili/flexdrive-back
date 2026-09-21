@@ -286,3 +286,32 @@ This file exists so the project context does not need to be re-explained in ever
 - Existing manual bank reconciliation is available in Django admin. Operators
   currently need to inspect payment transactions, not only the orders list;
   automatic monitoring/alerts are still outstanding.
+
+## Supplier Publication And Scheduled Sync Preparation - 2026-09-22
+
+- Both Cross Motors importer paths now create new products as Draft and preserve
+  existing Draft/manual Archived status. Existing Published products still refresh
+  supplier price/stock under the existing markup and sale-hold rules.
+- `--archive-missing` archives only missing Published CM products and marks
+  `Product.supplier_missing=True`. Only these automatically archived products
+  republish on return; zero stock alone does not archive a product.
+- Admin status changes and publish/draft/block actions clear the automatic-return
+  marker. SupplierProductBlock continues to prevent reimport.
+- `catalog.0020_product_supplier_missing` is applied locally; deployment must apply
+  it before running the updated importer. Existing statuses were not changed.
+- The management command locks before fetching (PostgreSQL transaction advisory
+  lock; local SQLite file lock). Schedule the command rather than direct helper calls.
+- Archive-enabled runs reject empty/no-importable feeds, duplicate SKUs, validation
+  errors and a missing share above 20% of Published CM products. A reviewed one-off
+  `--max-missing-percent` override exists; do not increase the scheduled threshold
+  just to suppress a failed run. Pagination errors and changing snapshot timestamps
+  also abort. Silent supplier truncation below the threshold remains a limitation.
+- The planned App Platform job runs the bulk command with `--archive-missing`.
+  User changed pre-launch cadence to every two days: daily UTC midnight trigger
+  plus the documented calendar-parity wrapper runs the import every 48 hours.
+  At launch switch to the direct command every two hours. It has NOT been
+  provisioned/enabled. Instructions:
+  `docs/SUPPLIER_SYNC_APP_PLATFORM.md`.
+- Verification: 52 importer/publication/supplier-stock tests passed. Real supplier
+  dry run returned 2030 valid rows, 0 errors and 7 missing Published local products.
+  No committed supplier refresh or production change was performed.

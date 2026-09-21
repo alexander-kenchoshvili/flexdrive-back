@@ -515,6 +515,11 @@ class Product(TimeStampedModel):
             "Supplier price and stock will still be refreshed."
         ),
     )
+    supplier_missing = models.BooleanField(
+        default=False,
+        editable=False,
+        help_text="Archived automatically because the product disappeared from the supplier feed.",
+    )
     status = models.CharField(
         max_length=20,
         choices=ProductStatus.choices,
