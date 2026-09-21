@@ -75,6 +75,12 @@ class Command(BaseCommand):
             action="store_true",
             help="Use the bulk importer for large staging/production supplier refreshes.",
         )
+        parser.add_argument(
+            "--batch-size",
+            type=int,
+            default=1000,
+            help="Bulk database batch size (default: 1000). Use a smaller value for SQLite.",
+        )
 
     def handle(self, *args, **options):
         try:
@@ -113,15 +119,18 @@ class Command(BaseCommand):
             return
 
         try:
-            import_func = (
-                import_crossmotors_report_bulk
-                if options["bulk"]
-                else import_crossmotors_report
-            )
-            result = import_func(
-                report,
-                archive_missing=options["archive_missing"],
-            )
+            if options["bulk"]:
+                result = import_crossmotors_report_bulk(
+                    report,
+                    archive_missing=options["archive_missing"],
+                    batch_size=options["batch_size"],
+        )
+            else:
+                result = import_crossmotors_report(
+                    report,
+                    archive_missing=options["archive_missing"],
+        )
+           
         except Exception as exc:
             raise CommandError(str(exc)) from exc
 
