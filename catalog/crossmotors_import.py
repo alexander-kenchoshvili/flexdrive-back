@@ -4,8 +4,8 @@ The importer intentionally keeps the external API shape separate from our
 catalog model. Cross Motors fields are normalized into product, brand, vehicle
 fitment, and specs data before any database write happens.
 """
+
 from __future__ import annotations
-import os
 
 import hashlib
 import re
@@ -392,8 +392,6 @@ def fetch_crossmotors_stock(
     page_sizes = []
     synced_at = ""
 
-    proxy_url = os.getenv("CROSSMOTORS_PROXY_URL", "").strip()
-
     for page in range(1, max_pages + 1):
         params = {
             "page": page,
@@ -402,21 +400,11 @@ def fetch_crossmotors_stock(
         if in_stock_only is not None:
             params["in_stock_only"] = "true" if in_stock_only else "false"
 
-
-        
         response = requests.get(
             endpoint,
             headers=headers,
             params=params,
             timeout=timeout,
-            proxies=(
-        {
-            "http": proxy_url,
-            "https": proxy_url,
-        }
-        if proxy_url
-        else None
-    ),
         )
         if response.status_code == 401:
             raise ValueError("Cross Motors API returned 401 unauthorized.")
