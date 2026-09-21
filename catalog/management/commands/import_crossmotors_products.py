@@ -1,6 +1,8 @@
 import os
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
+from django.utils import timezone
 
 from catalog.crossmotors_import import (
     DEFAULT_BASE_URL,
@@ -14,6 +16,8 @@ from catalog.crossmotors_import import (
     validate_import_safety,
 )
 from catalog.supplier_sync import crossmotors_sync_lock
+from catalog.models import SupplierSyncReport
+from catalog.supplier_reports import supplier_snapshot, create_success_report
 
 
 ENV_BASE_URL = "CROSSMOTORS_API_BASE_URL"
@@ -89,14 +93,33 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        self._started_at = timezone.now()
+        self._saved_report = None
+        self._phase = "სინქრონიზაციის დაწყება"
         try:
             with crossmotors_sync_lock():
                 self._run_import(options)
-        except ValueError as exc:
+        except Exception as exc:
+            if options["commit"]:
+                try:
+                    # A cache callback can fail after commit. Do not label a
+                    # successfully committed import as rolled back in that case.
+                    saved = self._saved_report and SupplierSyncReport.objects.filter(pk=self._saved_report).exists()
+                    if not saved:
+                        SupplierSyncReport.objects.create(
+                            started_at=self._started_at, finished_at=timezone.now(),
+                            status=SupplierSyncReport.Status.FAILED,
+                            summary=f"განახლება ვერ შესრულდა. ეტაპი: {self._phase}. იხილეთ Job-ის ლოგი.",
+                        )
+                except Exception:
+                    self.stderr.write("Could not save supplier sync failure report; check database access.")
+            if isinstance(exc, CommandError):
+                raise
             raise CommandError(str(exc)) from exc
 
     def _run_import(self, options):
         try:
+            self._phase = "მომწოდებლის მონაცემების მიღება"
             resolved_options = _resolve_import_options(options, os.environ)
             items, api_meta = fetch_crossmotors_stock(
                 base_url=resolved_options["base_url"],
@@ -106,6 +129,7 @@ class Command(BaseCommand):
                 max_pages=options["max_pages"],
                 in_stock_only=False,
             )
+            self._phase = "მონაცემების შემოწმება"
             report = build_crossmotors_report(
                 items,
                 synced_at=api_meta.get("synced_at", ""),
@@ -138,23 +162,19 @@ class Command(BaseCommand):
             self._write("Pass --commit to apply this import after reviewing the report.")
             return
 
-        try:
-            if options["bulk"]:
-                result = import_crossmotors_report_bulk(
-                    report,
-                    archive_missing=options["archive_missing"],
-                    max_missing_percent=options["max_missing_percent"],
-                    batch_size=options["batch_size"],
-                )
-            else:
-                result = import_crossmotors_report(
-                    report,
-                    archive_missing=options["archive_missing"],
-                    max_missing_percent=options["max_missing_percent"],
-                )
-
-        except Exception as exc:
-            raise CommandError(str(exc)) from exc
+        self._phase = "კატალოგის განახლება"
+        with transaction.atomic():
+            before = supplier_snapshot(lock=True)
+            importer = import_crossmotors_report_bulk if options["bulk"] else import_crossmotors_report
+            kwargs = {"batch_size": options["batch_size"]} if options["bulk"] else {}
+            result = importer(
+                report, archive_missing=options["archive_missing"],
+                max_missing_percent=options["max_missing_percent"], **kwargs,
+            )
+            self._phase = "ანგარიშის შენახვა"
+            self._saved_report = create_success_report(
+                started_at=self._started_at, before=before, after=supplier_snapshot(),
+            ).pk
 
         self._print_import_result(result)
 

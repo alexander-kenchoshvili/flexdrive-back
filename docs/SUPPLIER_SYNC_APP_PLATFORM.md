@@ -32,7 +32,7 @@ The read-only **Supplier missing** field/filter identifies automatic archiving.
 
 ## Deploy and verify before enabling a schedule
 
-1. Deploy this backend revision. Apply migration `catalog.0020_product_supplier_missing`
+1. Deploy this backend revision. Apply migrations through `catalog.0021_supplier_sync_report`
    through the existing deployment migration step before running the new importer:
    `python manage.py migrate --noinput`.
 2. Use the backend App Platform console for a dry run against the intended database:
@@ -129,3 +129,25 @@ syntax and billing are documented in
   bulk updates. The job must use the same Valkey/cache namespace as the web process.
 
 No payment reconciliation or payment alerts are added by this supplier job.
+
+## Admin reports and cleanup
+
+Each committed management-command run stores a report in
+**Catalog → სინქრონიზაციის ანგარიშები**. Dry runs and alternate-day skips create no report.
+The list shows start/end time, success/failure and a compact summary. Open a report
+for new Draft products, sellable-stock exhaustion/return, archiving/restoration and
+supplier-price changes. Ordinary stock quantity changes are not listed. Each group
+stores the full count and up to 50 product names/SKUs; price changes include old/new costs.
+These are private staff reports, never customer API data.
+
+Use date/status filters, tick individual rows or the header checkbox, select
+**Delete selected**, and confirm. Django's **Select all ...** link selects all matching
+reports across pages; the header checkbox alone selects the current page. A report
+can also be deleted from its detail page. Report deletion never deletes products or
+changes synchronization behavior. There is no automatic retention/deletion schedule.
+
+Success reports commit with the import; rollback saves a separate failure report.
+Failure summaries contain the failed phase, not raw exception text, credentials or feed
+payloads; consult the job logs for diagnosis. If the database is unavailable or the
+process is forcibly terminated, saving a report is not guaranteed, so job activity/logs
+remain the source for such execution failures.

@@ -351,6 +351,26 @@ class ProductStatus(models.TextChoices):
     ARCHIVED = "archived", "Archived"
 
 
+class SupplierSyncReport(models.Model):
+    class Status(models.TextChoices):
+        SUCCESS = "success", "წარმატებული"
+        FAILED = "failed", "შეცდომა"
+
+    started_at = models.DateTimeField("დაწყება")
+    finished_at = models.DateTimeField("დასრულება")
+    status = models.CharField("შედეგი", max_length=16, choices=Status.choices, db_index=True)
+    summary = models.TextField("შეჯამება")
+    changes = models.JSONField(default=dict, editable=False)
+
+    class Meta:
+        ordering = ("-started_at", "-pk")
+        verbose_name = "სინქრონიზაციის ანგარიში"
+        verbose_name_plural = "სინქრონიზაციის ანგარიშები"
+
+    def __str__(self):
+        return f"Cross Motors — {self.get_status_display()} — {self.started_at:%Y-%m-%d %H:%M}"
+
+
 class SupplierProductBlock(TimeStampedModel):
     source_name = models.CharField(max_length=120)
     supplier_sku = models.CharField(max_length=64)

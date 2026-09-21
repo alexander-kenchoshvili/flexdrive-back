@@ -315,3 +315,17 @@ This file exists so the project context does not need to be re-explained in ever
 - Verification: 52 importer/publication/supplier-stock tests passed. Real supplier
   dry run returned 2030 valid rows, 0 errors and 7 missing Published local products.
   No committed supplier refresh or production change was performed.
+
+## Supplier Sync Admin Reports - 2026-09-22
+
+- `SupplierSyncReport` and migration `catalog.0021_supplier_sync_report` add private
+  read-only admin history for committed Cross Motors command runs. Dry runs/skipped
+  alternate-day launches do not create history. No email/Telegram is sent.
+- Reports count new Draft products, customer-sellable stock exhaustion/return,
+  archiving/restoration, and supplier price changes. Ordinary quantity changes are
+  omitted; each group stores at most 50 names/SKUs plus its exact total count.
+- The report and successful import commit together. Failures are saved after rollback
+  with a safe phase summary. Database outages/process termination may prevent logging.
+- Staff with the appropriate permissions can delete individual/selected/all filtered
+  reports through Django admin's normal confirmation flow. Reports have no product
+  foreign keys; deletion never deletes products or affects the next sync.

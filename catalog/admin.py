@@ -10,7 +10,7 @@ from django.http import Http404, HttpResponse, HttpResponseNotAllowed, HttpRespo
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils import timezone
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from django.utils.http import urlencode
 from PIL import Image, ImageOps
 from decimal import Decimal
@@ -33,6 +33,7 @@ from .models import (
     ProductStatus,
     ProductSupplierSource,
     SupplierProductBlock,
+    SupplierSyncReport,
     VehicleEngine,
     VehicleMake,
     VehicleModel,
@@ -1133,6 +1134,44 @@ class ProductAdmin(admin.ModelAdmin):
             f"Allowed {deleted_count} Cross Motors product(s) to be imported again.",
             level=messages.SUCCESS,
         )
+
+
+@admin.register(SupplierSyncReport)
+class SupplierSyncReportAdmin(admin.ModelAdmin):
+    list_display = ("started_at", "status", "summary", "finished_at")
+    list_filter = ("status", "started_at")
+    search_fields = ("summary",)
+    date_hierarchy = "started_at"
+    readonly_fields = ("started_at", "finished_at", "status", "summary", "change_details")
+    fields = readonly_fields
+    actions = ("delete_selected",)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="მნიშვნელოვანი ცვლილებები")
+    def change_details(self, obj):
+        from .supplier_reports import CHANGE_LABELS, DETAIL_LIMIT
+
+        sections = []
+        for key, label in CHANGE_LABELS.items():
+            group = obj.changes.get(key, {})
+            if not group.get("count"):
+                continue
+            rows = format_html_join(
+                "", "<li><strong>{}</strong> — {} {}</li>",
+                ((item["sku"], item["name"],
+                  f"({item['before']} → {item['after']} GEL)" if "before" in item else "")
+                 for item in group.get("items", [])),
+            )
+            note = f"ნაჩვენებია პირველი {DETAIL_LIMIT} პროდუქტი." if group["count"] > DETAIL_LIMIT else ""
+            sections.append(format_html(
+                "<h3>{}: {}</h3><ul>{}</ul><p>{}</p>", label, group["count"], rows, note,
+            ))
+        return format_html_join("", "{}", ((section,) for section in sections)) or "—"
 
 
 @admin.register(SupplierProductBlock)
