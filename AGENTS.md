@@ -1,5 +1,27 @@
 # Project Instructions
 
+## EasyWay Tracking - 2026-09-22
+
+- `commerce/easyway_tracking.py` reconciles carrier history into existing order
+  statuses. No customer-facing carrier text or new public serializer fields.
+- `new` preserves the current order state; `taking` advances to processing;
+  `taken/in_store/taken_store` advance to shipped; `delivered` advances to delivered.
+  `canceled` records carrier cancellation only, with no order/refund/stock action.
+- Paid-only forward progress; cancelled/refunding orders and local shipment
+  cancellation are protected. Unknown/ambiguous events require admin review.
+- Admin refresh and cron share a per-order database lease with short apply-time
+  row locking. Preserve tracking fields when saving an older admin form.
+- Local migration `commerce.0029_easyway_tracking` applied. 71 targeted tests pass;
+  real cancelled shipment tracking was read successfully. Production migration,
+  pickup/delivery lifecycle and production PostgreSQL verification remain pending.
+- Cron command: `python manage.py sync_easyway_tracking --limit 100 --min-age-minutes 10 --max-seconds 600`.
+  Pre-launch: sync every 10 days using the documented daily date-check wrapper,
+  anchored to 2026-09-22; first due date 2026-10-02. At public launch switch to the
+  direct command and `*/15 * * * *` (UTC). NOT provisioned/enabled.
+  Empty batches make no carrier requests. Operator activation/cost review required.
+- Deployment instructions and limitations: `docs/EASYWAY_TRACKING.md`.
+- User deferred additional cancellation/refund features; do not expand that scope.
+
 ## Product Context
 
 This repository is the backend for FlexDrive, an online auto parts store.

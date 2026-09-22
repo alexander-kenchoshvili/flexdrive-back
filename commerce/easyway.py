@@ -172,6 +172,12 @@ class EasywayClient:
             )
         return normalized_order_id
 
+    def get_tracking(self, order_id):
+        normalized_order_id = self._positive_integer(order_id, "order ID")
+        return self._get(
+            f"/order/tracking/{normalized_order_id}", params={"lang": "en"}
+        )
+
     def cancel_order(self, order_id):
         normalized_order_id = self._positive_integer(order_id, "order ID")
         self._get(

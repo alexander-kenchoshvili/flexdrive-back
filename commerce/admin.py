@@ -2,6 +2,7 @@ from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.http import Http404, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
@@ -21,6 +22,7 @@ from .easyway_shipments import (
     cancel_easyway_shipment,
     submit_easyway_shipment,
 )
+from .easyway_tracking import TrackingError, sync_easyway_tracking
 from .models import (
     Cart,
     CartItem,
@@ -291,6 +293,12 @@ class OrderAdmin(admin.ModelAdmin):
         "easyway_last_error",
         "easyway_last_attempt_at",
         "easyway_submitted_at",
+        "easyway_tracking_status",
+        "easyway_tracking_at",
+        "easyway_tracking_history",
+        "easyway_tracking_checked_at",
+        "easyway_tracking_attempted_at",
+        "easyway_tracking_error",
         "total",
         "payment_method",
         "payment_status",
@@ -365,6 +373,12 @@ class OrderAdmin(admin.ModelAdmin):
                     "easyway_last_error",
                     "easyway_last_attempt_at",
                     "easyway_submitted_at",
+                    "easyway_tracking_status",
+                    "easyway_tracking_at",
+                    "easyway_tracking_checked_at",
+                    "easyway_tracking_attempted_at",
+                    "easyway_tracking_error",
+                    "easyway_tracking_history",
                 )
             },
         ),
@@ -442,6 +456,11 @@ class OrderAdmin(admin.ModelAdmin):
     def get_urls(self):
         custom_urls = [
             path(
+                "<path:object_id>/easyway-tracking/",
+                self.admin_site.admin_view(self.easyway_tracking_view),
+                name="commerce_order_easyway_tracking",
+            ),
+            path(
                 "<path:object_id>/bog-refund/",
                 self.admin_site.admin_view(self.bog_refund_view),
                 name="commerce_order_bog_refund",
@@ -485,7 +504,13 @@ class OrderAdmin(admin.ModelAdmin):
             extra_context["show_easyway_cancel"] = bool(
                 order and can_cancel_easyway_shipment(order)
             )
+            extra_context["show_easyway_tracking"] = bool(
+                order and order.delivery_provider == "easyway" and order.easyway_order_id
+            )
             if order:
+                extra_context["easyway_tracking_url"] = reverse(
+                    "admin:commerce_order_easyway_tracking", args=[order.pk]
+                )
                 extra_context["bog_refund_url"] = reverse(
                     "admin:commerce_order_bog_refund",
                     args=[order.pk],
@@ -511,14 +536,19 @@ class OrderAdmin(admin.ModelAdmin):
 
         return super().changeform_view(request, object_id, form_url, extra_context)
 
+    @transaction.atomic
     def save_model(self, request, obj, form, change):
         if not change:
             super().save_model(request, obj, form, change)
             return
 
-        current_order = Order.objects.get(pk=obj.pk)
+        current_order = Order.objects.select_for_update().get(pk=obj.pk)
         requested_status = obj.status
 
+        # A form opened before a cron refresh must not overwrite tracking or its lease.
+        for field in Order._meta.concrete_fields:
+            if field.name.startswith("easyway_tracking_"):
+                setattr(obj, field.name, getattr(current_order, field.name))
         obj.status = current_order.status
         super().save_model(request, obj, form, change)
         if requested_status != current_order.status:
@@ -598,6 +628,32 @@ class OrderAdmin(admin.ModelAdmin):
                 "admin:commerce_order_change",
                 args=[order.pk],
             ),
+        )
+
+    def easyway_tracking_view(self, request, object_id):
+        order = self._get_action_order(request, object_id)
+        if request.method == "POST":
+            try:
+                result = sync_easyway_tracking(order.pk)
+            except TrackingError as error:
+                self.message_user(request, str(error), level=messages.ERROR)
+            else:
+                text = {
+                    "synced": "EasyWay tracking refreshed.",
+                    "review": "Tracking saved; review the tracking error field.",
+                    "skipped": "Tracking skipped: no shipment or another refresh is running.",
+                }[result]
+                self.message_user(
+                    request, text,
+                    level=messages.SUCCESS if result == "synced" else messages.WARNING,
+                )
+            return HttpResponseRedirect(reverse("admin:commerce_order_change", args=[order.pk]))
+        return self._confirmation_response(
+            request, original=order,
+            title=f"Refresh tracking for {order.order_number}",
+            action_label="Refresh tracking",
+            warning="Read EasyWay tracking and update local delivery progress. No shipment or refund is created.",
+            cancel_url=reverse("admin:commerce_order_change", args=[order.pk]),
         )
 
     def easyway_submit_view(self, request, object_id):

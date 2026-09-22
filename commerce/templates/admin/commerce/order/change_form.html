@@ -31,4 +31,9 @@
   <a class="button" href="{{ easyway_cancel_url }}">Cancel EasyWay shipment</a>
 </div>
 {% endif %}
+{% if show_easyway_tracking %}
+<div class="submit-row">
+  <a class="button" href="{{ easyway_tracking_url }}">Refresh EasyWay tracking</a>
+</div>
+{% endif %}
 {% endblock %}
