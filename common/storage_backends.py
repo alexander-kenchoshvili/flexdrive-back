@@ -1,4 +1,5 @@
 import os
+from uuid import uuid4
 
 import requests
 from django.conf import settings
@@ -50,7 +51,7 @@ class CloudinaryMediaStorage(Storage):
         return str(name or "").replace("\\", "/").lstrip("/")
 
     def _trim_name_to_max_length(self, name, max_length):
-        if not max_length or len(name) <= max_length:
+        if max_length is None or len(name) <= max_length:
             return name
 
         directory, filename = os.path.split(name)
@@ -101,13 +102,24 @@ class CloudinaryMediaStorage(Storage):
     def get_available_name(self, name, max_length=None):
         normalized = self._normalize_name(name)
         max_length = self._reserve_version_space(max_length)
+        if getattr(settings, "CLOUDINARY_SHARED_MEDIA", True):
+            # Drop old version prefixes and use a fresh ID even for regenerated
+            # variants whose suggested filenames are deterministic.
+            _, normalized = self._split_versioned_name(normalized)
+            suffix = "_" + uuid4().hex
+            trimmed = self._trim_name_to_max_length(
+                normalized, max_length - len(suffix) if max_length is not None else None,
+            )
+            directory, filename = os.path.split(trimmed)
+            stem, extension = os.path.splitext(filename)
+            return f"{directory + '/' if directory else ''}{stem}{suffix}{extension}"
         return self._trim_name_to_max_length(normalized, max_length)
 
     def save(self, name, content, max_length=None):
         normalized_name = self.get_available_name(name, max_length=max_length)
         stored_name = self._save(normalized_name, content)
         if max_length and len(stored_name) > max_length:
-            return normalized_name
+            raise SuspiciousFileOperation("Cloudinary returned a path exceeding max_length.")
         return stored_name
 
     def _save(self, name, content):
@@ -122,12 +134,16 @@ class CloudinaryMediaStorage(Storage):
             public_id=metadata["public_id"],
             resource_type=metadata["resource_type"],
             type=metadata["type"],
-            overwrite=True,
+            overwrite=not getattr(settings, "CLOUDINARY_SHARED_MEDIA", True),
             invalidate=True,
         )
 
+        if getattr(settings, "CLOUDINARY_SHARED_MEDIA", True) and result.get("existing"):
+            raise SuspiciousFileOperation("Cloudinary asset already exists; refusing to reuse it for a new upload.")
+
         uploaded_format = (result.get("format") or metadata["format"]).strip(".")
-        asset_path = f"{metadata['public_id']}.{uploaded_format}" if uploaded_format else metadata["public_id"]
+        public_id = result.get("public_id") or metadata["public_id"]
+        asset_path = f"{public_id}.{uploaded_format}" if uploaded_format else public_id
         return self._build_stored_name(asset_path, version=result.get("version"))
 
     def _open(self, name, mode="rb"):
@@ -137,6 +153,9 @@ class CloudinaryMediaStorage(Storage):
         return ContentFile(response.content, name=basename)
 
     def delete(self, name):
+        if getattr(settings, "CLOUDINARY_SHARED_MEDIA", True):
+            # A single database cannot prove an asset is unused in other environments.
+            return
         _, uploader, _ = self._cloudinary_modules()
         metadata = self._parse_name(name)
         try:

@@ -101,6 +101,10 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        if options["commit"] and getattr(settings, "CLOUDINARY_SHARED_MEDIA", True):
+            raise CommandError(
+                "Deletion is disabled for shared Cloudinary media: this audit sees only one database."
+            )
         self._configure_cloudinary()
 
         scan_all = bool(options["all"])

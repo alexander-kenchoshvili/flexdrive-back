@@ -279,6 +279,9 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 USE_CLOUDINARY_MEDIA = _parse_bool_env("USE_CLOUDINARY_MEDIA", False)
+# Staging and production share assets. Database deletion must not delete a
+# shared file, and edits must upload a new asset rather than overwrite one.
+CLOUDINARY_SHARED_MEDIA = _parse_bool_env("CLOUDINARY_SHARED_MEDIA", True)
 CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME", "").strip()
 CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY", "").strip()
 CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET", "").strip()

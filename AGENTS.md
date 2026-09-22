@@ -329,3 +329,24 @@ This file exists so the project context does not need to be re-explained in ever
 - Staff with the appropriate permissions can delete individual/selected/all filtered
   reports through Django admin's normal confirmation flow. Reports have no product
   foreign keys; deletion never deletes products or affects the next sync.
+
+## Shared Cloudinary Product Image Transfer
+
+- Staging and production will share the same Cloudinary cloud. Deploy the shared
+  storage protection to BOTH environments before copying image references.
+- `CLOUDINARY_SHARED_MEDIA` defaults to True: uploads use fresh UUID-based public
+  IDs with overwrite=False; Cloudinary storage deletion becomes a no-op. Existing
+  URLs remain valid. Local filesystem deletion behavior is unchanged.
+- `audit_cloudinary_orphans --commit` is blocked in shared mode because it only
+  checks one database. Future cleanup must account for every sharing environment.
+  Unused Cloudinary files are retained for now; direct Cloudinary console changes
+  are outside application protection.
+- `export_product_images` / `import_product_images` transfer references and all
+  ProductImage display/crop/AI settings by SKU. Source and target cloud must match.
+  Import defaults to dry-run, only fills empty galleries, skips identical galleries
+  on rerun, and refuses conflicting galleries. Missing SKUs require explicit
+  `--skip-missing`; no products are created and no price/stock/status is modified.
+- Use encoded exports for console transfer; never send credentials in snapshots.
+  Instructions: `docs/SHARED_CLOUDINARY_IMAGES.md`. No schema migration required.
+- Prepared/tested locally (25 image/storage tests); no remote deploy, image import,
+  upload or Cloudinary configuration change has been performed by the agent.
