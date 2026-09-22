@@ -239,7 +239,7 @@ def parse_bog_callback(raw_body):
     )
 
 
-def reconcile_bog_payment(payment, *, client=None):
+def reconcile_bog_payment(payment, *, client=None, reconciliation_token=None):
     current_payment = PaymentTransaction.objects.get(pk=payment.pk)
     if not current_payment.provider_order_id:
         raise BogCallbackConflict(
@@ -257,6 +257,20 @@ def reconcile_bog_payment(payment, *, client=None):
         details=details,
         source="payment_details",
     )
+    if reconciliation_token is not None:
+        from .payment_reconciliation import payments_requiring_reconciliation
+
+        # The scheduler never applies a response after losing its lease or after
+        # a concurrent callback/refund resolved the payment. No network I/O here.
+        with transaction.atomic():
+            locked = PaymentTransaction.objects.select_for_update().get(pk=payment.pk)
+            if (locked.reconciliation_token != reconciliation_token
+                    or not locked.reconciliation_lock_until
+                    or locked.reconciliation_lock_until <= timezone.now()
+                    or not payments_requiring_reconciliation().filter(pk=locked.pk).exists()):
+                return None
+            _validate_callback_details(locked, details)
+            return apply_bog_callback(evidence)
     return apply_bog_callback(evidence)
 
 

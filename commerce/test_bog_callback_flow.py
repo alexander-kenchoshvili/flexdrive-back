@@ -30,6 +30,7 @@ from .bog_payments import (
     BogPaymentDetails,
     BogRefundResult,
     BogTransportError,
+    parse_bog_payment_details,
 )
 from .bog_refunds import request_bog_full_refund
 from .delivery_quotes import build_delivery_quote
@@ -839,6 +840,63 @@ class BogCallbackFlowTests(APITransactionTestCase):
             "payment_details",
         )
         self.assertEqual(Order.objects.count(), 1)
+
+    def test_scheduled_reconciliation_and_late_callback_finalize_only_once(self):
+        from .payment_reconciliation import reconcile_scheduled_payment
+
+        _, _, payment = self._start_cart_payment()
+        now = timezone.now()
+        PaymentTransaction.objects.filter(pk=payment.pk).update(
+            created_at=now - timedelta(minutes=20),
+        )
+        details_client = Mock()
+        details_client.get_payment_details.return_value = parse_bog_payment_details(
+            self._callback_payload(payment)["body"],
+        )
+        options = dict(
+            created_before=now - timedelta(minutes=10),
+            attempted_before=now - timedelta(minutes=15), client=details_client,
+        )
+        self.assertEqual(reconcile_scheduled_payment(payment.pk, **options), "resolved")
+        self.assertEqual(reconcile_scheduled_payment(payment.pk, **options), "skipped")
+        response = self._signed_callback_request(self._callback_payload(payment))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payment.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual(payment.status, PaymentTransactionStatus.PAID)
+        self.assertEqual(Order.objects.count(), 1)
+        self.assertEqual(self.product.stock_qty, 2)
+        details_client.get_payment_details.assert_called_once_with(payment.provider_order_id)
+
+    def test_scheduled_paid_payment_with_unavailable_stock_requires_review(self):
+        from .payment_reconciliation import reconcile_scheduled_payment
+
+        _, _, payment = self._start_cart_payment(quantity=2)
+        now = timezone.now()
+        PaymentTransaction.objects.filter(pk=payment.pk).update(
+            created_at=now - timedelta(minutes=20),
+        )
+        StockReservation.objects.filter(pk=payment.reservation_id).update(
+            status=StockReservationStatus.EXPIRED,
+            expires_at=now - timedelta(seconds=1),
+        )
+        Product.objects.filter(pk=self.product.pk).update(stock_qty=0)
+        details_client = Mock()
+        details_client.get_payment_details.return_value = parse_bog_payment_details(
+            self._callback_payload(payment)["body"],
+        )
+        result = reconcile_scheduled_payment(
+            payment.pk, created_before=now - timedelta(minutes=10),
+            attempted_before=now - timedelta(minutes=15), client=details_client,
+        )
+        payment.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual(result, "review")
+        self.assertEqual(payment.status, PaymentTransactionStatus.PAID)
+        self.assertEqual(payment.reconciliation_issue, "paid_without_order")
+        self.assertEqual(Order.objects.count(), 0)
+        self.assertEqual(self.product.stock_qty, 0)
+        details_client.refund.assert_not_called()
 
     def test_expired_reservation_can_finalize_after_fresh_stock_check(self):
         _, _, payment = self._start_cart_payment(quantity=2)

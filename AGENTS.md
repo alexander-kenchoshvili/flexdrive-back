@@ -1,5 +1,26 @@
 # Project Instructions
 
+## Payment Reconciliation Preparation - 2026-09-23
+
+- User authorized preparing monitoring now; cron activation remains deferred.
+  `reconcile_bog_payments` checks stale/unresolved BOG SALE transactions through
+  the existing verified finalizer. It never initiates a charge or refund.
+- Migration `commerce.0031_payment_reconciliation_monitoring` adds operational
+  lease/attempt/issue/notification fields. Deploy migrations before command/admin use.
+  Applied locally; 90 targeted monitoring/callback/payment/refund tests passed
+  (including the added lease-expiry case). Remote migration remains pending.
+- Empty/dry-run batches make no bank requests or send emails. Paid-without-order
+  and missing-bank-ID cases require admin review, not blind order recreation.
+- Per-payment leases, apply-time locking and state rechecks protect overlapping
+  runs and callbacks. Refund/cancel workflows retain existing behavior.
+- Admin displays/filter issues; optional `BOG_RECONCILIATION_ALERT_EMAIL` defaults
+  empty (disabled). Problem-only emails use existing delivery, throttled per payment
+  and unchanged issue to 24 hours. Job failure/nonexecution alerts are also required.
+- No cron provisioned/enabled, no real bank/email calls or remote changes made.
+  Production PostgreSQL concurrency verification and activation remain pending.
+  Instructions: `docs/PAYMENT_RECONCILIATION.md`. This supersedes the older deferral
+  of implementation below, but preserves deferred scheduler activation.
+
 ## EasyWay Tracking - 2026-09-22
 
 - EasyWay sync reports: `commerce.EasywaySyncReport`, local migration `0030` applied.

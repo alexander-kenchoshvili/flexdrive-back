@@ -920,6 +920,13 @@ class PaymentTransaction(TimeStampedModel):
     cancelled_at = models.DateTimeField(null=True, blank=True)
     refunded_at = models.DateTimeField(null=True, blank=True)
 
+    # Operational monitoring only; these fields do not determine payment status.
+    reconciliation_attempted_at = models.DateTimeField(null=True, blank=True)
+    reconciliation_lock_until = models.DateTimeField(null=True, blank=True)
+    reconciliation_token = models.UUIDField(null=True, blank=True, editable=False)
+    reconciliation_issue = models.CharField(max_length=80, blank=True, default="")
+    reconciliation_notified_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ("-created_at", "-id")
         constraints = [

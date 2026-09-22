@@ -1046,6 +1046,19 @@ class SupplierStockHoldAdmin(admin.ModelAdmin):
         )
 
 
+class PaymentReconciliationReviewFilter(admin.SimpleListFilter):
+    title = "გადახდის გადამოწმება"
+    parameter_name = "reconciliation_review"
+
+    def lookups(self, request, model_admin):
+        return (("yes", "საჭიროებს ყურადღებას"),)
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.exclude(reconciliation_issue="")
+        return queryset
+
+
 @admin.register(PaymentTransaction)
 class PaymentTransactionAdmin(admin.ModelAdmin):
     change_form_template = (
@@ -1064,10 +1077,22 @@ class PaymentTransactionAdmin(admin.ModelAdmin):
         "provider_order_id",
         "provider_action_id",
         "error_code",
+        "reconciliation_review_summary",
+        "reconciliation_attempted_at",
         "created_at",
         "updated_at",
     )
-    list_filter = ("provider", "payment_method", "action", "status", "created_at")
+    list_filter = (
+        "provider", "payment_method", "action", "status", "created_at",
+        PaymentReconciliationReviewFilter,
+    )
+
+    @admin.display(description="გადახდის გადამოწმება")
+    def reconciliation_review_summary(self, obj):
+        from .payment_reconciliation import ISSUE_MESSAGES
+
+        return ISSUE_MESSAGES.get(obj.reconciliation_issue, obj.reconciliation_issue) or "—"
+
     search_fields = (
         "order__order_number",
         "reservation__token",
