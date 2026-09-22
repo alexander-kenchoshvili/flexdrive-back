@@ -11,6 +11,32 @@ from django.utils import timezone
 from catalog.models import Product, TimeStampedModel
 
 
+class EasywaySyncReport(models.Model):
+    class Status(models.TextChoices):
+        SUCCESS = "success", "წარმატებული"
+        REVIEW = "review", "საჭიროა ყურადღება"
+        FAILED = "failed", "შეცდომა"
+
+    class Source(models.TextChoices):
+        SCHEDULED = "scheduled", "პერიოდული შემოწმება"
+        MANUAL = "manual", "ხელით შემოწმება"
+
+    started_at = models.DateTimeField("დაწყება")
+    finished_at = models.DateTimeField("დასრულება")
+    source = models.CharField("წყარო", max_length=16, choices=Source.choices)
+    status = models.CharField("შედეგი", max_length=16, choices=Status.choices, db_index=True)
+    summary = models.TextField("შეჯამება")
+    details = models.JSONField(default=dict, editable=False)
+
+    class Meta:
+        ordering = ("-started_at", "-pk")
+        verbose_name = "EasyWay სინქრონიზაციის ანგარიში"
+        verbose_name_plural = "EasyWay სინქრონიზაციის ანგარიშები"
+
+    def __str__(self):
+        return f"EasyWay - {self.get_status_display()} - {self.started_at:%Y-%m-%d %H:%M}"
+
+
 class ProtectedFinancialQuerySet(models.QuerySet):
     def delete(self):
         raise ValidationError(

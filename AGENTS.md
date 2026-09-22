@@ -2,6 +2,13 @@
 
 ## EasyWay Tracking - 2026-09-22
 
+- EasyWay sync reports: `commerce.EasywaySyncReport`, local migration `0030` applied.
+  One private report per changed/problematic batch (or manual refresh), no empty,
+  dry-run, skipped-only or unchanged-success reports. Exact counts, up to 50 details,
+  safe order links, read-only admin with permission-controlled deletion. Report deletion
+  never changes orders/history. Deploy migration before updated command/admin use.
+  55 report/tracking/client/shipment tests pass; no remote API calls made for reports.
+
 - `commerce/easyway_tracking.py` reconciles carrier history into existing order
   statuses. No customer-facing carrier text or new public serializer fields.
 - `new` preserves the current order state; `taking` advances to processing;

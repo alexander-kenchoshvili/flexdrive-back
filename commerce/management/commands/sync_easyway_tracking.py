@@ -8,6 +8,7 @@ from django.utils import timezone
 from commerce.easyway_tracking import (
     TrackingError, due_tracking_orders, sync_easyway_tracking,
 )
+from commerce.easyway_reports import TrackingReport
 
 
 class Command(BaseCommand):
@@ -31,19 +32,26 @@ class Command(BaseCommand):
             return
         counts = {"synced": 0, "review": 0, "skipped": 0, "failed": 0}
         started = monotonic()
-        for order_id in ids:
-            if monotonic() - started >= options["max_seconds"]:
-                self.stdout.write("Time budget reached; remaining shipments will be retried next run.")
-                break
-            try:
-                result = sync_easyway_tracking(order_id, due_before=before)
-            except TrackingError:
-                counts["failed"] += 1
-                self.stderr.write(f"Order {order_id}: tracking failed; see admin.")
-            else:
-                counts[result] += 1
-                if result == "review":
-                    self.stderr.write(f"Order {order_id}: tracking requires review; see admin.")
+        report = TrackingReport(source="scheduled")
+        try:
+            for order_id in ids:
+                if monotonic() - started >= options["max_seconds"]:
+                    self.stdout.write("Time budget reached; remaining shipments will be retried next run.")
+                    break
+                try:
+                    result = sync_easyway_tracking(order_id, due_before=before, report=report)
+                except TrackingError:
+                    counts["failed"] += 1
+                    self.stderr.write(f"Order {order_id}: tracking failed; see admin.")
+                else:
+                    counts[result] += 1
+                    if result == "review":
+                        self.stderr.write(f"Order {order_id}: tracking requires review; see admin.")
+        except Exception:
+            report.run_error = "Tracking interrupted by an unexpected error; check job logs."
+            raise
+        finally:
+            report.save()
         self.stdout.write(" ".join(f"{key}={value}" for key, value in counts.items()))
         if counts["failed"] or counts["review"]:
             raise CommandError("Some shipments require attention; remaining shipments were processed.")

@@ -9,6 +9,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from .easyway import EasywayClient, EasywayError
+from .easyway_reports import TrackingReport
 from .models import EasywayShipmentState, Order, OrderPaymentStatus, OrderStatus
 
 
@@ -78,7 +79,28 @@ def parse_tracking(payload, *, max_entries=1000):
     ]
 
 
-def sync_easyway_tracking(order_id, *, client=None, due_before=None):
+def sync_easyway_tracking(order_id, *, client=None, due_before=None, report=None):
+    own_report = report is None
+    report = report if report is not None else TrackingReport(source="manual")
+    try:
+        result, detail = _sync_tracking(order_id, client=client, due_before=due_before)
+        report.record(result, detail)
+        return result
+    except TrackingError as exc:
+        order = Order.objects.only("order_number").get(pk=order_id)
+        report.record("failed", {
+            "order_id": order_id, "order_number": order.order_number, "error": str(exc),
+        })
+        raise
+    except Exception:
+        report.run_error = "Tracking interrupted by an unexpected error; check job logs."
+        raise
+    finally:
+        if own_report:
+            report.save()
+
+
+def _sync_tracking(order_id, *, client=None, due_before=None):
     now = timezone.now()
     token = uuid4()
     eligible = tracking_orders() if due_before is None else due_tracking_orders(before=due_before)
@@ -93,7 +115,7 @@ def sync_easyway_tracking(order_id, *, client=None, due_before=None):
         easyway_tracking_attempted_at=now,
     )
     if not claimed:
-        return "skipped"
+        return "skipped", None
     order = Order.objects.get(pk=order_id)
     carrier_id = order.easyway_order_id
     try:
@@ -122,7 +144,11 @@ def _apply_tracking(order_id, carrier_id, token, events):
     order = Order.objects.select_for_update().get(pk=order_id)
     if (order.easyway_tracking_token != token or order.easyway_order_id != carrier_id
             or order.delivery_provider != "easyway"):
-        return "skipped"
+        return "skipped", None
+    detail = {
+        "order_id": order.pk, "order_number": order.order_number,
+        "carrier_before": order.easyway_tracking_status, "order_before": order.status,
+    }
     history = parse_tracking(order.easyway_tracking_history + events, max_entries=2000)[-1000:]
     latest = history[-1]
     latest_time = parse_datetime(latest["created_at"])
@@ -163,4 +189,7 @@ def _apply_tracking(order_id, carrier_id, token, events):
                 fields += ["status", "updated_at"]
     order.easyway_tracking_error = issue
     order.save(update_fields=fields)
-    return "review" if issue else "synced"
+    detail.update(
+        carrier_after=order.easyway_tracking_status, order_after=order.status, error=issue,
+    )
+    return ("review" if issue else "synced"), detail

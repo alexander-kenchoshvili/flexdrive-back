@@ -6,7 +6,7 @@ from django.db import transaction
 from django.http import Http404, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
-from django.utils.html import format_html_join
+from django.utils.html import format_html, format_html_join
 
 from .bog_callbacks import BogCallbackError, reconcile_bog_payment
 from .bog_payments import BogPaymentError
@@ -29,6 +29,7 @@ from .models import (
     CheckoutAttempt,
     EasywayCity,
     EasywayRegion,
+    EasywaySyncReport,
     Order,
     OrderItem,
     OrderReceipt,
@@ -49,6 +50,51 @@ from .services import (
     transition_order_status,
 )
 from .supplier_stock import release_supplier_stock_hold
+
+
+@admin.register(EasywaySyncReport)
+class EasywaySyncReportAdmin(admin.ModelAdmin):
+    list_display = ("started_at", "source", "status", "summary", "finished_at")
+    list_filter = ("status", "source", "started_at")
+    search_fields = ("summary",)
+    date_hierarchy = "started_at"
+    readonly_fields = ("started_at", "finished_at", "source", "status", "summary", "report_details")
+    fields = readonly_fields
+    actions = ("delete_selected",)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="ცვლილებები და პრობლემები")
+    def report_details(self, obj):
+        from .easyway_reports import DETAIL_LIMIT
+
+        order_labels = {
+            "new": "ახალი", "confirmed": "დადასტურებულია", "processing": "მზადდება",
+            "shipped": "გზაშია", "delivered": "მიტანილია", "cancelled": "გაუქმებულია",
+        }
+        rows = format_html_join(
+            "", '<li><a href="{}">{}</a><br>შეკვეთა: {} → {}<br>'
+            'EasyWay: {} → {}<br>{}</li>',
+            (
+                (
+                    reverse("admin:commerce_order_change", args=[item["order_id"]]),
+                    item["order_number"],
+                    order_labels.get(item.get("order_before"), "—"),
+                    order_labels.get(item.get("order_after"), "—"),
+                    item.get("carrier_before") or "—", item.get("carrier_after") or "—",
+                    item.get("error", ""),
+                )
+                for item in obj.details.get("items", [])
+            ),
+        )
+        return format_html(
+            '<p>{}</p><ul>{}</ul><p>დეტალებში ნაჩვენებია მაქსიმუმ {} ჩანაწერი.</p>',
+            obj.details.get("run_error", ""), rows, DETAIL_LIMIT,
+        )
 
 
 def _bog_reconciliation_message_level(result):

@@ -71,8 +71,29 @@ abort the run. Process termination is recoverable after lease expiry.
 
 ## DigitalOcean App Platform activation
 
+### Sync reports
+
+Migration `commerce.0030_easyway_sync_report` adds **Commerce -> EasyWay
+სინქრონიზაციის ანგარიშები**. Apply it before using the updated command or admin
+refresh. Each scheduled batch gets one report only when carrier/order status changes
+or a failure/review occurs. Manual refreshes follow the same rule and show a separate
+source. Empty, skipped, dry-run and unchanged successful runs do not create reports.
+
+Reports contain exact checked/changed/review/failed/skipped counts, start/end times,
+and up to 50 significant order entries with links and old/new statuses. No customer
+contact data or raw provider error payloads are stored. Existing order tracking history
+remains separate. Read-only reports can be deleted through normal admin confirmation
+by users with delete permission; this cannot delete orders or change tracking.
+
+Reports are saved at batch completion, including on handled failures or ordinary
+exceptions after partial progress. They do not roll back successful order updates.
+Process termination or database outages may prevent saving a report; job logs remain
+necessary for diagnosing such failures. No external alerts or automatic cleanup added.
+55 report/tracking/client/shipment tests passed, including admin permissions, safe
+deletion, bounded details, partial failure, and overlapping tracking connections.
+
 1. Deploy the backend changes and apply `python manage.py migrate --noinput`,
-   including `commerce.0029_easyway_tracking`, before any scheduled execution.
+   including `commerce.0030_easyway_sync_report`, before any scheduled execution.
 2. In the production backend console run the dry-run above; review eligible test
    shipments before enabling the job. Use the admin refresh on a known test shipment.
 3. Add a **Job** component from the same backend source/branch/runtime.
