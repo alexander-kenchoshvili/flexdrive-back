@@ -619,6 +619,7 @@ class OrderItem(TimeStampedModel):
     )
     product_name = models.CharField(max_length=255)
     sku = models.CharField(max_length=64)
+    internal_sku = models.CharField("FlexDrive SKU at checkout", max_length=64, blank=True)
     unit_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -648,6 +649,11 @@ class OrderItem(TimeStampedModel):
                 name="commerce_order_item_quantity_positive",
             ),
         ]
+
+    @property
+    def display_sku(self):
+        # Historical orders retain their original identifier, even if the product changes.
+        return self.internal_sku or self.sku
 
     def __str__(self):
         return f"{self.product_name} x {self.quantity}"

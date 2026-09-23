@@ -33,6 +33,7 @@ from .bog_payments import (
     parse_bog_payment_details,
 )
 from .bog_refunds import request_bog_full_refund
+from .card_payments import _snapshot_hash
 from .delivery_quotes import build_delivery_quote
 from .models import (
     BuyNowSession,
@@ -130,6 +131,7 @@ class BogCallbackFlowTests(APITransactionTestCase):
             name="Callback brake disc",
             slug="callback-brake-disc",
             sku="CBD-100",
+            internal_sku="FD-03-0001",
             short_description="Brake disc",
             description="Brake disc",
             price=Decimal("90.00"),
@@ -420,7 +422,11 @@ class BogCallbackFlowTests(APITransactionTestCase):
         self._assert_company_vat_payment(False)
 
     def test_valid_completed_callback_creates_paid_order_once(self):
+        self.product.internal_sku = "FD-03-0001"
+        self.product.save(update_fields=["internal_sku"])
         cart, start_response, payment = self._start_cart_payment(quantity=2)
+        self.product.internal_sku = "FD-03-9999"
+        self.product.save(update_fields=["internal_sku"])
 
         response = self._signed_callback_request(
             self._callback_payload(payment)
@@ -440,6 +446,8 @@ class BogCallbackFlowTests(APITransactionTestCase):
         self.assertEqual(order.payment_method, OrderPaymentMethod.CARD)
         self.assertEqual(order.total, Decimal("180.00"))
         self.assertEqual(order.items.get().quantity, 2)
+        self.assertEqual(order.items.get().internal_sku, "FD-03-0001")
+        self.assertEqual(order.items.get().sku, self.product.sku)
         self.assertEqual(self.product.stock_qty, 1)
         self.assertEqual(reservation.status, StockReservationStatus.COMPLETED)
         self.assertEqual(reservation.completed_order, order)
@@ -866,7 +874,55 @@ class BogCallbackFlowTests(APITransactionTestCase):
         self.assertEqual(payment.status, PaymentTransactionStatus.PAID)
         self.assertEqual(Order.objects.count(), 1)
         self.assertEqual(self.product.stock_qty, 2)
+
         details_client.get_payment_details.assert_called_once_with(payment.provider_order_id)
+
+    def test_pre_sku_migration_payment_snapshot_can_still_finalize(self):
+        # Old in-flight payments have no FlexDrive code in their signed snapshot.
+        _, _, payment = self._start_cart_payment(quantity=1)
+        snapshot = payment.checkout_snapshot
+        snapshot.pop("integrity_hash")
+        for item in snapshot["items"]:
+            item.pop("internal_sku")
+        snapshot["integrity_hash"] = _snapshot_hash(snapshot)
+        PaymentTransaction.objects.filter(pk=payment.pk).update(checkout_snapshot=snapshot)
+        self.product.internal_sku = "FD-03-0001"
+        self.product.save(update_fields=["internal_sku"])
+        response = self._signed_callback_request(self._callback_payload(payment))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["result"], "completed")
+        item = Order.objects.get().items.get()
+        self.assertEqual(item.internal_sku, "")
+        self.assertEqual(item.display_sku, self.product.sku)
+
+    def test_cod_cart_snapshots_flexdrive_code(self):
+        self.product.internal_sku = "FD-03-0001"
+        self.product.save(update_fields=["internal_sku"])
+        cart = Cart.objects.create(user=self.user)
+        CartItem.objects.create(cart=cart, product=self.product, quantity=1, unit_price_snapshot=self.product.price)
+        payload = self._checkout_payload()
+        payload["payment_method"] = OrderPaymentMethod.CASH_ON_DELIVERY
+        response = self.client.post(reverse("commerce-order-checkout"), payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        item = Order.objects.get().items.get()
+        self.assertEqual(item.sku, self.product.sku)
+        self.assertEqual(item.internal_sku, "FD-03-0001")
+        self.assertEqual(response.data["items"][0]["display_sku"], "FD-03-0001")
+        self.provider_client.create_order.assert_not_called()
+
+    def test_cod_buy_now_snapshots_flexdrive_code(self):
+        self.product.internal_sku = "FD-03-0001"
+        self.product.save(update_fields=["internal_sku"])
+        session = BuyNowSession.objects.create(user=self.user, product=self.product, quantity=1, unit_price_snapshot=self.product.price)
+        payload = self._checkout_payload(source=OrderCheckoutSource.BUY_NOW, items=[session])
+        payload["payment_method"] = OrderPaymentMethod.CASH_ON_DELIVERY
+        response = self.client.post(reverse("commerce-buy-now-checkout"), payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        item = Order.objects.get().items.get()
+        self.assertEqual(item.sku, self.product.sku)
+        self.assertEqual(item.internal_sku, "FD-03-0001")
+        self.assertEqual(response.data["items"][0]["display_sku"], "FD-03-0001")
+        self.provider_client.create_order.assert_not_called()
 
     def test_scheduled_paid_payment_with_unavailable_stock_requires_review(self):
         from .payment_reconciliation import reconcile_scheduled_payment

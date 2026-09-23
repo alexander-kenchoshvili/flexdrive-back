@@ -19,6 +19,7 @@ from datetime import timedelta
 from common.cache_utils import CACHE_GROUP_CATALOG_CATEGORIES, invalidate_groups
 
 from .background_removal import remove_background_to_white
+from .internal_skus import assign_admin_sku, category_sequence
 
 from .models import (
     CUSTOMER_STOCK_RESERVE_QTY,
@@ -318,6 +319,7 @@ class CategoryAdmin(admin.ModelAdmin):
         "updated_at",
     )
     list_filter = ("is_active", "parent")
+    readonly_fields = ("sku_sequence",)
     search_fields = ("name", "slug")
     list_editable = ("sort_order", "markup_percent", "is_active")
     prepopulated_fields = {"slug": ("name",)}
@@ -333,6 +335,7 @@ class CategoryAdmin(admin.ModelAdmin):
                     "sort_order",
                     "markup_percent",
                     "is_active",
+                    "sku_sequence",
                 )
             },
         ),
@@ -469,11 +472,33 @@ class VehicleEngineAdmin(admin.ModelAdmin):
     )
 
 
+class ProductAdminForm(forms.ModelForm):
+    class Meta:
+        model = Product
+        fields = "__all__"
+
+    def clean(self):
+        data = super().clean()
+        category = data.get("category")
+        can_assign = category is not None and category_sequence(category) is not None
+        self.instance._admin_sku_pending = not self.instance.internal_sku and can_assign
+        return data
+
+
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
+    form = ProductAdminForm
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if "sku" in form.base_fields:
+            form.base_fields["sku"].label = "მომწოდებლის / არსებული SKU"
+            form.base_fields["sku"].help_text = "მხოლოდ შიდა ინტეგრაციებისთვის. FlexDrive SKU კატეგორიით შენახვისას ავტომატურად შეიქმნება."
+        return form
+
     list_display = (
         "name",
         "sku",
+        "internal_sku",
         "manufacturer_part_number",
         "brand",
         "category",
@@ -515,6 +540,7 @@ class ProductAdmin(admin.ModelAdmin):
     search_fields = (
         "name",
         "sku",
+        "internal_sku",
         "manufacturer_part_number",
         "slug",
         "brand__name",
@@ -594,6 +620,7 @@ class ProductAdmin(admin.ModelAdmin):
                     "name",
                     "slug",
                     "sku",
+                    "internal_sku",
                     "manufacturer_part_number",
                     "brand",
                     "category",
@@ -814,6 +841,7 @@ class ProductAdmin(admin.ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = list(super().get_readonly_fields(request, obj))
+        readonly_fields.append("internal_sku")
         if obj and obj.supplier_price is not None and "price" not in readonly_fields:
             readonly_fields.append("price")
         if (
@@ -827,7 +855,9 @@ class ProductAdmin(admin.ModelAdmin):
     def save_model(self, request, obj, form, change):
         if "status" in form.changed_data:
             obj.supplier_missing = False
-        super().save_model(request, obj, form, change)
+        with transaction.atomic():
+            assign_admin_sku(obj)
+            super().save_model(request, obj, form, change)
 
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
@@ -1055,7 +1085,10 @@ class ProductAdmin(admin.ModelAdmin):
 
     @admin.action(description="Publish selected products")
     def action_publish(self, request, queryset):
-        queryset.update(status=ProductStatus.PUBLISHED, supplier_missing=False)
+        if queryset.filter(Q(internal_sku__isnull=True) | Q(internal_sku="")).exists():
+            self.message_user(request, "ჯერ შეინახეთ თითოეული პროდუქტი საბოლოო კატეგორიით — საჭიროა FlexDrive SKU. არაფერი გამოქვეყნებულა.", level=messages.ERROR)
+            return
+        queryset.exclude(internal_sku__isnull=True).exclude(internal_sku="").update(status=ProductStatus.PUBLISHED, supplier_missing=False)
         transaction.on_commit(
             lambda: invalidate_groups(CACHE_GROUP_CATALOG_CATEGORIES)
         )

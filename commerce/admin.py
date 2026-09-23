@@ -197,7 +197,7 @@ class CartAdmin(admin.ModelAdmin):
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
-    fields = ("product_name", "sku", "unit_price", "quantity", "line_total")
+    fields = ("product_name", "sku", "internal_sku", "unit_price", "quantity", "line_total")
     readonly_fields = fields
     can_delete = False
 

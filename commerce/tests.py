@@ -1895,7 +1895,7 @@ class CommerceAPITests(APITestCase):
         self.assertEqual(len(response.data["items"]), 1)
         self.assertEqual(
             set(response.data["items"][0].keys()),
-            {"product_name", "sku", "unit_price", "quantity", "line_total", "primary_image"},
+            {"product_name", "sku", "display_sku", "unit_price", "quantity", "line_total", "primary_image"},
         )
         self.assertEqual(response.data["items"][0]["primary_image"]["alt_text"], "Vacuum image")
         for private_key in ("public_token", "email", "phone", "city", "address_line", "note"):

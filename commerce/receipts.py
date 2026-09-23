@@ -224,7 +224,7 @@ def build_receipt_snapshot(order, eligibility):
     items = [
         {
             "name": _safe_text(item.product_name),
-            "sku": _safe_text(item.sku),
+            "sku": _safe_text(item.display_sku),
             "unit_price": _money(item.unit_price),
             "quantity": int(item.quantity),
             "line_total": _money(item.line_total),

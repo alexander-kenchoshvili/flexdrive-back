@@ -63,6 +63,7 @@ class SupplierStockHoldTests(TestCase):
         return Product.objects.create(
             category=self.category,
             name=f"Product {sku}",
+            internal_sku=f"FD-08-{Product.objects.count() + 1:04d}",
             slug=f"product-{sku.lower()}",
             sku=sku,
             price=Decimal("100.00"),

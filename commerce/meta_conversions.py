@@ -205,7 +205,7 @@ def _build_custom_data(order):
 
 
 def _build_content_id(item):
-    return str(item.sku or item.product_id or "").strip()
+    return str(item.internal_sku or "").strip()
 
 
 def _decimal_to_float(value):

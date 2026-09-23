@@ -319,6 +319,7 @@ class CrossMotorsImportTests(TestCase):
             price=Decimal("10.00"),
             stock_qty=1,
             status=ProductStatus.PUBLISHED,
+            internal_sku="FD-01-0015",
         )
         report = build_crossmotors_report(
             [
@@ -363,6 +364,7 @@ class CrossMotorsImportTests(TestCase):
             seo_description="Manual SEO 2020-2024",
             preserve_manual_fitment_content=True,
             status=ProductStatus.PUBLISHED,
+            internal_sku="FD-01-0015",
         )
         ProductFitment.objects.create(
             product=product,
@@ -428,6 +430,7 @@ class CrossMotorsImportTests(TestCase):
             price=Decimal("10.00"),
             stock_qty=1,
             status=ProductStatus.PUBLISHED,
+            internal_sku="FD-01-0015",
         )
         report = build_crossmotors_report(
             [
@@ -542,6 +545,7 @@ class CrossMotorsImportTests(TestCase):
             price=Decimal("10.00"),
             stock_qty=1,
             status=ProductStatus.PUBLISHED,
+            internal_sku="FD-01-0015",
         )
         report = build_crossmotors_report(
             [
@@ -614,6 +618,7 @@ class CrossMotorsImportTests(TestCase):
             seo_description="Manual SEO 2020-2024",
             preserve_manual_fitment_content=True,
             status=ProductStatus.PUBLISHED,
+            internal_sku="FD-01-0015",
         )
         ProductFitment.objects.create(
             product=product,

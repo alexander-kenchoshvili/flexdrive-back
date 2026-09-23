@@ -60,7 +60,7 @@ def _resolve_product_seo_payload(request, product, primary_image=None):
         or (product.description or "").strip()
         or None
     )
-    canonical = product.seo_canonical_url or f"/catalog/{product.slug}"
+    canonical = product.public_canonical_url
     image = _absolute_file_url(request, product.seo_image)
 
     if not image and primary_image:
@@ -186,6 +186,9 @@ class ProductFitmentSerializer(serializers.ModelSerializer):
 
 
 class ProductListSerializer(serializers.ModelSerializer):
+    slug = serializers.CharField(source="public_slug", read_only=True)
+    sku = serializers.CharField(source="display_sku", read_only=True)
+    display_sku = serializers.CharField(read_only=True)
     brand = serializers.SerializerMethodField()
     category = serializers.SerializerMethodField()
     on_sale = serializers.SerializerMethodField()
@@ -205,6 +208,7 @@ class ProductListSerializer(serializers.ModelSerializer):
             "name",
             "slug",
             "sku",
+            "display_sku",
             "manufacturer_part_number",
             "short_description",
             "price",
@@ -332,6 +336,7 @@ class ProductSuggestionSerializer(ProductListSerializer):
             "name",
             "slug",
             "sku",
+            "display_sku",
             "manufacturer_part_number",
             "price",
             "price_available",
@@ -364,7 +369,7 @@ class ProductSuggestionSerializer(ProductListSerializer):
 
 class ProductDetailSerializer(ProductListSerializer):
     description = serializers.CharField()
-    sku = serializers.CharField()
+    sku = serializers.CharField(source="display_sku", read_only=True)
     stock_qty = serializers.SerializerMethodField()
     status = serializers.CharField()
     images = ProductImageSerializer(many=True, read_only=True)

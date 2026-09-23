@@ -1,11 +1,12 @@
 import os
+import re
 import uuid
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.core.exceptions import ValidationError
-from django.core.validators import MaxValueValidator, MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from django.contrib.postgres.indexes import GinIndex, OpClass
-from django.db import models
+from django.db import models, transaction
 from django.db.models import F, Q
 from django.db.models.functions import Upper
 from PIL import Image, ImageOps
@@ -43,7 +44,20 @@ class TimeStampedModel(models.Model):
         abstract = True
 
 
+class SkuSequence(models.Model):
+    code = models.CharField(max_length=2, primary_key=True, validators=[RegexValidator(r"\A[0-9]{2}\Z")])
+    last_number = models.PositiveIntegerField(default=0, editable=False)
+
+    def __str__(self):
+        return self.code
+
+
 class Category(TimeStampedModel):
+    sku_sequence = models.OneToOneField(
+        SkuSequence, on_delete=models.PROTECT, null=True, blank=True,
+        verbose_name="FlexDrive SKU ჯგუფი",
+        help_text="ქვეკატეგორია ავტომატურად იყენებს მთავარი კატეგორიის ჯგუფს.",
+    )
     STANDARDIZED_VARIANT_SPECS = {
         "image_desktop": ((1440, 1440), "desktop"),
         "image_tablet": ((1080, 1080), "tablet"),
@@ -426,6 +440,11 @@ class Product(TimeStampedModel):
     name = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255, unique=True)
     sku = models.CharField(max_length=64, unique=True)
+    internal_sku = models.CharField(
+        "FlexDrive SKU", max_length=64, blank=True, null=True, unique=True,
+        validators=[RegexValidator(r"\A[A-Z0-9][A-Z0-9._-]*\Z", "Use uppercase letters, digits, dots, underscores or hyphens.")],
+        help_text="Customer-facing code. The existing SKU remains the supplier/integration identifier.",
+    )
     manufacturer_part_number = models.CharField(max_length=120, blank=True)
     seo_title = models.CharField(max_length=255, blank=True, null=True)
     seo_description = models.TextField(blank=True, null=True)
@@ -551,6 +570,10 @@ class Product(TimeStampedModel):
         ordering = ("-created_at", "id")
         constraints = [
             models.CheckConstraint(
+                condition=~Q(status="published") | (Q(internal_sku__isnull=False) & ~Q(internal_sku="")),
+                name="catalog_published_requires_sku",
+            ),
+            models.CheckConstraint(
                 condition=Q(price__gte=Decimal("0.00")),
                 name="catalog_product_price_nonnegative",
             ),
@@ -597,6 +620,8 @@ class Product(TimeStampedModel):
         ]
 
     def clean(self):
+        if self.status == ProductStatus.PUBLISHED and not self.internal_sku and not getattr(self, "_admin_sku_pending", False):
+            raise ValidationError({"status": "გამოქვეყნებამდე საჭიროა FlexDrive SKU."})
         if self.supplier_price is not None:
             self.price = self.calculate_customer_price()
 
@@ -610,7 +635,14 @@ class Product(TimeStampedModel):
                 }
             )
 
+    @transaction.atomic
     def save(self, *args, **kwargs):
+        existing_code = None
+        if self.pk and not self._state.adding:
+            existing_code = type(self).objects.select_for_update().filter(pk=self.pk).values_list("internal_sku", flat=True).first()
+            if existing_code:
+                # A stale importer/admin instance must never clear or replace a code.
+                self.internal_sku = existing_code
         pricing_update_fields = {
             "supplier_price",
             "markup_percent_override",
@@ -635,6 +667,27 @@ class Product(TimeStampedModel):
                 kwargs["update_fields"] = list(update_field_set)
 
         super().save(*args, **kwargs)
+
+        if self.internal_sku and not existing_code:
+            match = re.fullmatch(r"FD-([0-9]{2})-([0-9]+)", self.internal_sku)
+            if match:
+                SkuSequence.objects.filter(pk=match[1], last_number__lt=int(match[2])).update(last_number=int(match[2]))
+
+    @property
+    def display_sku(self):
+        return self.internal_sku or ""
+
+    @property
+    def public_slug(self):
+        if not self.internal_sku:
+            return ""
+        stem = re.sub(re.escape(self.sku), "", self.slug, flags=re.IGNORECASE).strip("-")
+        return f"{stem}-{self.internal_sku.lower()}" if stem else self.internal_sku.lower()
+
+    @property
+    def public_canonical_url(self):
+        canonical = self.seo_canonical_url or f"/catalog/{self.public_slug}"
+        return canonical.replace(f"/catalog/{self.slug}", f"/catalog/{self.public_slug}")
 
     @property
     def customer_available_stock_qty(self):

@@ -33,6 +33,7 @@ class SupplierPublicationTests(TestCase):
     def product(self, code, status=ProductStatus.PUBLISHED, **extra):
         return Product.objects.create(
             name=code, sku=f"CM-{code}", slug=f"sync-{code}",
+            internal_sku=f"FD-01-{Product.objects.count() + 1:04d}",
             category=self.category, price=50, stock_qty=4, status=status, **extra,
         )
 
@@ -47,6 +48,8 @@ class SupplierPublicationTests(TestCase):
         product.refresh_from_db()
         self.assertEqual(product.status, ProductStatus.DRAFT)
         self.assertEqual(product.stock_qty, 20)
+        product.internal_sku = "FD-01-0001"
+        product.save(update_fields=["internal_sku"])
         ProductAdmin(Product, AdminSite()).action_publish(None, Product.objects.filter(pk=product.pk))
         self.sync([feed_item(qty=8)])
         product.refresh_from_db()
@@ -161,6 +164,7 @@ class SupplierCommandTests(TestCase):
         category = Category.objects.create(name="Keep", slug="keep")
         product = Product.objects.create(
             category=category, name="Keep", slug="keep", sku="CM-000015",
+            internal_sku="FD-01-0001",
             price=50, stock_qty=4, status=ProductStatus.PUBLISHED,
         )
         with self.assertRaises(CommandError):

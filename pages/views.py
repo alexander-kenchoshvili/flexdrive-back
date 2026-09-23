@@ -376,7 +376,7 @@ class SitemapEntriesAPIView(APIView):
         )
         for product in product_queryset:
             loc = _normalize_sitemap_loc(
-                product.seo_canonical_url or f"/catalog/{product.slug}"
+                product.public_canonical_url
             )
             if not loc:
                 continue

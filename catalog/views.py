@@ -1,4 +1,6 @@
 from decimal import Decimal, InvalidOperation
+import re
+from django.http import Http404
 
 from django.db.models import Case, Count, F, IntegerField, Max, Min, Prefetch, Q, When
 from django.db.models.functions import Length
@@ -292,7 +294,7 @@ def _product_search_filter(search_terms, include_descriptions=False):
     for term in search_terms:
         term_query = (
             Q(name__icontains=term)
-            | Q(sku__icontains=term)
+            | Q(internal_sku__icontains=term)
             | Q(manufacturer_part_number__icontains=term)
         )
         if include_descriptions:
@@ -375,14 +377,14 @@ def _search_relevance_annotations(search_context):
     for term in relevance_terms:
         identifier_match_whens.extend(
             [
-                When(sku__iexact=term, then=3),
+                When(internal_sku__iexact=term, then=3),
                 When(manufacturer_part_number__iexact=term, then=3),
             ]
         )
         startswith_match_whens.extend(
             [
                 When(name__istartswith=term, then=2),
-                When(sku__istartswith=term, then=1),
+                When(internal_sku__istartswith=term, then=1),
                 When(manufacturer_part_number__istartswith=term, then=1),
             ]
         )
@@ -1156,6 +1158,21 @@ class ProductSuggestionAPIView(generics.ListAPIView):
 
 
 class ProductDetailAPIView(generics.RetrieveAPIView):
+    def get_object(self):
+        requested = self.kwargs["slug"]
+        lookup = Q(slug=requested)
+        match = re.search(r"(?:^|-)fd-([0-9]{2})-([0-9]+)$", requested)
+        if match:
+            lookup |= Q(internal_sku=f"FD-{match[1]}-{match[2]}")
+        candidates = list(self.filter_queryset(self.get_queryset()).filter(lookup))
+        obj = next((p for p in candidates if p.public_slug == requested), None)
+        if obj is None:
+            obj = next((p for p in candidates if p.slug == requested), None)
+        if obj is None:
+            raise Http404
+        self.check_object_permissions(self.request, obj)
+        return obj
+
     serializer_class = ProductDetailSerializer
     lookup_field = "slug"
     vehicle_filter = None

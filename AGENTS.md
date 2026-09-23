@@ -1,5 +1,46 @@
 # Project Instructions
 
+## FlexDrive Internal SKUs - 2026-09-23
+
+- Existing `Product.sku` remains PRIVATE supplier/legacy identity for imports,
+  comparisons, supplier API and image transfer. Public product/cart/buy-now `sku`
+  and `display_sku` expose ONLY `internal_sku`, with no supplier fallback. Public
+  search no longer matches supplier SKU. Admin shows/searches both codes.
+- Browser analytics and server Meta purchase IDs use company SKU. New BOG basket
+  IDs also use company SKU; private payment/order snapshots preserve both codes.
+- Root category groups 01–08 match the supplied workbook. Children inherit root
+  group. `SkuSequence` retains high-water marks; admin save with a mapped category
+  assigns `FD-XX-NNNN` atomically. Imports never allocate. Company code is readonly
+  in admin and survives category changes/stale saves. Deleted numbers are not reused.
+  Publishing without a company SKU is blocked in form, bulk action and database.
+- Public slugs/canonicals/sitemap use FD codes. Stored slugs stay unchanged and old
+  links still resolve. Do not expose the stored supplier-bearing slug publicly.
+- Local migrations `catalog.0022`–`0024` and `commerce.0032` applied; 2,037 pairs from
+  `FlexDrive_Prices_Paired_Updated.xlsx` imported locally, all matching, no conflicts.
+  Existing values across all 26 catalog/commerce tables verified unchanged.
+  Staging subsequently prepared with catalog.0022–0024 and commerce.0032, all
+  2,037 workbook mappings imported. Existing staging test1234 assigned FD-01-0216
+  from its lighting category; group 01 counter is now 216. Other existing product,
+  category and order values verified unchanged by hashes in one transaction.
+  Staging commerce_orderitem.internal_sku has SQL DEFAULT '' for old deployed
+  checkout compatibility until code deployment. No code push/deploy performed;
+  production untouched. Unrelated pending pages migration was not applied.
+- `import_internal_skus --input <xlsx>` is dry-run by default; `--commit` fills
+  unassigned codes atomically. It refuses duplicates, missing products, collisions
+  and replacement of existing assignments. Only SKU columns are read for import.
+  Supplier refreshes preserve assigned codes. Import also advances group counters.
+- New COD/card orders snapshot both codes. Old orders/receipts and pre-migration
+  payment snapshots retain original identifiers; no historical backfill. Admin
+  supports both codes. See `docs/INTERNAL_SKUS.md` for rollout and verification.
+- Latest verification: 153 focused tests passed, then 11 allocation/URL tests passed
+  after extra sitemap/group coverage; PostgreSQL concurrency test skipped on SQLite.
+  Frontend typecheck passed. Broader legacy tests have stock,
+  delivery and catalog expectation failures; representative failures reproduced on
+  unmodified HEAD; old Published-product fixtures now also need company codes.
+  Browser and production PostgreSQL verification remain pending.
+- On remote rollout apply catalog 0023 and commerce 0032, import reviewed SKU mapping,
+  then catalog 0024. The latter refuses Published products without company codes.
+
 ## Payment Reconciliation Preparation - 2026-09-23
 
 - User authorized preparing monitoring now; cron activation remains deferred.

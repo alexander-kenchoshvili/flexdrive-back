@@ -641,10 +641,11 @@ def _build_checkout_snapshot(
         items.append(
             {
                 "product_id": product.pk,
-                "provider_product_id": str(product.sku or product.pk),
+                "provider_product_id": product.display_sku,
                 "source_item_id": cart_item_ids.get(product.pk),
                 "product_name": product.name,
                 "sku": product.sku,
+                "internal_sku": product.internal_sku or "",
                 "unit_price": _decimal_string(
                     reservation_item.unit_price_snapshot
                 ),

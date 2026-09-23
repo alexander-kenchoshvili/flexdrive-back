@@ -499,7 +499,7 @@ def _apply_supplier_publication(product, *, created):
     if created:
         product.status = ProductStatus.DRAFT
     elif product.status == ProductStatus.ARCHIVED and product.supplier_missing:
-        product.status = ProductStatus.PUBLISHED
+        product.status = ProductStatus.PUBLISHED if product.internal_sku else ProductStatus.DRAFT
     product.supplier_missing = False
 
 

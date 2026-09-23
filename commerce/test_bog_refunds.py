@@ -62,6 +62,7 @@ class BogRefundFlowTests(TestCase):
             name="Refund brake pad",
             slug="refund-brake-pad",
             sku="RBP-100",
+            internal_sku="FD-03-0200",
             short_description="Brake pad",
             description="Brake pad",
             price=Decimal("100.00"),

@@ -69,7 +69,7 @@ class SharedCloudinaryStorageTests(SimpleTestCase):
 class ProductImageTransferTests(TestCase):
     def setUp(self):
         category = Category.objects.create(name="Parts", slug="transfer-parts")
-        self.source = Product.objects.create(sku="CM-source", slug="source", name="Source", category=category, price=99, stock_qty=8, status="published")
+        self.source = Product.objects.create(sku="CM-source", internal_sku="FD-01-0001", slug="source", name="Source", category=category, price=99, stock_qty=8, status="published")
         ProductImage.objects.bulk_create([
             ProductImage(
                 product=self.source, image_original="v1783414000/catalog/source/original.jpg",

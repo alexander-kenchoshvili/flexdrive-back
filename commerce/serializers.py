@@ -332,9 +332,10 @@ class OrderLookupSerializer(serializers.Serializer):
 
 class CartItemSerializer(serializers.ModelSerializer):
     product_id = serializers.IntegerField(source="product.id", read_only=True)
-    slug = serializers.CharField(source="product.slug", read_only=True)
+    slug = serializers.CharField(source="product.public_slug", read_only=True)
     name = serializers.CharField(source="product.name", read_only=True)
-    sku = serializers.CharField(source="product.sku", read_only=True)
+    sku = serializers.CharField(source="product.display_sku", read_only=True)
+    display_sku = serializers.CharField(source="product.display_sku", read_only=True)
     category = serializers.SerializerMethodField()
     price = serializers.DecimalField(source="product.price", max_digits=10, decimal_places=2, read_only=True)
     price_snapshot = serializers.DecimalField(
@@ -368,6 +369,7 @@ class CartItemSerializer(serializers.ModelSerializer):
             "slug",
             "name",
             "sku",
+            "display_sku",
             "category",
             "price",
             "price_snapshot",
@@ -444,9 +446,10 @@ class BuyNowIssueSerializer(serializers.Serializer):
 
 class BuyNowSessionSerializer(serializers.ModelSerializer):
     product_id = serializers.IntegerField(source="product.id", read_only=True)
-    slug = serializers.CharField(source="product.slug", read_only=True)
+    slug = serializers.CharField(source="product.public_slug", read_only=True)
     name = serializers.CharField(source="product.name", read_only=True)
-    sku = serializers.CharField(source="product.sku", read_only=True)
+    sku = serializers.CharField(source="product.display_sku", read_only=True)
+    display_sku = serializers.CharField(source="product.display_sku", read_only=True)
     price = serializers.DecimalField(source="product.price", max_digits=10, decimal_places=2, read_only=True)
     price_snapshot = serializers.DecimalField(
         source="unit_price_snapshot",
@@ -476,6 +479,7 @@ class BuyNowSessionSerializer(serializers.ModelSerializer):
             "slug",
             "name",
             "sku",
+            "display_sku",
             "price",
             "price_snapshot",
             "quantity",
@@ -527,7 +531,7 @@ class WishlistItemSerializer(serializers.ModelSerializer):
     product_id = serializers.IntegerField(source="product.id", read_only=True)
     saved_at = serializers.DateTimeField(source="created_at", read_only=True)
     name = serializers.CharField(source="product.name", read_only=True)
-    slug = serializers.CharField(source="product.slug", read_only=True)
+    slug = serializers.CharField(source="product.public_slug", read_only=True)
     short_description = serializers.CharField(source="product.short_description", read_only=True)
     price = serializers.DecimalField(source="product.price", max_digits=10, decimal_places=2, read_only=True)
     old_price = serializers.DecimalField(
@@ -580,6 +584,8 @@ class WishlistItemSerializer(serializers.ModelSerializer):
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
+    sku = serializers.CharField(source="display_sku", read_only=True)
+    display_sku = serializers.CharField(read_only=True)
     unit_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     line_total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     primary_image = serializers.SerializerMethodField()
@@ -590,6 +596,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
             "id",
             "product_name",
             "sku",
+            "display_sku",
             "unit_price",
             "quantity",
             "line_total",
@@ -603,6 +610,8 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 
 class OrderLookupItemSerializer(serializers.ModelSerializer):
+    sku = serializers.CharField(source="display_sku", read_only=True)
+    display_sku = serializers.CharField(read_only=True)
     unit_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     line_total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     primary_image = serializers.SerializerMethodField()
@@ -612,6 +621,7 @@ class OrderLookupItemSerializer(serializers.ModelSerializer):
         fields = (
             "product_name",
             "sku",
+            "display_sku",
             "unit_price",
             "quantity",
             "line_total",
