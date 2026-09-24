@@ -91,7 +91,25 @@ Staging `commerce_orderitem.internal_sku` has an additional SQL default of empty
 string so the still-deployed old checkout can insert order items until deployment.
 No credentials were stored in files. Automatic staging deployment can remain
 enabled; deploy backend then frontend. Code has not been pushed or deployed by
-the agent. Production still needs the preparation described above.
+the agent. Production preparation is recorded below.
+
+## Production preparation, 2026-09-23
+
+Applied catalog 0022–0024 and commerce 0031–0032 in one PostgreSQL transaction.
+All 2,030 existing production products received their exact workbook codes, with
+no Published product left without a code. Seven workbook products do not exist in
+production and were not created: CM-000537, CM-000860, CM-000974, CM-000975,
+CM-001065, CM-001155, CM-001156. Sequence high-water marks use the full workbook
+maxima so their numbers cannot be automatically reused. If these products return,
+assign their reviewed original workbook mapping explicitly before publication.
+
+Existing product/category/order/order-item values were verified unchanged using
+hashes before commit, excluding newly added fields. SQL DEFAULT '' was set on
+commerce_orderitem.internal_sku and commerce_paymenttransaction.reconciliation_issue
+to preserve inserts from the older deployed code. No supplier/bank/email calls,
+scheduler activation, or code deployment occurred. Credentials were passed only
+in the temporary process environment. Deploy backend then frontend and verify
+the public catalog, search, URLs, and checkout afterward.
 
 ## Local verification, 2026-09-23
 

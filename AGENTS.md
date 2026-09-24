@@ -23,8 +23,18 @@
   from its lighting category; group 01 counter is now 216. Other existing product,
   category and order values verified unchanged by hashes in one transaction.
   Staging commerce_orderitem.internal_sku has SQL DEFAULT '' for old deployed
-  checkout compatibility until code deployment. No code push/deploy performed;
-  production untouched. Unrelated pending pages migration was not applied.
+  checkout compatibility until code deployment. No code push/deploy performed by
+  the agent. Unrelated pending pages migration was not applied.
+- Production subsequently prepared: catalog.0022–0024 and commerce.0031–0032 applied
+  atomically; all 2,030 existing products received their exact workbook codes.
+  Seven workbook products absent from production were not created: CM-000537,
+  CM-000860, CM-000974, CM-000975, CM-001065, CM-001155, CM-001156. Counters use the
+  full workbook maxima, protecting these numbers from reuse. On return, assign their
+  reviewed original mapping explicitly. Old product/category/order/order-item values
+  verified unchanged by hashes. Production SQL defaults '' on orderitem.internal_sku
+  and paymenttransaction.reconciliation_issue preserve old deployed insert behavior.
+  No cron, bank/email call, or code deployment performed. Backend then frontend
+  deployment and browser verification remain outstanding.
 - `import_internal_skus --input <xlsx>` is dry-run by default; `--commit` fills
   unassigned codes atomically. It refuses duplicates, missing products, collisions
   and replacement of existing assignments. Only SKU columns are read for import.
@@ -49,7 +59,8 @@
 - Migration `commerce.0031_payment_reconciliation_monitoring` adds operational
   lease/attempt/issue/notification fields. Deploy migrations before command/admin use.
   Applied locally; 90 targeted monitoring/callback/payment/refund tests passed
-  (including the added lease-expiry case). Remote migration remains pending.
+  (including the added lease-expiry case). Migration 0031 also confirmed on staging
+  and applied on production during SKU preparation; scheduler remains disabled.
 - Empty/dry-run batches make no bank requests or send emails. Paid-without-order
   and missing-bank-ID cases require admin review, not blind order recreation.
 - Per-payment leases, apply-time locking and state rechecks protect overlapping
