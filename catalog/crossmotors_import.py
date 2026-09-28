@@ -1154,7 +1154,7 @@ def _calculate_customer_price(product, category):
     markup_percent = (
         product.markup_percent_override
         if product.markup_percent_override is not None
-        else category.markup_percent
+        else Decimal("0.00")
     )
     multiplier = Decimal("1.00") + (Decimal(str(markup_percent or Decimal("0.00"))) / Decimal("100"))
     return (Decimal(str(product.supplier_price)) * multiplier).quantize(

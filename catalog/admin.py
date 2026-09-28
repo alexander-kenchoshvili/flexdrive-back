@@ -13,7 +13,7 @@ from django.utils import timezone
 from django.utils.html import format_html, format_html_join
 from django.utils.http import urlencode
 from PIL import Image, ImageOps
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import timedelta
 
 from common.cache_utils import CACHE_GROUP_CATALOG_CATEGORIES, invalidate_groups
@@ -312,7 +312,6 @@ class CategoryAdmin(admin.ModelAdmin):
         "slug",
         "parent",
         "sort_order",
-        "markup_percent",
         "has_shipping_defaults",
         "is_active",
         "has_image",
@@ -321,7 +320,7 @@ class CategoryAdmin(admin.ModelAdmin):
     list_filter = ("is_active", "parent")
     readonly_fields = ("sku_sequence",)
     search_fields = ("name", "slug")
-    list_editable = ("sort_order", "markup_percent", "is_active")
+    list_editable = ("sort_order", "is_active")
     prepopulated_fields = {"slug": ("name",)}
     ordering = ("sort_order", "name")
     fieldsets = (
@@ -333,7 +332,6 @@ class CategoryAdmin(admin.ModelAdmin):
                     "slug",
                     "parent",
                     "sort_order",
-                    "markup_percent",
                     "is_active",
                     "sku_sequence",
                 )
@@ -396,31 +394,6 @@ class CategoryAdmin(admin.ModelAdmin):
             )
         )
 
-    def save_model(self, request, obj, form, change):
-        previous_markup = None
-        if change and obj.pk:
-            previous_markup = (
-                type(obj)
-                .objects.filter(pk=obj.pk)
-                .values_list("markup_percent", flat=True)
-                .first()
-            )
-
-        super().save_model(request, obj, form, change)
-
-        if previous_markup is not None and previous_markup != obj.markup_percent:
-            self._recalculate_category_product_prices(obj)
-
-    @staticmethod
-    def _recalculate_category_product_prices(category):
-        for product in category.products.filter(
-            supplier_price__isnull=False,
-            markup_percent_override__isnull=True,
-        ).select_related("category"):
-            product.price = product.calculate_customer_price()
-            product.save(update_fields=["price", "updated_at"])
-
-
 @admin.register(Brand)
 class BrandAdmin(admin.ModelAdmin):
     list_display = ("name", "slug", "sort_order", "is_active", "updated_at")
@@ -472,16 +445,108 @@ class VehicleEngineAdmin(admin.ModelAdmin):
     )
 
 
+class MarkupDisplayInput(forms.NumberInput):
+    def format_value(self, value):
+        if value not in (None, ""):
+            try:
+                value = Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            except (ArithmeticError, ValueError):
+                pass
+        return super().format_value(value)
+
+
 class ProductAdminForm(forms.ModelForm):
+    pricing_input = forms.ChoiceField(
+        choices=(("", "Automatic"), ("price", "Price"), ("markup", "Markup"), ("supplier", "Supplier")),
+        required=False,
+        widget=forms.HiddenInput,
+    )
+
     class Meta:
         model = Product
         fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if "price" in self.fields:
+            self.fields["price"].required = False
+            self.fields["price"].label = "ჩვენი გასაყიდი ფასი (₾)"
+            self.fields["price"].help_text = (
+                "თანხის ჩაწერა ავტომატურად ითვლის ინდივიდუალურ ფასნამატს. "
+                "მომწოდებლის ფასის ცვლილებისას შენარჩუნდება ფასნამატის პროცენტი."
+            )
+        if "markup_percent_override" in self.fields:
+            exact = self.initial.get("markup_percent_override")
+            if self.is_bound:
+                submitted = self.data.get(self.add_prefix("markup_percent_override"))
+                try:
+                    rounded_initial = Decimal(str(exact or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    if self.data.get(self.add_prefix("pricing_input")) == "markup" or Decimal(submitted or "0") != rounded_initial:
+                        exact = submitted
+                except (ArithmeticError, ValueError):
+                    pass
+            self.fields["markup_percent_override"].widget = MarkupDisplayInput(attrs={
+                "step": "0.01", "data-exact-markup": str(exact or 0),
+            })
+            self.fields["markup_percent_override"].label = "ინდივიდუალური ფასნამატი (%)"
+            self.fields["markup_percent_override"].help_text = (
+                "პროცენტის შეცვლა განაახლებს გასაყიდ ფასს. "
+                "ცარიელი ველი ნიშნავს 0%-ს. კატეგორია ფასზე არ მოქმედებს."
+            )
 
     def clean(self):
         data = super().clean()
         category = data.get("category")
         can_assign = category is not None and category_sequence(category) is not None
         self.instance._admin_sku_pending = not self.instance.internal_sku and can_assign
+        supplier = data.get("supplier_price")
+        price = data.get("price")
+        mode = data.get("pricing_input")
+        original_markup = self.initial.get("markup_percent_override")
+        submitted_markup = data.get("markup_percent_override")
+        markup_changed = "markup_percent_override" in self.changed_data
+        if original_markup is not None and submitted_markup is not None:
+            original_markup = Decimal(str(original_markup))
+            if mode != "markup" and submitted_markup == original_markup.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP):
+                # Display rounding is not an edit. Never replace the stored
+                # precision when saving another field or changing supplier cost.
+                data["markup_percent_override"] = original_markup
+                markup_changed = False
+        # Also support submissions without JavaScript: an edited price alone
+        # selects amount entry; an edited markup takes precedence otherwise.
+        from_price = mode == "price" or (
+            not mode and "price" in self.changed_data
+            and not markup_changed
+        )
+        if data.get("markup_percent_override") is None and "markup_percent_override" not in self.errors:
+            data["markup_percent_override"] = Decimal("0")
+        if supplier is None:
+            if price is None and "price" not in self.errors:
+                self.add_error("price", "შეიყვანეთ გასაყიდი ფასი.")
+        elif from_price:
+            if price is None:
+                if "price" not in self.errors:
+                    self.add_error("price", "შეიყვანეთ გასაყიდი ფასი.")
+            elif supplier == 0:
+                if price != 0:
+                    self.add_error("price", "ფასნამატის გამოსათვლელად მომწოდებლის ფასი უნდა იყოს ნულზე მეტი.")
+            else:
+                markup = (price / supplier - Decimal("1")) * Decimal("100")
+                if not Decimal("0") <= markup <= Decimal("1000"):
+                    self.add_error("price", "გასაყიდი ფასი უნდა შეესაბამებოდეს 0–1000% ფასნამატს.")
+                else:
+                    # Ten decimal places preserve cent-exact amount entry even
+                    # at the largest supported supplier price.
+                    data["markup_percent_override"] = markup.quantize(
+                        Decimal("0.0000000001"), rounding=ROUND_HALF_UP,
+                    )
+        elif "supplier_price" not in self.errors:
+            markup = data.get("markup_percent_override")
+            if markup is None:
+                markup = Decimal("0")
+            data["price"] = (supplier * (1 + markup / Decimal("100"))).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP,
+            )
         return data
 
 
@@ -559,7 +624,6 @@ class ProductAdmin(admin.ModelAdmin):
     )
     readonly_fields = (
         "supplier_missing",
-        "category_markup_readonly",
         "effective_markup_percent_readonly",
         "calculated_customer_price_readonly",
         "on_sale_readonly",
@@ -646,8 +710,8 @@ class ProductAdmin(admin.ModelAdmin):
             "Pricing",
             {
                 "fields": (
+                    "pricing_input",
                     "supplier_price",
-                    "category_markup_readonly",
                     "markup_percent_override",
                     "calculated_customer_price_readonly",
                     "price",
@@ -807,12 +871,6 @@ class ProductAdmin(admin.ModelAdmin):
             return 0
         return obj.customer_available_stock_qty
 
-    @admin.display(description="Category markup")
-    def category_markup_readonly(self, obj):
-        if not obj or not obj.category_id:
-            return "0.00%"
-        return f"{obj.category.markup_percent:.2f}%"
-
     @admin.display(description="Applied markup")
     def effective_markup_percent_readonly(self, obj):
         if not obj:
@@ -842,8 +900,6 @@ class ProductAdmin(admin.ModelAdmin):
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = list(super().get_readonly_fields(request, obj))
         readonly_fields.append("internal_sku")
-        if obj and obj.supplier_price is not None and "price" not in readonly_fields:
-            readonly_fields.append("price")
         if (
             obj
             and obj.supplier_source == ProductSupplierSource.CROSS_MOTORS

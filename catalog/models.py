@@ -467,15 +467,16 @@ class Product(TimeStampedModel):
         help_text="Private supplier cost. Customer-facing price is calculated from this value and markup.",
     )
     markup_percent_override = models.DecimalField(
-        max_digits=7,
-        decimal_places=2,
+        max_digits=14,
+        decimal_places=10,
+        default=Decimal("0.00"),
         blank=True,
         null=True,
         validators=[
             MinValueValidator(Decimal("0.00")),
             MaxValueValidator(Decimal("1000.00")),
         ],
-        help_text="Optional product-specific markup percentage. Leave empty to use the category markup.",
+        help_text="Individual product markup percentage. Empty means 0%; categories do not affect prices.",
     )
     old_price = models.DecimalField(
         max_digits=10,
@@ -717,10 +718,6 @@ class Product(TimeStampedModel):
     def effective_markup_percent(self):
         if self.markup_percent_override is not None:
             return self.markup_percent_override
-
-        category = getattr(self, "category", None)
-        if category is not None:
-            return category.markup_percent
 
         return Decimal("0.00")
 

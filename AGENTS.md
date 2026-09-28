@@ -1,5 +1,34 @@
 # Project Instructions
 
+## Domain Cutover Decision - 2026-09-28
+
+- User deferred BOG reconciliation scheduler setup until migration to flexdrive.ge; do not provision it before that stage.
+- flexdrive.ge must initially remain restricted to authorized testers, not publicly open. Establish and verify access protection before exposing the domain; noindex alone is not access control. Account for direct hosting URLs and required bank/provider callbacks without exposing the storefront.
+- After restricted domain cutover, update domain-dependent configuration/URLs (frontend/backend origins, OAuth redirects, reCAPTCHA, email links, bank redirects/callback where applicable), configure payment reconciliation scheduler, and complete deferred integration/analytics checks before public launch.
+- Cross Motors category-warning investigation confirmed existing category assignments are preserved; new supplier products are created Draft in category "ახალი" for manual categorization. Warning text is misleading, not evidence of category reassignment. No importer code or data changed during review.
+
+## Production Progress Confirmed by User - 2026-09-28
+
+- Live browser audit on 2026-09-28: backend app has only two Job components, crossmotors-sync and easyway-tracking; no BOG reconciliation job in this app or its displayed job history. An external scheduler was not checked.
+- Both triggers are `0 0 * * *` in Asia/Tbilisi, while wrappers calculate UTC dates. This differs from documented UTC trigger: EasyWay first due execution is October 3 at local midnight, rather than October 2 UTC. Normalize timezone before relying on documented due dates.
+- Latest Cross Motors scheduled run succeeded September 28 local time: 2030 updated, 0 created, 0 archived; category inference warnings remain in log for separate review.
+- Latest EasyWay run succeeded by skipping under the ten-day wrapper; actual Django tracking command/provider/DB access is not proved by that skip. Neither job has component alert policies; app alerts shown were Failed Deployment and Failed Domain Configuration only.
+- Audit was read-only: no job created, triggered, or schedule changed.
+
+- User confirms contact and receipt environment variables were added last week.
+- User observed successful Cross Motors sync reports in production admin; sync runs successfully at the longer pre-launch interval. Reduce cadence at launch as planned.
+- User has not created orders/payments for current verification. No EasyWay report is expected for empty/skipped/unchanged successful scheduled runs.
+- User recalls enabling payment reconciliation cron, but current live scheduler configuration and execution have not been verified. Do not state it is disabled solely from older preparation documents. Payment reconciliation stores per-payment issue/attempt fields and optional problem emails, not a batch report for every execution.
+- Older handoff/deployment documents contain historical setup status; reconcile with these confirmations and live evidence before proposing repeated setup.
+
+## Production Analytics Follow-up - 2026-09-24
+
+- Existing GTM container GTM-MVNFL9TH and GA4 stream G-CKQC30CKYJ are reused for production; no separate property/container is required by the current plan.
+- Production frontend GTM ID was corrected and deployed. Browser confirmed GTM, GA4 and Meta Pixel script loading, not end-to-end event delivery.
+- User explicitly deferred full analytics verification until migration to flexdrive.ge and completion of site flows. Revisit page views/search/product/cart/checkout events, paid purchase values/company SKUs and browser/server deduplication then.
+- Cookie consent handling/revocation remains outstanding; do not treat script loading as completion of analytics readiness.
+- Cash-on-delivery is disabled by product decision and excluded from this verification scope.
+
 ## FlexDrive Internal SKUs - 2026-09-23
 
 - Existing `Product.sku` remains PRIVATE supplier/legacy identity for imports,
@@ -452,3 +481,28 @@ This file exists so the project context does not need to be re-explained in ever
   Instructions: `docs/SHARED_CLOUDINARY_IMAGES.md`. No schema migration required.
 - Prepared/tested locally (25 image/storage tests); no remote deploy, image import,
   upload or Cloudinary configuration change has been performed by the agent.
+
+## Individual Product Pricing - 2026-09-28
+
+- User chose product-only markup: category markup no longer participates in admin,
+  model or supplier-import pricing. Legacy category column retained unused for
+  compatibility. No bulk price-setting action and no pricing-pending UI requested.
+- Admin accepts customer amount or percentage with bidirectional live calculation
+  and server-side verification. Supplier updates retain the individual percentage:
+  supplier 100/customer 120 -> 20%; later supplier 110/customer 132.
+- Empty markup means 0%, and new products default to 0%; Cross Motors still creates
+  Draft products. User explicitly requested all current products start at 0%.
+- Migrations 0025 (10-decimal individual percentage precision) and 0026 (zero default
+  and one-time ALL-product reset) applied locally. 2,037 products now have 0%.
+  All numeric prices already equalled supplier prices and stayed unchanged; every
+  other product field and 26 other catalog/commerce tables verified unchanged by
+  hashes. Orders/history unchanged. No remote changes or deployment performed.
+- Before remote 0026, snapshot pricing; apply BEFORE setting final per-product
+  prices because it resets existing markups once. No automatic data reversal.
+  See docs/ADMIN_PRICING.md. Backend pricing/import/SKU checks: 55 passed, one
+  PostgreSQL-only concurrency test skipped; 7 JavaScript checks passed.
+- Accounting/reporting and historical cost snapshots remain a separate future task.
+- Follow-up: admin markup input now displays two decimals while retaining ten-place
+  storage/calculation precision. Ordinary saves and supplier-cost edits preserve
+  the exact rate; explicit percentage edits replace it. 21 Django pricing tests
+  and 8 JavaScript tests passed. No additional migration or price-data change.

@@ -1,3 +1,4 @@
+from django.contrib.admin.sites import AdminSite
 from decimal import Decimal
 
 from django.core.management.base import CommandError
@@ -315,11 +316,11 @@ class SupplierSheetImportReportTests(TestCase):
         self.assertEqual(ProductFitment.objects.count(), 1)
         self.assertEqual(ProductSpec.objects.get(product=product).value, "მეორადი - კარგი")
 
-    def test_import_supplier_sheet_report_calculates_price_from_category_markup(self):
+    def test_import_supplier_sheet_report_ignores_category_markup(self):
         category = self._create_category(markup_percent=Decimal("30.00"))
         values = [
-            ["sku", "name_ka", "category", "price_gel", "stock_quantity"],
-            ["FD-0001", "წინა ფარი", category.name, 100, 12],
+            ["sku", "name_ka", "category", "price_gel", "stock_quantity", "is_active"],
+            ["FD-0001", "წინა ფარი", category.name, 100, 12, False],
         ]
         report = build_supplier_sheet_report(
             spreadsheet_id="spreadsheet-id",
@@ -332,8 +333,8 @@ class SupplierSheetImportReportTests(TestCase):
 
         product = Product.objects.get(sku="FD-0001")
         self.assertEqual(product.supplier_price, Decimal("100.00"))
-        self.assertEqual(product.effective_markup_percent, Decimal("30.00"))
-        self.assertEqual(product.price, Decimal("130.00"))
+        self.assertEqual(product.effective_markup_percent, Decimal("0.00"))
+        self.assertEqual(product.price, Decimal("100.00"))
 
     def test_import_supplier_sheet_report_uses_product_markup_override(self):
         category = self._create_category(markup_percent=Decimal("30.00"))
@@ -341,7 +342,7 @@ class SupplierSheetImportReportTests(TestCase):
             category=category,
             name="Existing",
             slug="existing-fd-0001",
-            sku="FD-0001",
+            sku="FD-0001", internal_sku="FD-01-9001",
             price="10.00",
             supplier_price="10.00",
             markup_percent_override="50.00",
@@ -365,13 +366,13 @@ class SupplierSheetImportReportTests(TestCase):
         self.assertEqual(product.effective_markup_percent, Decimal("50.00"))
         self.assertEqual(product.price, Decimal("150.00"))
 
-    def test_category_admin_recalculates_prices_for_products_without_override(self):
+    def test_category_admin_does_not_change_product_prices(self):
         category = self._create_category(markup_percent=Decimal("30.00"))
         product = Product.objects.create(
             category=category,
             name="Category priced",
             slug="category-priced",
-            sku="FD-0001",
+            sku="FD-0001", internal_sku="FD-01-9001",
             price="1.00",
             supplier_price="100.00",
             stock_qty=1,
@@ -381,7 +382,7 @@ class SupplierSheetImportReportTests(TestCase):
             category=category,
             name="Override priced",
             slug="override-priced",
-            sku="FD-0002",
+            sku="FD-0002", internal_sku="FD-01-9002",
             price="1.00",
             supplier_price="100.00",
             markup_percent_override="50.00",
@@ -391,11 +392,11 @@ class SupplierSheetImportReportTests(TestCase):
 
         category.markup_percent = Decimal("35.00")
         category.save(update_fields=["markup_percent", "updated_at"])
-        CategoryAdmin._recalculate_category_product_prices(category)
+        CategoryAdmin(Category, AdminSite()).save_model(None, category, None, True)
 
         product.refresh_from_db()
         overridden.refresh_from_db()
-        self.assertEqual(product.price, Decimal("135.00"))
+        self.assertEqual(product.price, Decimal("100.00"))
         self.assertEqual(overridden.price, Decimal("150.00"))
 
     def _create_category(self, *, markup_percent=Decimal("0.00")):
