@@ -6,6 +6,7 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 import re
 
 from django.http import HttpResponse
+from .accounting_ledger import HEADERS, visible_columns
 
 NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -52,7 +53,7 @@ def workbook_bytes(sheets, *, introduction=(), bands=()):
             cols = SubElement(sheet, "cols")
             widths = (21, 27, 38, 24, 12, 17, 17, 18, 18, 23, 23, 18, 18, 16, 21, 17)
             for j, header in enumerate(headers, 1):
-                SubElement(cols, "col", min=str(j), max=str(j), width=str(widths[j - 1]), customWidth="1")
+                SubElement(cols, "col", min=str(j), max=str(j), width=str(dict(zip(HEADERS, (*widths, 23, 30))).get(header, 20)), customWidth="1")
             data = SubElement(sheet, "sheetData")
             prefix = [[value] for value in introduction]
             prefix += [[] for _ in range(HEADER_ROW - 1 - len(prefix))]
@@ -151,7 +152,9 @@ def styles_xml():
 def export_response(report):
     period = report["period"]
     name = {"paid": "წარმატებული", "refunded": "დაბრუნებული", "all": "ყველა"}[report["status"]]
-    rows = report["rows"] + [report["totals"]]
+    columns = visible_columns(report.get("show_purchase", False))
+    headers = [report["headers"][i] for i in columns]
+    rows = [[row[i] for i in columns] for row in report["rows"] + [report["totals"]]]
     introduction = ["FlexDrive — ბუღალტრული ანგარიშგება",
         f"პერიოდი: {period.start:%d.%m.%Y} — {period.end:%d.%m.%Y}  |  {name}  |  {report['order_count']} შეკვეთა",
         f"პროდუქტის სახელი / SKU: {report.get('sku') or 'ყველა პროდუქტი'}",
@@ -160,7 +163,7 @@ def export_response(report):
         + ("დაბრუნებები უარყოფითია; ჯამში აკლდება გადახდებს." if report["status"] == "all" else
            "თარიღები დაბრუნების დადასტურებით." if report["status"] == "refunded" else "თარიღები გადახდის დადასტურებით; დაბრუნებული შეკვეთები გამორიცხულია.")]
     bands = [index for index, group in enumerate(report["groups"]) for _ in group["rows"]]
-    response = HttpResponse(workbook_bytes([(name, report["headers"], rows)], introduction=introduction, bands=bands),
+    response = HttpResponse(workbook_bytes([(name, headers, rows)], introduction=introduction, bands=bands),
                             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     response["Content-Disposition"] = f'attachment; filename="FlexDrive-{report["status"]}-{period.start}-{period.end}.xlsx"'
     return response

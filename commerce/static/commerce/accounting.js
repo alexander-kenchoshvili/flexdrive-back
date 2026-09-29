@@ -12,4 +12,7 @@
     };
     mode.addEventListener("change", update);
     update();
+    document.getElementById("id_show_purchase")?.addEventListener("change", event => {
+        event.target.form.requestSubmit();
+    });
 })();

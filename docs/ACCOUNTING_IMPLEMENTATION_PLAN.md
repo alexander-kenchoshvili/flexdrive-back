@@ -1,5 +1,20 @@
 # Accounting module: staged implementation
 
+2026-09-30: order headings and XLSX show saved buyer type/company VAT answer.
+Purchase unit gross and purchase total are hidden by default, including subtotals;
+`show_purchase` enables both in HTML and XLSX. Net cost/profit calculations remain
+unchanged. Unknown historical company VAT answers remain unspecified. Existing
+order fields reused; no migration or remote data changes. 55 focused tests passed.
+
+Staging prepared 2026-09-29: commerce 0034 already applied; accountant account
+created with report-only permission; seeded 36 orders / 72 product lines / 42 mock
+transactions across April-September. Existing catalog/order/payment rows verified
+unchanged. Local Django Client against staging verified login/report/export;
+deployed-site browser verification remains outstanding. Production untouched.
+Explicit `accounting_demo --staging` is restricted to the approved Neon hostname
+and database; `--staging --delete` safely removes only this marked demo batch.
+Three seed/cleanup/remote target guard tests pass.
+
 Accountant access stage authorized and completed locally on 2026-09-29: explicit
 `commerce.view_accounting_report` permission (migration 0034), read/export-only
 staff group and local `accountant` user. Admin index redirects to the report;

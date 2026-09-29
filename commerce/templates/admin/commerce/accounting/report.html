@@ -15,7 +15,7 @@
 <section class="accounting-order" aria-labelledby="order-{{ group.event_id }}">
 <header class="accounting-order-heading">
 <div><span class="accounting-order-kicker">შეკვეთა</span><h3 id="order-{{ group.event_id }}">{{ group.number }}</h3></div>
-<div class="accounting-order-meta"><span>{{ group.date }}</span><strong class="accounting-order-status">{{ group.status }}</strong><span>{{ group.line_count }} პროდუქტის პოზიცია · {{ group.unit_count }} ერთეული</span></div>
+<div class="accounting-order-meta"><span>{{ group.date }}</span><span>{{ group.buyer_type }}</span>{% if group.is_company %}<span>კომპანია დღგ-ის გადამხდელია: <strong>{{ group.buyer_vat }}</strong></span>{% endif %}<strong class="accounting-order-status">{{ group.status }}</strong><span>{{ group.line_count }} პროდუქტის პოზიცია · {{ group.unit_count }} ერთეული</span></div>
 </header>
 <div class="accounting-table" role="region" aria-label="{{ group.number }} — პროდუქტები" tabindex="0"><table>
 <thead><tr>{% for header in product_headers %}<th scope="col">{{ header }}</th>{% endfor %}</tr></thead>
@@ -26,8 +26,8 @@
 </section>
 {% empty %}<p class="accounting-empty">ამ პერიოდში შეკვეთები არ მოიძებნა.</p>{% endfor %}
 <section class="accounting-period-total" aria-label="პერიოდის საერთო ჯამი"><h2>სულ — არჩეული პერიოდი</h2>
-<div class="accounting-table" role="region" aria-label="პერიოდის ჯამები" tabindex="0"><table><thead><tr>{% for header in headers %}{% if forloop.counter0 == 4 or forloop.counter0 >= 7 and forloop.counter0 <= 14 %}<th scope="col">{{ header }}</th>{% endif %}{% endfor %}</tr></thead>
-<tbody><tr>{% for value in totals %}{% if forloop.counter0 == 4 or forloop.counter0 >= 7 and forloop.counter0 <= 14 %}<td><strong>{{ value }}</strong></td>{% endif %}{% endfor %}</tr></tbody></table></div></section>
+<div class="accounting-table" role="region" aria-label="პერიოდის ჯამები" tabindex="0"><table><thead><tr>{% for header in total_headers %}<th scope="col">{{ header }}</th>{% endfor %}</tr></thead>
+<tbody><tr>{% for value in total_values %}<td><strong>{{ value }}</strong></td>{% endfor %}</tr></tbody></table></div></section>
 <p><strong>სულ — არჩეული პერიოდის ყველა ჩანაწერი, ყველა გვერდიდან.</strong> თვითღირებულება და მოგება რაოდენობის გათვალისწინებითაა, დღგ-ის გარეშე. პროდუქტის მოგება სხვა ხარჯების გამოკლებამდეა; მიტანა მასში არ შედის.</p>
 <nav class="accounting-pagination" aria-label="გვერდები">{% if previous_url %}<a href="{{ previous_url }}">← წინა</a>{% endif %}<span>{{ page.number }} / {{ page.paginator.num_pages }}</span>{% if next_url %}<a href="{{ next_url }}">შემდეგი →</a>{% endif %}</nav>
 {% endif %}</div><script src="{% static 'commerce/accounting.js' %}" defer></script>{% endblock %}

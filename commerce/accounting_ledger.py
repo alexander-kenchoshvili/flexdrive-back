@@ -7,7 +7,11 @@ from .accounting_reports import event_queryset, order_row, _allocation, _bounded
 HEADERS = ["თარიღი", "შეკვეთა", "პროდუქტი", "SKU", "რაოდენობა", "შესაძენი ერთეული ₾",
            "გასაყიდი ერთეული ₾", "შესაძენი ჯამი ₾", "გასაყიდი ჯამი ₾",
            "თვითღირებულება დღგ-ის გარეშე ₾", "პროდუქტის მოგება დღგ-ის გარეშე ₾", "თბილისის მიტანა ₾",
-           "რეგიონის მიტანა ₾", "ბუფერი ₾", "სრული თანხა ₾", "გადახდა"]
+           "რეგიონის მიტანა ₾", "ბუფერი ₾", "სრული თანხა ₾", "გადახდა", "მყიდველის ტიპი", "მყიდველი კომპანია დღგ-ის გადამხდელია"]
+
+
+def visible_columns(show_purchase=False):
+    return [i for i in range(len(HEADERS)) if show_purchase or i not in (5, 7)]
 
 
 def build_ledger(period, status, sku=""):
@@ -53,6 +57,10 @@ def build_ledger(period, status, sku=""):
                 order["regional_buffer"] * sign if first and allocation else None,
                 payment.amount * sign if first else None,
                 "დაბრუნებული" if refund else "გადახდილი",
+                "იურიდიული პირი" if payment.order.buyer_type == "legal_entity" else "ფიზიკური პირი",
+                ("კი" if payment.order.company_is_vat_registered is True else
+                 "არა" if payment.order.company_is_vat_registered is False else "არ არის მითითებული")
+                if payment.order.buyer_type == "legal_entity" else "—",
             ])
         if len(rows) > group_start:
             groups.append({"event_id": payment.pk, "rows": rows[group_start:]})
@@ -64,6 +72,6 @@ def build_ledger(period, status, sku=""):
                       else sum((v for v in values if v is not None), Decimal(0)))
     if sku:
         totals[11:15] = [None] * 4
-    totals.append(None)
+    totals.extend([None, None, None])
     return {"headers": HEADERS, "rows": rows, "groups": groups, "totals": totals, "period": period,
             "status": status, "sku": sku, "order_count": len({p.order_id for p in events})}

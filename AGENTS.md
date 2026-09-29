@@ -1,5 +1,33 @@
 # Project Instructions
 
+## Accounting Buyer Details And Optional Purchase Columns - 2026-09-30
+
+- Order headings show saved buyer_type and, for legal entities, saved
+  company_is_vat_registered (yes/no; null remains explicitly unspecified).
+  XLSX includes both buyer columns for sales and refunds; no checkout changes.
+- `show_purchase` checkbox defaults off, hides gross purchase unit/total columns
+  including order/period totals. Net cost and product profit remain visible.
+  Checkbox submits the GET form; pagination/export URLs retain the selection.
+  XLSX omits hidden columns entirely using the same column selection helper.
+- 53 existing access/UI/export tests plus 2 new visibility/buyer parity tests passed.
+  No migration or remote changes in this stage; browser visual review remains.
+
+## Accounting Staging Preparation - 2026-09-29
+
+- User authorized staging accountant access and demo data. Commerce 0034 and its
+  dependencies were already applied (migration plan empty); no migration run needed.
+- Created staging `accountant` in `FlexDrive Accountants`, active staff/non-superuser,
+  with only `commerce.view_accounting_report`. Password supplied in session only.
+- Seeded 36 marked orders, 72 distinct product lines, 42 mock payment/refund events,
+  April-September 2026. Existing catalog products/categories and pre-existing
+  orders/items/payments verified unchanged by row hashes in the same transaction.
+- Local code against staging DB verified accountant login, redirect, report and
+  XLSX. Deployed-site browser verification remains outstanding. Production untouched.
+- `accounting_demo --staging` permits only the exact approved Neon staging host
+  and neondb database. Default stays SQLite-only; all other remote targets denied.
+  `--staging --delete` retains existing marker/link safety checks. Three demo
+  creation/cleanup/remote-guard tests pass. Push this command/test change as well.
+
 ## Accountant Access - 2026-09-29
 
 - User explicitly authorized the previously deferred accountant account stage.

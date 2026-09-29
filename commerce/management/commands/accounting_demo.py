@@ -1,4 +1,4 @@
-"""Local-only, isolated accounting examples; never calls checkout/providers."""
+"""Isolated accounting examples for local or explicitly selected staging."""
 from datetime import datetime
 from decimal import Decimal as D
 
@@ -10,17 +10,22 @@ from commerce.models import Order, OrderItem, PaymentTransaction
 
 PREFIX = "FD-DEMO-202609-"
 EMAIL = "accounting-demo@example.invalid"
+STAGING_HOST = "ep-little-paper-al0gr1fd-pooler.c-3.eu-central-1.aws.neon.tech"
 
 
 class Command(BaseCommand):
-    help = "Create or delete marked local accounting demo orders (SQLite only)."
+    help = "Create or delete marked accounting examples locally or on the approved staging host."
 
     def add_arguments(self, parser):
         parser.add_argument("--delete", action="store_true")
+        parser.add_argument("--staging", action="store_true", help="Allow the explicitly approved Neon staging database only.")
 
     @transaction.atomic
     def handle(self, *args, **options):
-        if connection.vendor != "sqlite":
+        staging = (options.get("staging") and connection.vendor == "postgresql"
+                   and connection.settings_dict.get("HOST") == STAGING_HOST
+                   and connection.settings_dict.get("NAME") == "neondb")
+        if connection.vendor != "sqlite" and not staging:
             raise CommandError("Local SQLite only; remote databases are not allowed.")
         existing = Order.objects.filter(order_number__startswith=PREFIX)
         if options["delete"]:
