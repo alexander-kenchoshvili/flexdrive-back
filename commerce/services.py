@@ -22,6 +22,7 @@ from catalog.models import (
 )
 
 from .images import build_product_primary_image_snapshot
+from .accounting_snapshots import build_purchase_snapshot, purchase_snapshot_fields
 from .delivery_quotes import delivery_order_fields, resolve_checkout_delivery
 from .models import (
     BuyNowSession,
@@ -1085,6 +1086,7 @@ def create_order_from_cart(
                 "product_name": product.name,
                 "sku": product.sku,
                 "internal_sku": product.internal_sku or "",
+                "accounting_fields": purchase_snapshot_fields(build_purchase_snapshot(product)),
                 "unit_price": product.price,
                 "quantity": item.quantity,
                 "line_total": line_total,
@@ -1138,6 +1140,7 @@ def create_order_from_cart(
                 quantity=snapshot["quantity"],
                 line_total=snapshot["line_total"],
                 primary_image_snapshot=snapshot["primary_image_snapshot"],
+                **snapshot["accounting_fields"],
             )
             for snapshot in snapshots
         ]
@@ -1285,6 +1288,7 @@ def create_order_from_buy_now_session(
         quantity=locked_session.quantity,
         line_total=line_total,
         primary_image_snapshot=build_product_primary_image_snapshot(locked_product),
+        **purchase_snapshot_fields(build_purchase_snapshot(locked_product)),
     )
 
     locked_product.stock_qty -= locked_session.quantity

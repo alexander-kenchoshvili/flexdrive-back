@@ -1,0 +1,6 @@
+<div class="accounting-table" role="region" aria-label="{{ table_label }}" tabindex="0">
+<table><caption>{{ table_label }}</caption>
+{% if headers %}<thead><tr>{% for header in headers %}<th scope="col">{{ header }}</th>{% endfor %}</tr></thead>{% endif %}
+<tbody>{% for row in rows %}<tr>{% for item in row %}<td>{% if item.url %}<a href="{{ item.url }}">{{ item.value }}</a>{% else %}{{ item.value }}{% endif %}</td>{% endfor %}</tr>
+{% empty %}<tr><td colspan="30">ამ პირობებით ჩანაწერები არ მოიძებნა.</td></tr>{% endfor %}</tbody>
+</table></div>

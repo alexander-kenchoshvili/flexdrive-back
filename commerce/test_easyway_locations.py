@@ -189,6 +189,7 @@ class EasywayDeliveryQuoteApiTests(APITestCase):
             name="Test Part",
             slug="test-part",
             sku="TEST-PART",
+            internal_sku="FD-03-0900",
             short_description="Part",
             description="Part",
             price=Decimal("100.00"),

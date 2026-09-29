@@ -9,6 +9,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from catalog.models import Product, TimeStampedModel
+from .accounting_snapshots import COST_FIELDS
 
 
 class EasywaySyncReport(models.Model):
@@ -552,6 +553,7 @@ class Order(TimeStampedModel):
 
     class Meta:
         ordering = ("-created_at", "-id")
+        permissions = (("view_accounting_report", "Can view and export accounting reports"),)
         constraints = [
             models.CheckConstraint(
                 condition=Q(subtotal__gte=Decimal("0.00")),
@@ -602,8 +604,15 @@ class CheckoutAttempt(TimeStampedModel):
         return f"{self.source}:{self.key}"
 
 
+class OrderItemQuerySet(ProtectedFinancialQuerySet):
+    def update(self, **kwargs):
+        if set(kwargs).intersection(COST_FIELDS):
+            raise ValidationError("Historical purchase facts cannot be overwritten.")
+        return super().update(**kwargs)
+
+
 class OrderItem(TimeStampedModel):
-    objects = ProtectedFinancialManager()
+    objects = models.Manager.from_queryset(OrderItemQuerySet)()
 
     order = models.ForeignKey(
         Order,
@@ -632,10 +641,28 @@ class OrderItem(TimeStampedModel):
         validators=[MinValueValidator(Decimal("0.00"))],
     )
     primary_image_snapshot = models.JSONField(default=dict, blank=True)
+    purchase_unit_gross = models.DecimalField(
+        "შესაძენი ერთეულის ფასი დღგ-ით (ისტორიული)",
+        max_digits=10, decimal_places=2, null=True, blank=True, editable=False,
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
+    purchase_cost_source = models.CharField(
+        "შესაძენი ფასის წყარო",
+        max_length=32, blank=True, default="", db_default="", editable=False,
+        choices=(("catalog_supplier_price", "მომწოდებლის ფასი კატალოგიდან"),
+                 ("unavailable", "მონაცემი არ არის")),
+    )
+    purchase_cost_recorded_at = models.DateTimeField(
+        "შესაძენი ფასის დაფიქსირების დრო", null=True, blank=True, editable=False,
+    )
 
     class Meta:
         ordering = ("id",)
         constraints = [
+            models.CheckConstraint(
+                condition=Q(purchase_unit_gross__isnull=True) | Q(purchase_unit_gross__gte=0),
+                name="commerce_item_purchase_nonnegative",
+            ),
             models.CheckConstraint(
                 condition=Q(unit_price__gte=Decimal("0.00")),
                 name="commerce_order_item_price_nonnegative",
@@ -657,6 +684,16 @@ class OrderItem(TimeStampedModel):
 
     def __str__(self):
         return f"{self.product_name} x {self.quantity}"
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            # A stale admin/model instance cannot replace historical facts.
+            using = kwargs.get("using") or self._state.db
+            saved = type(self).objects.using(using).filter(pk=self.pk).values(*COST_FIELDS).first()
+            if saved is not None:
+                for name, value in saved.items():
+                    setattr(self, name, value)
+        return super().save(*args, **kwargs)
 
     def delete(self, *args, allow_hard_delete=False, **kwargs):
         if not allow_hard_delete:

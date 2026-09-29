@@ -16,8 +16,10 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from commerce.accounting_admin import accounting_view
 
 urlpatterns = [
+    path('manager-fd/accounting/', admin.site.admin_view(accounting_view), name='accounting-report'),
     path('manager-fd/', admin.site.urls),
     path('api/catalog/', include('catalog.urls')),  
     path('api/commerce/', include('commerce.urls')),

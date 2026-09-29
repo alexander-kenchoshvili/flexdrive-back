@@ -1,0 +1,10 @@
+{% extends "admin/index.html" %}
+{% block content %}
+{% if request.user.is_superuser %}
+<div class="module"><table><caption>ფინანსური ანგარიშგება</caption><tbody><tr>
+<th scope="row"><a href="{% url 'accounting-report' %}">ბუღალტერია</a></th>
+<td>შეკვეთები, პროდუქტები, გადახდები და დაბრუნებები</td>
+</tr></tbody></table></div>
+{% endif %}
+{{ block.super }}
+{% endblock %}

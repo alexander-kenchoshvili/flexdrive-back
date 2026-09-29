@@ -51,6 +51,8 @@ from .services import (
 )
 from .supplier_stock import release_supplier_stock_hold
 
+admin.site.index_template = "admin/commerce/accounting/index.html"
+
 
 @admin.register(EasywaySyncReport)
 class EasywaySyncReportAdmin(admin.ModelAdmin):
@@ -197,7 +199,8 @@ class CartAdmin(admin.ModelAdmin):
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
-    fields = ("product_name", "sku", "internal_sku", "unit_price", "quantity", "line_total")
+    fields = ("product_name", "sku", "internal_sku", "unit_price", "quantity", "line_total",
+              "purchase_unit_gross", "purchase_cost_source", "purchase_cost_recorded_at")
     readonly_fields = fields
     can_delete = False
 

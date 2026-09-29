@@ -1259,3 +1259,97 @@ class BogCallbackFlowTests(APITransactionTestCase):
         )
         self.assertEqual(payment.status, PaymentTransactionStatus.PENDING)
         self.assertEqual(Order.objects.count(), 0)
+
+    def _set_accounting_cost(self, amount="15.00"):
+        Product.objects.filter(pk=self.product.pk).update(supplier_price=Decimal(amount))
+        self.product.refresh_from_db()
+
+    def test_accounting_cart_cost_frozen_before_payment_and_retries(self):
+        self._set_accounting_cost()
+        _, response, payment = self._start_cart_payment()
+        self.assertEqual(response.status_code, 201)
+        block = payment.checkout_snapshot["items"][0]["accounting"]
+        self.assertEqual(block["purchase_unit_gross"], "15.00")
+        self.assertNotIn("accounting", self.provider_client.create_order.call_args.kwargs["basket"][0])
+        self.assertNotIn("purchase_unit_gross", str(response.data))
+        self._set_accounting_cost("22")
+        payload = self._callback_payload(payment)
+        self.assertEqual(self._signed_callback_request(payload).status_code, 200)
+        self.assertEqual(self._signed_callback_request(payload).status_code, 200)
+        item = Order.objects.get().items.get()
+        self.assertEqual(item.purchase_unit_gross, Decimal("15"))
+        self.assertEqual(item.purchase_cost_recorded_at.isoformat(), block["recorded_at"])
+        self.assertEqual(item.purchase_cost_source, "catalog_supplier_price")
+        from .serializers import OrderItemSerializer, OrderLookupItemSerializer
+        from .receipts import build_receipt_snapshot, ReceiptEligibility
+        for serializer in (OrderItemSerializer, OrderLookupItemSerializer):
+            self.assertNotIn("purchase_unit_gross", serializer(item).data)
+        receipt = build_receipt_snapshot(item.order, ReceiptEligibility(is_preview=True, payment=None))
+        self.assertNotIn("purchase_unit_gross", receipt["items"][0])
+
+    def test_accounting_buy_now_cost_frozen_before_payment(self):
+        self._set_accounting_cost()
+        _, response, payment = self._start_buy_now_payment()
+        self.assertEqual(response.status_code, 201)
+        self._set_accounting_cost("22")
+        self.assertEqual(self._signed_callback_request(self._callback_payload(payment)).status_code, 200)
+        self.assertEqual(Order.objects.get().items.get().purchase_unit_gross, Decimal("15"))
+
+    def test_accounting_old_snapshot_finalizes_without_inventing_cost(self):
+        self._set_accounting_cost()
+        _, _, payment = self._start_cart_payment()
+        snapshot = payment.checkout_snapshot
+        snapshot["items"][0].pop("accounting")
+        snapshot.pop("integrity_hash")
+        snapshot["integrity_hash"] = _snapshot_hash(snapshot)
+        PaymentTransaction.objects.filter(pk=payment.pk).update(checkout_snapshot=snapshot)
+        self.assertEqual(self._signed_callback_request(self._callback_payload(payment)).status_code, 200)
+        item = Order.objects.get().items.get()
+        self.assertIsNone(item.purchase_unit_gross)
+        self.assertEqual(item.purchase_cost_source, "")
+
+    def test_accounting_unknown_cost_does_not_block_payment(self):
+        _, _, payment = self._start_cart_payment()
+        self.assertEqual(self._signed_callback_request(self._callback_payload(payment)).status_code, 200)
+        item = Order.objects.get().items.get()
+        self.assertIsNone(item.purchase_unit_gross)
+        self.assertEqual(item.purchase_cost_source, "unavailable")
+
+    def test_accounting_malformed_snapshot_requires_review(self):
+        self._set_accounting_cost()
+        _, _, payment = self._start_cart_payment()
+        snapshot = payment.checkout_snapshot
+        snapshot["items"][0]["accounting"]["purchase_unit_gross"] = "-15.00"
+        snapshot.pop("integrity_hash")
+        snapshot["integrity_hash"] = _snapshot_hash(snapshot)
+        PaymentTransaction.objects.filter(pk=payment.pk).update(checkout_snapshot=snapshot)
+        response = self._signed_callback_request(self._callback_payload(payment))
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Order.objects.exists())
+        payment.refresh_from_db()
+        self.assertEqual(payment.error_code, "paid_snapshot_item_invalid")
+
+    def test_accounting_guest_direct_cart_snapshot(self):
+        self._set_accounting_cost()
+        self._assert_guest_company_vat_checkout("cart", True)
+        self.assertEqual(Order.objects.get().items.get().purchase_unit_gross, Decimal("15"))
+
+    def test_accounting_guest_direct_buy_now_snapshot(self):
+        self._set_accounting_cost()
+        self._assert_guest_company_vat_checkout("buy_now", False)
+        self.assertEqual(Order.objects.get().items.get().purchase_unit_gross, Decimal("15"))
+
+    def test_accounting_snapshot_cannot_be_overwritten_by_stale_save_or_update(self):
+        from django.core.exceptions import ValidationError
+        self._set_accounting_cost()
+        _, _, payment = self._start_cart_payment()
+        self._signed_callback_request(self._callback_payload(payment))
+        item = Order.objects.get().items.get()
+        item.purchase_unit_gross = Decimal("999")
+        item.purchase_cost_source = "wrong"
+        item.save()
+        item.refresh_from_db()
+        self.assertEqual(item.purchase_unit_gross, Decimal("15"))
+        self.assertEqual(item.purchase_cost_source, "catalog_supplier_price")
+        with self.assertRaises(ValidationError):
+            type(item).objects.filter(pk=item.pk).update(purchase_unit_gross=999)

@@ -28,6 +28,7 @@ from .bog_payments import (
     parse_bog_payment_details,
 )
 from .card_payments import is_checkout_snapshot_intact
+from .accounting_snapshots import purchase_snapshot_fields
 from .delivery_quotes import delivery_order_fields
 from .models import (
     BuyNowSession,
@@ -742,6 +743,7 @@ def _create_order_from_paid_snapshot(payment):
                 quantity=item["quantity"],
                 line_total=item["line_total"],
                 primary_image_snapshot=item["primary_image_snapshot"],
+                **item["accounting_fields"],
             )
             for item in normalized_items
         ]
@@ -784,6 +786,7 @@ def _normalize_snapshot_items(item_snapshots):
             quantity = int(item["quantity"])
             unit_price = _snapshot_money(item["unit_price"])
             line_total = _snapshot_money(item["line_total"])
+            accounting_fields = purchase_snapshot_fields(item.get("accounting"))
         except (KeyError, TypeError, ValueError) as error:
             raise BogFulfillmentError("paid_snapshot_item_invalid") from error
         if (
@@ -805,6 +808,7 @@ def _normalize_snapshot_items(item_snapshots):
                 "unit_price": unit_price,
                 "quantity": quantity,
                 "line_total": line_total,
+                "accounting_fields": accounting_fields,
                 "primary_image_snapshot": (
                     item.get("primary_image_snapshot") or {}
                 ),

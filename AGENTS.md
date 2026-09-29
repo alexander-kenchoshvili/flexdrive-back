@@ -1,5 +1,135 @@
 # Project Instructions
 
+## Accountant Access - 2026-09-29
+
+- User explicitly authorized the previously deferred accountant account stage.
+- Local SQLite account `accountant` belongs to `FlexDrive Accountants`, with only
+  `commerce.view_accounting_report`; active staff, never superuser. Credentials
+  were provided privately in conversation and must not be recorded in files.
+- Login redirects to the accounting report. Filters/export and own password change
+  are allowed; other admin routes are denied, with sidebar/site links hidden.
+- Migration commerce.0034 applied locally only. No staging/production account or
+  deployment performed. 51 access/export tests passed; actual local account login,
+  redirect, report, XLSX and forbidden product/user pages verified with Django Client.
+
+## Accounting Excel Readability
+
+- Export now starts with FlexDrive report title, exact period, selected status,
+  order count and name/SKU filter; includes GEL/VAT/timezone and relevant date/sign
+  semantics. Table header is row 7; data begins row 8. Flat spreadsheet retained.
+- Alternating pale bands follow complete financial-event groups, not individual
+  product rows. Dark title/header/total, wrapped labels, tuned column widths,
+  numeric 2-decimal money with red parenthesized negatives. Freeze first 7 rows
+  and 4 identity columns. AutoFilter excludes the static report total.
+- Landscape A3 print setup fits width, repeats title/header rows, adds page numbers.
+  No dependency, calculation, data or permission change. 32 focused export/UI/demo
+  tests passed, including metadata, banding, frozen panes, numeric/sign safety,
+  correct totals and filters. Actual desktop Excel rendering not checked.
+
+## Accounting Order Blocks - Latest UI
+
+- User found repeated order numbers confusing. UI now uses a bordered block per
+  financial event: one order heading/date/status, product count and unit count,
+  product-only table, subtotal, then delivery/buffer/full order amount once below.
+- Paginate 20 complete event blocks, never split an order's products across pages.
+  All-mode original receipt/refund remain separate dated/status-labeled blocks;
+  grouping uses transaction IDs, not display text. Period totals cover all pages.
+  SKU search still product-only and hides order fee footer. XLSX remains flat for
+  spreadsheet filtering with identical underlying rows and totals.
+- 30 UI/export/demo tests passed, including order-boundary pagination. Browser
+  verified 3 products/4 units in one block, one order heading, 795 GEL total,
+  desktop fit and mobile overflow containment. No real data/schema/remote changes.
+
+## Accounting Product Name Search
+
+- Existing SKU input now labeled product name or SKU; substring search includes
+  saved product_name as well as both SKUs in DB and line filtering. Same export
+  filters and product-only totals. Two focused name/export/SKU tests passed.
+- Verified local two-item example: FD-DEMO-202609-32, paid September 6 2026,
+  DEMO-FD-32-1 mirror 110 GEL and DEMO-FD-32-2 brake pad 170 GEL; full order 301 GEL.
+  Select Sept 6 start/end, paid, blank search to see both rows and shipping together.
+
+## Accounting Markup Percentage Removed - Latest Decision
+
+- User removed the markup-percent column again. Ledger UI and XLSX retain product
+  profit excluding VAT (before other expenses), but no percent column or explanation.
+  This does not change catalogue markup pricing or internal calculation precision.
+- Multi-item orders remain adjacent product rows sharing order number. Delivery,
+  buffer and full order amount appear only on the first row. Existing filters and
+  72-line demo dataset unchanged. 26 accounting UI/export/demo tests passed.
+
+## Accounting Filters And Expanded Demo - Latest Decision
+
+- Restored day/month ranges and direct SKU substring search (company or supplier
+  SKU, case-insensitive). SKU selects only matching product lines, not sibling
+  products. In SKU mode order-level shipping/buffer/full payment columns and totals
+  stay blank: these cannot be attributed to one product without invented allocation.
+- Added "all": confirmed original receipts plus confirmed refunds by event date;
+  refunds negate quantities and line/order totals, preserving positive unit prices
+  and markup %. Net totals subtract refunds exactly once. Paid-only still excludes
+  any order with completed refunds. Refunded-only displays positive reversals.
+- Added markup-percent column (15 -> 35 gives 133.33%); existing product profit is
+  VAT-exclusive markup before other expenses (16.95), not net company profit.
+  Percent is not summed. Excel shares all filters, signs and numeric cells.
+- Local demo refreshed atomically: 36 orders, 72 distinct product SKUs/lines,
+  42 mock transactions across April–September 2026, 1/2/3 lines per order and varied
+  quantities/prices. 6 refunded orders; paid-only shows 30 orders/54 lines. All view
+  has 90 event lines and net 10888 GEL; refunded-only 2183 GEL. Unrelated order,
+  item and transaction values verified unchanged. No stock/providers/users affected.
+- 25 UI/export/demo tests passed, then two focused export-filter/demo tests passed
+  after adding exact signed XLSX/markup/SKU assertions. No schema/remote changes.
+- Isolated browser QA confirmed day/month visibility, all-status signed totals,
+  unchanged totals across pages and exact SKU-only rows. Preview server removed.
+
+## Single Accounting Ledger - Latest User Decision
+
+- Replaced all accounting tabs with ONE product table, start/end dates and only
+  successful/refunded status filter. Fixed 18% VAT; one-sheet XLSX matches table
+  and includes full-period totals at bottom. No search/month-mode/tax selector.
+- Successful uses confirmed payment date and excludes any order with a completed
+  refund, including refunds outside selected period. Returned uses refund date.
+  Unpaid/orphan orders are absent. GEL ledger only. Delivery/buffer and full payment
+  amount appear on first product row only; quantity/cost/sales/profit totals cover
+  all pages. Purchase cost is not evidence of supplier cash settlement.
+- commerce/accounting_ledger.py reuses validated saved order/payment facts. Partial
+  or ambiguous refund allocations do not invent product-cost/profit reversals.
+  Internal arithmetic safeguards remain, with no accountant review UI.
+- 43 focused tests passed; isolated browser QA confirmed one table/no tabs,
+  successful/refund filters, totals and XLSX download. Temporary preview removed.
+- Local marked demo batch safely recreated with ALL purchase costs populated;
+  unrelated orders verified unchanged. July–September successful: 5 orders,
+  6 items, gross 286, purchase gross 90, product profit 101.70 GEL. Returned:
+  1 order / 2 items, gross 93, purchase gross 30, profit reversal 33.90 GEL.
+- No new schema, remote changes, or accountant account. User review remains next.
+
+## Accountant Review Section Removed - Latest Decision
+
+- User removed the accountant-facing exceptions/review concept entirely. No review
+  tab, undated global query/count, issue-note columns, unallocated/unknown-cost alerts
+  or review worksheet in XLSX. Four remaining sections/sheets: summary, orders,
+  products, payments/refunds. Preserve internal arithmetic/allocation validation;
+  do not invent missing amounts or change operational payment recovery behavior.
+- Orders are one row per order; products are one row per order item; cash is one
+  row per confirmed payment/refund event. User requested explanation of overlap,
+  not authorization yet to merge these three remaining sections.
+
+## Accounting Simplification - Latest User Decision
+
+- User confirms FlexDrive is a VAT payer and explicitly requires fixed 18% in
+  accounting from the start. Removed unknown/scenario selector; stale tax_mode URL
+  parameters are ignored. UI and XLSX always use 18% for purchase/sale calculations.
+- Accountant sees only orders/items backed by confirmed captured sale/capture or
+  confirmed refund records. Pending/failed/authorization-only orders are excluded,
+  including the pending demo order (retained in DB, hidden from accounting).
+- Remove fulfilment states from accounting; show only paid/refunded derived from
+  confirmed events, not mutable delivery/payment workflow flags. Products also
+  identify paid/refunded. Normal operational order admin is unchanged.
+- Main summary displays confirmed cash totals and known product markup less
+  confirmed refund markup. Removed duplicate order-created summary cards from UI.
+  No new migrations, account permissions or remote deployment. 41 focused tests pass.
+- This overrides earlier notes requiring unknown VAT/scenario UI and showing all
+  order statuses. Dedicated accountant account is still deferred for user review.
+
 ## Domain Cutover Decision - 2026-09-28
 
 - User deferred BOG reconciliation scheduler setup until migration to flexdrive.ge; do not provision it before that stage.
@@ -506,3 +636,137 @@ This file exists so the project context does not need to be re-explained in ever
   storage/calculation precision. Ordinary saves and supplier-cost edits preserve
   the exact rate; explicit percentage edits replace it. 21 Django pricing tests
   and 8 JavaScript tests passed. No additional migration or price-data change.
+
+## Staging Pricing Rollout Verified - 2026-09-28
+
+- User supplied staging access after pushing the pricing changes. Read-only audit
+  found catalog.0025 and 0026 already applied (19:01:11 / 19:01:13 UTC); no migrations
+  were rerun and no database rows were changed by the agent.
+- Verified PostgreSQL markup column numeric(14,10); all 2,038 products have individual
+  0% and customer price equals supplier price. No invalid old_price conflicts.
+- Saved a credential-free current pricing snapshot in the local temporary directory.
+  This is a post-deployment snapshot, not a pre-migration backup. Admin browser/static
+  deployment has not been verified in this database-only audit. Production pending.
+
+## Production Pricing Rollout - 2026-09-28
+
+- Applied catalog.0025_precise_product_markup and catalog.0026_individual_product_pricing
+  to the user-supplied production PostgreSQL database in one verified transaction.
+- All 2,030 products now have individual 0%; supplier/customer numeric prices already
+  matched and remained unchanged. Percentage column verified numeric(14,10).
+- Hashes verified every other product field and all 26 other catalog/commerce tables
+  unchanged within the transaction. No order/history, stock, provider or scheduler
+  actions. No unrelated migrations applied.
+- Credential-free pre-change pricing snapshot saved locally at
+  C:/Users/kench/AppData/Local/Temp/flexdrive-production-pricing-before-cutover-3da741f831b9430c93c9bf7c5b3f5895.json.
+- Database preparation is complete on staging and production. This audit did not
+  verify deployed admin/static assets in a browser or initiate a code deployment.
+
+## Accounting Module Stage 1 - 2026-09-29
+
+- User authorized incremental implementation, not the entire module in one task.
+  Mandatory STOP for user review before accountant access/groups/account creation.
+  Initial reporting routes/exports must be superuser-only; do not expose financial
+  data to all staff while accountant permissions are deferred.
+- Stage 1 completed: audited commerce models, card snapshot/finalization, direct
+  checkout, delivery, refunds, serializers/admin and related tests. Implementation
+  plan and acceptance criteria: docs/ACCOUNTING_IMPLEMENTATION_PLAN.md.
+- No accounting code/schema/data changes, migrations, remote calls, fixtures or
+  user accounts in this stage. Next bounded stage: private historical purchase-cost
+  snapshots plus Decimal calculation foundation and targeted regression tests.
+- User's workbook rule: gross purchase/1.18 = net cost; gross sale/1.18 = net sale;
+  net markup = net sale - net cost. Supplier retail/comparison columns irrelevant.
+  VAT registration is planned, effective date unknown. Calculated included purchase
+  VAT is separate from invoice-confirmed deductible VAT; no automatic tax return.
+- Cost snapshot must be frozen before bank redirection and carried through callback
+  normalization/order creation. Preserve in-flight version-1 snapshots; missing
+  historical cost stays unknown, never filled using today's supplier price.
+- Delivery order fields already exist. Code defaults remain internal fee 0 and
+  regional margin 2 (remote effective settings not checked); user intends 10/3.
+  Internal carrier cost placeholder 0 is not evidence of zero actual delivery cost.
+  Count delivery/buffer once per order, separately from product margins.
+- Fake multi-month data and accountant login remain later separate stages. Do not
+  create them or deploy accounting changes as part of the next foundation stage.
+
+## Accounting Module Stage 2 - 2026-09-29
+
+- Historical cost/calculation foundation implemented locally. Separate accounting
+  screens, report queries, XLSX and accountant access are NOT implemented yet.
+- Private OrderItem purchase gross/source/time snapshots are captured before bank
+  redirection and copied by verified finalization; direct checkout captures locked
+  product values. Old snapshots remain compatible; missing costs stay unknown.
+  Model saves preserve snapshots and queryset cost updates are rejected. Existing
+  order-item admin inline shows readonly facts; public/bank/receipt fields unchanged.
+- Decimal helpers require explicit VAT rates, preserve unknown treatment, match the
+  first ten workbook examples and expose rounding residuals: subtract unrounded
+  net amounts before rounding markup; reconcile rounded net columns explicitly.
+  No VAT registration or deductibility is assumed or activated.
+- Local commerce.0033 applied; existing columns in all 27 catalogue/commerce tables
+  verified unchanged by hashes; 32 legacy order items remain unknown-cost.
+  109 targeted tests passed; two legacy delivery fixtures needed company SKU, then
+  passed on rerun. Migration drift/whitespace checks passed. No remote changes.
+- Latest user instruction defers 10/3 tariff changes. Reuse dynamic order delivery,
+  carrier cost and margin fields. Do not change current pricing defaults/settings.
+- Next bounded stage: report queries, date boundaries, delivery and refund/event
+  handling, followed by superuser-only UI and export. Stop before accountant access
+  for user review. See docs/ACCOUNTING_IMPLEMENTATION_PLAN.md.
+
+## Accounting Module Stage 3 - 2026-09-29
+
+- Added private read-only commerce/accounting_reports.py: inclusive Tbilisi date/
+  month periods, order-created reports and separate confirmed cash-event reports.
+  Money is grouped by currency; receipt/refund periods remain independent. Delivery
+  and regional buffer count once per order. No tariff or checkout changes.
+- Full refund allocations require valid sale linkage, matching full amount/currency/
+  provider, chronology and unambiguous order transactions. Partial/ambiguous refunds
+  and orphan receipts stay visible as unallocated cash with review codes. Missing
+  timestamps remain global undated exceptions, not assigned using updated_at.
+- Product margin coverage/missing cost and rounding residuals are explicit. Tax
+  policy must be supplied using historical treatment; no default 18% activation.
+  Internal carrier zero remains unknown actual delivery cost. Order-date totals
+  include all statuses and must not be presented as received money or added to cash.
+- 24 report tests + 13 foundation tests passed. Tests cover month boundaries,
+  cross-month refunds, orphan cash, full/partial/duplicate refunds, currency isolation,
+  missing costs, unknown tax, delivery, row limits and fixed query counts (2/4).
+  No new migration, business-data write, remote call, provider action or deployment.
+- Next stage is the superuser-only admin section; XLSX follows. Neither UI nor
+  export exists yet. Do not create accountant access until user review at agreed stop.
+
+## Accounting Module Stage 4 - 2026-09-29
+
+- Separate superuser-only UI now exists at /manager-fd/accounting/, linked from
+  admin home. Tabs: summary/orders/products/cash events/exceptions. Active staff AND
+  superuser required server-side, with admin login/no-cache; read-only GET endpoint.
+  Ordinary staff, even with commerce permissions, cannot access it. No accounts made.
+- Date/month/search filters, whole-order search totals, pagination, Georgian labels,
+  private detail links and global undated exceptions are implemented. Tax defaults
+  unknown; optional clearly labeled 18% hypothetical model previews spreadsheet
+  arithmetic without confirming registration/deductibility or changing stored data.
+- 51 targeted tests passed. Browser verified month/scenario/search/empty-state/tab
+  flows and desktop/mobile layout using an isolated in-memory test database; preview
+  server/script removed. No local business-data writes, remote calls or deployment.
+- UI needs existing commerce.0033 and new static assets at deployment. Tariffs remain
+  unchanged. Next stage: XLSX export; then mandatory review stop BEFORE accountant
+  permissions/account. Staging synthetic data remains a later separate stage.
+
+## Accounting Export And Local Demo - 2026-09-29
+
+- XLSX export now available from accounting UI with identical date/search/tax-mode
+  filters; all rows, not just current page. Five sheets: summary/orders/products/
+  payments-refunds/exceptions. Money is numeric, text explicitly inline (no formula
+  injection), headers styled/frozen/filterable. Uses standard-library OOXML writer
+  commerce/accounting_export.py; no runtime dependency added. Same superuser gate.
+- Three focused export/access/demo create-cleanup tests passed. Prior 51 UI/report/
+  foundation tests passed in preceding stage. No remote deployment or new migration.
+- User authorized fake data now. Created LOCAL SQLite batch FD-DEMO-202609-:
+  7 orders, 9 item rows, 8 mock transactions across July–September 2026. Includes
+  pending payment, unknown cost, multiple lines, internal/regional delivery and July
+  sale refunded in August. No real product links, stock changes, emails or provider
+  calls; no accountant/user created. Demo 10/3 amounts do not change live tariffs.
+- Command: accounting_demo (SQLite-only, refuses duplicate batch). Cleanup:
+  DATABASE_URL=sqlite:///db.sqlite3 then venv python manage.py accounting_demo --delete.
+  Checks demo markers and no real product/payment links before atomic hard-delete;
+  tested to preserve unrelated orders. Do not run against remote databases.
+- Verified demo totals July–September: orders 424 GEL, received 379, refunded 93,
+  net cash 286. Search FD-DEMO-202609- isolates the examples. Fake data remains in
+  local db for user review; does not deploy with code. STOP before accountant access.

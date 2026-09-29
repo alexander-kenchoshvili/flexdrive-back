@@ -1,0 +1,33 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'commerce/accounting.css' %}">{% endblock %}
+{% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">მთავარი</a> &rsaquo; ბუღალტერია</div>{% endblock %}
+{% block content %}<div class="accounting-workspace">
+<form method="get" class="accounting-filters">{{ form.non_field_errors }}
+{% for field in form %}<div class="accounting-field" data-field="{{ field.name }}">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>{% endfor %}
+<div class="accounting-filter-actions"><button type="submit" class="button">ჩვენება</button>{% if export_url %}<a class="button" href="{{ export_url }}">Excel-ის ჩამოტვირთვა</a>{% endif %}</div></form>
+{% if error %}<p class="errornote">{{ error }}</p>{% endif %}
+{% if period %}<h2>{% if status == "paid" %}წარმატებული შეკვეთები{% elif status == "refunded" %}დაბრუნებული შეკვეთები{% else %}ყველა გადახდა და დაბრუნება{% endif %}</h2>
+<p>{{ period.start|date:"d.m.Y" }} — {{ period.end|date:"d.m.Y" }} · {{ order_count }} შეკვეთა · თანხები ლარში · დღგ 18%</p>
+<p>{% if status == "paid" %}გადახდის თარიღით; დაბრუნებული შეკვეთები გამორიცხულია.{% elif status == "refunded" %}დაბრუნების თარიღით; ნაჩვენებია დაბრუნებული თანხები.{% else %}გადახდები დადებითად, დაბრუნებები უარყოფითად; საწყისი გადახდაც ჩანს, ჯამში დაბრუნება გამოაკლდება.{% endif %} მიტანა და ბუფერი თითო შეკვეთაზე ერთხელ ითვლება.</p>
+{% if sku %}<p>ძიება: <strong>{{ sku }}</strong> · ნაჩვენებია მხოლოდ შესაბამისი პროდუქტები. მიტანა და შეკვეთის სრული თანხა პროდუქტზე არ ნაწილდება და ამ ძიებაში არ ჯამდება.</p>{% endif %}
+{% for group in groups %}
+<section class="accounting-order" aria-labelledby="order-{{ group.event_id }}">
+<header class="accounting-order-heading">
+<div><span class="accounting-order-kicker">შეკვეთა</span><h3 id="order-{{ group.event_id }}">{{ group.number }}</h3></div>
+<div class="accounting-order-meta"><span>{{ group.date }}</span><strong class="accounting-order-status">{{ group.status }}</strong><span>{{ group.line_count }} პროდუქტის პოზიცია · {{ group.unit_count }} ერთეული</span></div>
+</header>
+<div class="accounting-table" role="region" aria-label="{{ group.number }} — პროდუქტები" tabindex="0"><table>
+<thead><tr>{% for header in product_headers %}<th scope="col">{{ header }}</th>{% endfor %}</tr></thead>
+<tbody>{% for row in group.rows %}<tr>{% for value in row %}<td>{{ value }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+<tfoot><tr>{% for value in group.subtotal %}<td><strong>{{ value }}</strong></td>{% endfor %}</tr></tfoot>
+</table></div>
+{% if not sku %}<footer class="accounting-order-delivery">{% for label,value in group.delivery %}<div><span>{{ label }}</span><strong>{{ value }} ₾</strong></div>{% endfor %}</footer>{% endif %}
+</section>
+{% empty %}<p class="accounting-empty">ამ პერიოდში შეკვეთები არ მოიძებნა.</p>{% endfor %}
+<section class="accounting-period-total" aria-label="პერიოდის საერთო ჯამი"><h2>სულ — არჩეული პერიოდი</h2>
+<div class="accounting-table" role="region" aria-label="პერიოდის ჯამები" tabindex="0"><table><thead><tr>{% for header in headers %}{% if forloop.counter0 == 4 or forloop.counter0 >= 7 and forloop.counter0 <= 14 %}<th scope="col">{{ header }}</th>{% endif %}{% endfor %}</tr></thead>
+<tbody><tr>{% for value in totals %}{% if forloop.counter0 == 4 or forloop.counter0 >= 7 and forloop.counter0 <= 14 %}<td><strong>{{ value }}</strong></td>{% endif %}{% endfor %}</tr></tbody></table></div></section>
+<p><strong>სულ — არჩეული პერიოდის ყველა ჩანაწერი, ყველა გვერდიდან.</strong> თვითღირებულება და მოგება რაოდენობის გათვალისწინებითაა, დღგ-ის გარეშე. პროდუქტის მოგება სხვა ხარჯების გამოკლებამდეა; მიტანა მასში არ შედის.</p>
+<nav class="accounting-pagination" aria-label="გვერდები">{% if previous_url %}<a href="{{ previous_url }}">← წინა</a>{% endif %}<span>{{ page.number }} / {{ page.paginator.num_pages }}</span>{% if next_url %}<a href="{{ next_url }}">შემდეგი →</a>{% endif %}</nav>
+{% endif %}</div><script src="{% static 'commerce/accounting.js' %}" defer></script>{% endblock %}

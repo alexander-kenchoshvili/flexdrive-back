@@ -19,6 +19,7 @@ from .bog_payments import (
     BogValidationError,
 )
 from .images import build_product_primary_image_snapshot
+from .accounting_snapshots import build_purchase_snapshot
 from .delivery_quotes import delivery_order_fields, resolve_checkout_delivery
 from .models import (
     BuyNowSession,
@@ -646,6 +647,7 @@ def _build_checkout_snapshot(
                 "product_name": product.name,
                 "sku": product.sku,
                 "internal_sku": product.internal_sku or "",
+                "accounting": build_purchase_snapshot(product),
                 "unit_price": _decimal_string(
                     reservation_item.unit_price_snapshot
                 ),
