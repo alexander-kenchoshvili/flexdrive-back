@@ -23,7 +23,7 @@ def supplier_snapshot(*, lock=False):
     return {
         row["sku"]: row
         for row in products.values(
-            "sku", "name", "status", "stock_qty", "supplier_price",
+            "sku", "internal_sku", "name", "status", "stock_qty", "supplier_price",
         )
     }
 
@@ -35,7 +35,7 @@ def create_success_report(*, started_at, before, after):
         group = changes[key]
         group["count"] += 1
         if len(group["items"]) < DETAIL_LIMIT:
-            group["items"].append({"sku": row["sku"], "name": row["name"], **detail})
+            group["items"].append({"sku": row["sku"], "internal_sku": row.get("internal_sku") or "", "name": row["name"], **detail})
 
     for sku, row in sorted(after.items()):
         old = before.get(sku)

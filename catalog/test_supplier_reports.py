@@ -9,7 +9,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from catalog.models import Category, Product, SupplierSyncReport
-from catalog.supplier_reports import create_success_report, DETAIL_LIMIT
+from catalog.supplier_reports import create_success_report, DETAIL_LIMIT, supplier_snapshot
 from catalog.test_supplier_sync import feed_item
 
 
@@ -46,6 +46,19 @@ class SupplierReportTests(TestCase):
             self.run_import(commit=True, bulk=True)
         self.assertFalse(Product.objects.exists())
         self.assertEqual(SupplierSyncReport.objects.get().status, "failed")
+
+    def test_report_captures_internal_sku_at_sync_time(self):
+        category = Category.objects.create(name="Parts", slug="snapshot-parts")
+        product = Product.objects.create(
+            name="Part", sku="CM-snapshot", internal_sku="FD-01-0123",
+            slug="snapshot-part", category=category, price=10,
+        )
+        report = create_success_report(started_at=timezone.now(), before={}, after=supplier_snapshot())
+        self.assertEqual(report.changes["new"]["items"][0]["internal_sku"], "FD-01-0123")
+        product.internal_sku = None
+        product.save(update_fields=["internal_sku"])
+        report.refresh_from_db()
+        self.assertEqual(report.changes["new"]["items"][0]["internal_sku"], "FD-01-0123")
 
     def test_meaningful_changes_only_and_bounded_details(self):
         def row(sku, qty=10, status="published", price="100"):
@@ -121,3 +134,18 @@ class SupplierReportAdminTests(TestCase):
         self.assertEqual(self.client.get(self.url).status_code, 403)
         self.assertEqual(self.client.post(reverse("admin:catalog_suppliersyncreport_delete", args=[self.reports[0].pk]), {"post": "yes"}).status_code, 403)
         self.assertEqual(SupplierSyncReport.objects.count(), 3)
+
+    def test_detail_displays_saved_codes_and_legacy_fallback(self):
+        self.product.internal_sku = "FD-01-0123"
+        self.product.save(update_fields=["internal_sku"])
+        report = self.reports[0]
+        report.changes = {"new": {"count": 3, "items": [
+            {"sku": "CM-saved", "internal_sku": "FD-02-0045", "name": "Saved"},
+            {"sku": self.product.sku, "name": "Legacy"},
+            {"sku": "CM-new", "internal_sku": "", "name": "New"},
+        ]}}
+        report.save()
+        response = self.client.get(reverse("admin:catalog_suppliersyncreport_change", args=[report.pk]))
+        self.assertContains(response, "CM-saved / FD-02-0045")
+        self.assertContains(response, "CM-keep / FD-01-0123")
+        self.assertContains(response, "<strong>CM-new</strong>", html=True)

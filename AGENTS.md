@@ -1,5 +1,17 @@
 # Project Instructions
 
+## Accounting Production Migrations - 2026-10-04
+
+- After user-confirmed production code deployment, applied only commerce 0033
+  (historical purchase-cost fields) and 0034 (accounting report permission) to the
+  explicitly supplied production database, in one transaction. Catalog pricing
+  dependencies were already applied; no pricing reset performed.
+- Verified the target migration plan is empty, new fields query successfully and
+  view_accounting_report permission exists. Existing product/category/order/item/
+  payment/user column values verified unchanged using pre/post row hashes.
+- No demo data or accountant account created; their creation remains deferred.
+  Deployed production browser verification was not performed.
+
 ## Accounting Buyer Details And Optional Purchase Columns - 2026-09-30
 
 - Order headings show saved buyer_type and, for legal entities, saved

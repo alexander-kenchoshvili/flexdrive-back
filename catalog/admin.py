@@ -1245,6 +1245,20 @@ class SupplierSyncReportAdmin(admin.ModelAdmin):
     def change_details(self, obj):
         from .supplier_reports import CHANGE_LABELS, DETAIL_LIMIT
 
+        legacy_skus = {
+            item["sku"]
+            for group in obj.changes.values()
+            for item in group.get("items", [])
+            if "internal_sku" not in item
+        }
+        legacy_codes = dict(
+            Product.objects.filter(sku__in=legacy_skus).values_list("sku", "internal_sku")
+        ) if legacy_skus else {}
+
+        def display_sku(item):
+            internal = item.get("internal_sku", legacy_codes.get(item["sku"]))
+            return f"{item['sku']} / {internal}" if internal else item["sku"]
+
         sections = []
         for key, label in CHANGE_LABELS.items():
             group = obj.changes.get(key, {})
@@ -1252,7 +1266,7 @@ class SupplierSyncReportAdmin(admin.ModelAdmin):
                 continue
             rows = format_html_join(
                 "", "<li><strong>{}</strong> — {} {}</li>",
-                ((item["sku"], item["name"],
+                ((display_sku(item), item["name"],
                   f"({item['before']} → {item['after']} GEL)" if "before" in item else "")
                  for item in group.get("items", [])),
             )
