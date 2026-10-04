@@ -1,9 +1,13 @@
 from decimal import Decimal
+from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from catalog.models import Category, Product
-from commerce.meta_conversions import _build_content_id
+from commerce.meta_conversions import (
+    _build_content_id, build_meta_purchase_event_id,
+    build_meta_purchase_payload, send_meta_purchase_event,
+)
 from commerce.models import Order, OrderItem, Cart, CartItem, BuyNowSession
 from commerce.receipts import build_receipt_snapshot, ReceiptEligibility
 from commerce.serializers import (
@@ -49,6 +53,43 @@ class CommerceInternalSkuTests(TestCase):
         self.assertEqual(_build_content_id(item), "FD-03-0001")
         snapshot = build_receipt_snapshot(self.order, ReceiptEligibility(is_preview=True, payment=None))
         self.assertEqual(snapshot["items"][0]["sku"], "FD-03-0001")
+
+    @override_settings(FRONTEND_BASE_URL="https://flexdrive.ge/")
+    def test_meta_purchase_url_omits_order_access_token(self):
+        self.order.order_number = "ORD-META-TEST"
+        self.item(internal_sku="FD-03-0001")
+        event = build_meta_purchase_payload(order=self.order)["data"][0]
+
+        self.assertEqual(event["event_source_url"], "https://flexdrive.ge/checkout/success")
+        self.assertNotIn(str(self.order.public_token), str(event))
+        self.assertEqual(event["event_name"], "Purchase")
+        self.assertEqual(event["event_id"], build_meta_purchase_event_id(self.order))
+        self.assertEqual(event["custom_data"]["order_id"], self.order.order_number)
+        self.assertEqual(event["custom_data"]["value"], 20.0)
+        self.assertEqual(event["custom_data"]["currency"], "GEL")
+        self.assertEqual(event["custom_data"]["contents"], [
+            {"id": "FD-03-0001", "quantity": 1, "item_price": 20.0},
+        ])
+
+    @override_settings(
+        FRONTEND_BASE_URL="https://flexdrive.ge",
+        META_CAPI_ENABLED=True,
+        META_PIXEL_ID="test-pixel",
+        META_CAPI_ACCESS_TOKEN="test-token",
+    )
+    @patch("commerce.meta_conversions.requests.post")
+    def test_meta_purchase_send_preserves_consent_and_uses_clean_url(self, post):
+        self.order.order_number = "ORD-META-TEST"
+        self.order.marketing_consent = False
+        self.assertFalse(send_meta_purchase_event(order=self.order))
+        post.assert_not_called()
+
+        self.order.marketing_consent = True
+        self.assertTrue(send_meta_purchase_event(order=self.order))
+        post.assert_called_once()
+        event = post.call_args.kwargs["json"]["data"][0]
+        self.assertEqual(event["event_source_url"], "https://flexdrive.ge/checkout/success")
+        self.assertNotIn(str(self.order.public_token), str(event))
 
     def test_old_order_keeps_original_code_without_backfill(self):
         item = self.item()

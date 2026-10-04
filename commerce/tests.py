@@ -1033,7 +1033,7 @@ class CommerceAPITests(APITestCase):
         self.assertEqual(event["event_id"], build_meta_purchase_event_id(order))
         self.assertEqual(
             event["event_source_url"],
-            f"https://flexdrive.ge/checkout/success/{order.public_token}",
+            "https://flexdrive.ge/checkout/success",
         )
         self.assertEqual(event["custom_data"]["currency"], "GEL")
         self.assertEqual(event["custom_data"]["value"], 120.0)

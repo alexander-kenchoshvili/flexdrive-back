@@ -137,7 +137,7 @@ def _build_events_url():
 
 def _build_order_success_url(order):
     frontend_base_url = settings.FRONTEND_BASE_URL.rstrip("/")
-    return f"{frontend_base_url}/checkout/success/{order.public_token}"
+    return f"{frontend_base_url}/checkout/success"
 
 
 def _build_user_data(*, order, request=None):
