@@ -15,3 +15,6 @@ db.sqlite3
 # Media
 media/
 .u2net/
+
+# Local generated catalog search audit reports
+/local-docs/search-audit*.json

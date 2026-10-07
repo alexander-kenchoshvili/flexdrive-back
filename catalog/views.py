@@ -1,5 +1,7 @@
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
 import re
+import unicodedata
 from django.http import Http404
 
 from django.db.models import Case, Count, F, IntegerField, Max, Min, Prefetch, Q, When
@@ -40,7 +42,8 @@ from .search_cache import get_vehicle_search_catalog
 
 
 SEARCH_QUERY_MIN_LENGTH = 2
-SEARCH_QUERY_MAX_LENGTH = 100
+# A copied full product name must fit the same bound as Product.name.
+SEARCH_QUERY_MAX_LENGTH = 255
 
 
 def _validated_search_query(raw_query):
@@ -155,8 +158,6 @@ _PLACEMENT_SEARCH_TERMS = {
     ProductPlacement.OUTER: ("გარე", "outer", "outside"),
 }
 
-_SEARCH_WORD_BOUNDARIES = (" ", "(", "-", "/")
-
 _VEHICLE_MAKE_ALIASES = {
     "audi": ("აუდი", "audi"),
     "bmw": ("ბმვ", "bmw"),
@@ -222,7 +223,7 @@ def _georgian_to_latin(value):
     return "".join(_GEORGIAN_LATIN_CHARS.get(char, char) for char in normalized)
 
 
-def _search_terms(value):
+def _search_base_terms(value):
     search_query = str(value or "").strip()
     if not search_query:
         return []
@@ -238,7 +239,12 @@ def _search_terms(value):
     if len(search_query) > 3 and normalized_lower.endswith("s"):
         base_terms.append(search_query[:-1])
 
+    return base_terms
+
+
+def _search_terms(value):
     terms = []
+    base_terms = _search_base_terms(value)
     for base_term in base_terms:
         if base_term not in terms:
             terms.append(base_term)
@@ -254,7 +260,31 @@ def _search_terms(value):
 
 
 def _search_tokens(value):
-    return [token for token in str(value or "").strip().split() if token]
+    normalized = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    for invisible in ("\u200b", "\ufeff", "\u2060"):
+        normalized = normalized.replace(invisible, "")
+    # Keep identifier separators inside a token; brackets, slashes and whitespace
+    # separate name words regardless of how the name was copied or typed.
+    return re.findall(r"[^\W_]+(?:[-._][^\W_]+)*", normalized, re.UNICODE)
+
+
+def _latin_to_georgian_pattern(value):
+    # A character class covers every ambiguous keyboard spelling without the
+    # exponential expansion / truncation of long words containing k, t or w.
+    if not re.fullmatch(r"[a-z]+", value):
+        return None
+    result = []
+    index = 0
+    while index < len(value):
+        pair = value[index:index + 2]
+        if pair in _LATIN_GEORGIAN_DIGRAPHS:
+            options = _LATIN_GEORGIAN_DIGRAPHS[pair]
+            index += 2
+        else:
+            options = _LATIN_GEORGIAN_CHARS.get(value[index], (value[index],))
+            index += 1
+        result.append(re.escape(options[0]) if len(options) == 1 else "[" + "".join(options) + "]")
+    return "".join(result)
 
 
 def _normalize_search_token(value):
@@ -279,27 +309,52 @@ _VEHICLE_MAKE_ALIAS_LOOKUP = {
 }
 
 
+@lru_cache(maxsize=2048)
 def _vehicle_search_terms(value):
     search_terms = _search_terms(value)
+    # Georgian spellings commonly append ი to a Latin model name (ფორესტერი).
+    if re.fullmatch(r"[ა-ჰ]{5,}ი", value):
+        search_terms = _unique_search_terms([*search_terms, *_search_terms(value[:-1])])
     terms = _unique_search_terms(search_terms)
     for term in search_terms:
         alias = _VEHICLE_MAKE_ALIAS_LOOKUP.get(_normalize_search_token(term))
         if alias and alias not in terms:
             terms.append(alias)
-    return terms
+    return tuple(terms)
 
 
-def _product_search_filter(search_terms, include_descriptions=False):
+def _product_search_filter(search_terms, include_descriptions=False, name_only=False, transliterate=False):
     query = Q()
+    fields = ["name", "internal_sku", "manufacturer_part_number"]
+    if include_descriptions:
+        fields.extend(["short_description", "description"])
+    if name_only:
+        fields = ["name"]
     for term in search_terms:
-        term_query = (
-            Q(name__icontains=term)
-            | Q(internal_sku__icontains=term)
-            | Q(manufacturer_part_number__icontains=term)
+        numeric = bool(re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", term))
+        lookup = "iregex" if numeric else "icontains"
+        value = rf"(^|[^0-9.]){re.escape(term)}($|[^0-9.])" if numeric else term
+        for field in fields:
+            query |= Q(**{f"{field}__{lookup}": value})
+        pattern = _latin_to_georgian_pattern(term.lower()) if transliterate else None
+        if pattern:
+            for field in fields:
+                query |= Q(**{f"{field}__iregex": pattern})
+    return query
+
+
+def _product_token_filter(tokens, include_descriptions=False, name_only=False):
+    query = Q()
+    for token in dict.fromkeys(tokens):
+        terms = _unique_search_terms([
+            *_search_base_terms(token),
+            *(_georgian_to_latin(term) for term in _search_base_terms(token)),
+        ])
+        token_query = _product_search_filter(
+            terms, include_descriptions=include_descriptions, name_only=name_only,
+            transliterate=bool(_latin_to_georgian_pattern(token)),
         )
-        if include_descriptions:
-            term_query |= Q(short_description__icontains=term) | Q(description__icontains=term)
-        query |= term_query
+        query &= token_query
     return query
 
 
@@ -324,6 +379,9 @@ def _build_search_context(raw_query):
         else search_query
     )
     phrase_terms = _unique_search_terms(_search_terms(product_query))
+    company_code = _company_search_code(search_query)
+    if company_code and company_code not in phrase_terms:
+        phrase_terms.insert(0, company_code)
     token_terms = _unique_search_terms(
         term
         for token in _search_tokens(product_query)
@@ -334,28 +392,22 @@ def _build_search_context(raw_query):
         "search_parts": search_parts,
         "phrase_terms": phrase_terms,
         "token_terms": token_terms,
+        "tokens": _search_tokens(search_query),
     }
 
 
+def _company_search_code(raw_query):
+    match = re.fullmatch(r"fd[\s._-]*(\d{2})(?:[\s._-]*(\d+))?", str(raw_query).strip(), re.IGNORECASE)
+    if not match:
+        return None
+    return f"FD-{match[1]}" + (f"-{match[2]}" if match[2] else "-")
+
+
 def _name_boundary_whens(search_terms, score):
-    whens = []
-    for term in search_terms:
-        whens.append(When(name__iexact=term, then=score))
-        for boundary in _SEARCH_WORD_BOUNDARIES:
-            whens.extend(
-                [
-                    When(name__istartswith=f"{term}{boundary}", then=score),
-                    When(name__iendswith=f"{boundary}{term}", then=score),
-                ]
-            )
-            for trailing_boundary in _SEARCH_WORD_BOUNDARIES:
-                whens.append(
-                    When(
-                        name__icontains=f"{boundary}{term}{trailing_boundary}",
-                        then=score,
-                    )
-                )
-    return whens
+    return [
+        When(name__iregex=rf"(^|[\s(/-]){re.escape(term)}($|[\s)/-])", then=score)
+        for term in search_terms
+    ]
 
 
 def _in_stock_order_annotation():
@@ -391,6 +443,12 @@ def _search_relevance_annotations(search_context):
         contains_match_whens.append(When(name__icontains=term, then=1))
 
     return {
+        "search_exact_name_match": Case(
+            When(name__iexact=search_context["raw_query"], then=1),
+            When(name__iexact=" ".join(search_context["tokens"]), then=1),
+            default=0,
+            output_field=IntegerField(),
+        ),
         "search_identifier_match": Case(
             *identifier_match_whens,
             default=0,
@@ -453,73 +511,92 @@ def _attribute_search_match(value):
 
 def _attribute_constraint(field, value, token, include_descriptions=False):
     query = Q(**{field: value})
-    token_terms = _search_terms(token)
-    if token_terms:
-        query |= _product_search_filter(
-            token_terms,
-            include_descriptions=include_descriptions,
-        )
+    aliases = (_SIDE_SEARCH_TERMS if field == "side" else _PLACEMENT_SEARCH_TERMS)[value]
+    terms = _unique_search_terms([*aliases, *(_georgian_to_latin(alias) for alias in aliases)])
+    fields = ["name"]
+    if include_descriptions:
+        fields.extend(["short_description", "description"])
+    for term in terms:
+        # LH must match a side marker, never the middle of "wheelhouse" or an ID.
+        # Use explicit separators so non-ASCII word boundaries also behave the
+        # same under PostgreSQL database locales and SQLite's Python regexes.
+        separators = r"[\s()\[\]{},;:/.'\"“”„\-–—]"
+        pattern = rf"(^|{separators}){re.escape(term)}($|{separators})"
+        for text_field in fields:
+            query |= Q(**{f"{text_field}__iregex": pattern})
     return query
 
 
-def _first_vehicle_entity_match(records, search_terms):
+@lru_cache(maxsize=4096)
+def _normalize_vehicle_token(value):
+    return re.sub(r"[\W_]+", "", _normalize_search_token(value), flags=re.UNICODE)
+
+
+def _vehicle_entity_matches(records, search_terms, *, prefix=False):
     normalized_terms = {
-        _normalize_search_token(term)
+        _normalize_vehicle_token(term)
         for term in search_terms
-        if _normalize_search_token(term)
+        if _normalize_vehicle_token(term)
     }
+    if prefix:
+        normalized_terms = {term for term in normalized_terms if len(term) >= _VEHICLE_PREFIX_MIN_LENGTH}
+    matches = []
     for record in records:
-        if (
-            _normalize_search_token(record["name"]) in normalized_terms
-            or _normalize_search_token(record["slug"]) in normalized_terms
+        name = _normalize_vehicle_token(record["name"])
+        slug = _normalize_vehicle_token(record["slug"])
+        if any(
+            (name.startswith(term) or slug.startswith(term)) if prefix else (name == term or slug == term)
+            for term in normalized_terms
         ):
-            return record
+            matches.append(record)
+    return matches
 
-    prefix_terms = tuple(
-        _normalize_search_token(term)
-        for term in search_terms
-        if len(_normalize_search_token(term)) >= _VEHICLE_PREFIX_MIN_LENGTH
-    )
-    if not prefix_terms:
+
+def _vehicle_candidates(match):
+    return match.get("candidates", [match]) if match else []
+
+
+def _combine_vehicle_candidates(candidates):
+    unique = {tuple(candidate[field] for field in ("make_id", "model_id", "engine_id")): candidate
+              for candidate in candidates}
+    if not unique:
         return None
-
-    for record in records:
-        name = _normalize_search_token(record["name"])
-        slug = _normalize_search_token(record["slug"])
-        if any(name.startswith(term) or slug.startswith(term) for term in prefix_terms):
-            return record
-    return None
+    candidates = list(unique.values())
+    result = dict(candidates[0])
+    if len(candidates) > 1:
+        result["candidates"] = candidates
+    return result
 
 
-def _vehicle_search_match(value, vehicle_catalog):
+def _vehicle_search_match(value, vehicle_catalog, current=None):
     search_terms = _vehicle_search_terms(value)
     if not search_terms:
         return None
 
-    make = _first_vehicle_entity_match(vehicle_catalog["makes"], search_terms)
-    if make:
-        return {
-            "make_id": make["id"],
-            "model_id": None,
-            "engine_id": None,
-        }
+    makes = vehicle_catalog["makes"]
+    models = vehicle_catalog["models"]
+    engines = vehicle_catalog["engines"]
+    if current:
+        candidates = _vehicle_candidates(current)
+        make_ids = {candidate["make_id"] for candidate in candidates}
+        model_ids = {candidate["model_id"] for candidate in candidates if candidate["model_id"]}
+        models = [model for model in models if model["make_id"] in make_ids]
+        engines = [engine for engine in engines if engine["model__make_id"] in make_ids
+                   and (not model_ids or engine["model_id"] in model_ids)]
 
-    model = _first_vehicle_entity_match(vehicle_catalog["models"], search_terms)
-    if model:
-        return {
-            "make_id": model["make_id"],
-            "model_id": model["id"],
-            "engine_id": None,
-        }
-
-    engine = _first_vehicle_entity_match(vehicle_catalog["engines"], search_terms)
-    if engine:
-        return {
-            "make_id": engine["model__make_id"],
-            "model_id": engine["model_id"],
-            "engine_id": engine["id"],
-        }
-
+    # Resolve exact entities before prefixes; a prefix must retain every matching
+    # vehicle instead of silently choosing whichever record is sorted first.
+    for prefix in (False, True):
+        for kind, records in (("make", makes), ("model", models), ("engine", engines)):
+            matches = _vehicle_entity_matches(records, search_terms, prefix=prefix)
+            if matches:
+                return _combine_vehicle_candidates([
+                    {
+                        "make_id": record["id"] if kind == "make" else record["make_id"] if kind == "model" else record["model__make_id"],
+                        "model_id": record["id"] if kind == "model" else record["model_id"] if kind == "engine" else None,
+                        "engine_id": record["id"] if kind == "engine" else None,
+                    } for record in matches
+                ])
     return None
 
 
@@ -527,6 +604,15 @@ def _merge_vehicle_search_match(current, match):
     if current is None:
         return match
 
+    return _combine_vehicle_candidates([
+        merged
+        for first in _vehicle_candidates(current)
+        for second in _vehicle_candidates(match)
+        if (merged := _merge_single_vehicle_match(first, second)) is not None
+    ])
+
+
+def _merge_single_vehicle_match(current, match):
     if current["make_id"] != match["make_id"]:
         return None
 
@@ -567,7 +653,7 @@ def _resolve_search_parts(raw_query):
 
         for size in range(max_size, 0, -1):
             phrase = " ".join(tokens[index : index + size])
-            match = _vehicle_search_match(phrase, vehicle_catalog)
+            match = _vehicle_search_match(phrase, vehicle_catalog, current=vehicle_filter)
             if not match:
                 continue
 
@@ -600,6 +686,18 @@ def _resolve_search_parts(raw_query):
     if vehicle_filter is None and not attribute_filters:
         return None
 
+    # Resolve vehicles first: a model such as Peugeot 2008 is not a year.
+    # Only a standalone, unambiguous year with vehicle context is a fitment
+    # constraint. Other numbers and identifier fragments remain product terms.
+    years = {
+        int(token) for token in product_tokens
+        if re.fullmatch(r"[0-9]{4}", token) and 1900 <= int(token) <= 2100
+    }
+    if vehicle_filter and len(years) == 1:
+        year = years.pop()
+        vehicle_filter = {**vehicle_filter, "year": year}
+        product_tokens = [token for token in product_tokens if token != str(year)]
+
     return {
         "vehicle_filter": vehicle_filter,
         "attribute_filters": attribute_filters,
@@ -611,44 +709,65 @@ def _apply_catalog_search(queryset, search_context, include_descriptions=False):
     if not search_context:
         return queryset
 
-    search_query = search_context["raw_query"]
+    if not search_context["tokens"]:
+        return queryset.none()
+    # An identifier must remain searchable even when it coincides with a model,
+    # engine or attribute name. Numeric-only identifier prefixes remain useful.
+    identifier_query = (
+        Q(internal_sku__icontains=search_context["raw_query"].strip())
+        | Q(manufacturer_part_number__icontains=search_context["raw_query"].strip())
+    )
+    company_code = _company_search_code(search_context["raw_query"])
+    if company_code:
+        identifier_query |= Q(internal_sku__icontains=company_code)
     search_parts = search_context["search_parts"]
     if search_parts:
+        query = Q()
+        if search_parts["product_query"]:
+            # Test the inexpensive product words before attribute regex fallbacks.
+            query &= _product_token_filter(
+                _search_tokens(search_parts["product_query"]), include_descriptions=include_descriptions,
+            )
         vehicle_filter = search_parts["vehicle_filter"]
         if vehicle_filter:
-            fitment_filter = _matching_fitment_filter(vehicle_filter)
+            fitment_filter = Q()
+            for candidate in _vehicle_candidates(vehicle_filter):
+                fitment_filter |= _matching_fitment_filter({
+                    **candidate, "year": vehicle_filter.get("year"),
+                })
             matching_fitments = ProductFitment.objects.filter(fitment_filter)
-            queryset = queryset.filter(
+            vehicle_query = (
                 Q(is_universal_fitment=True) | Q(fitments__in=matching_fitments)
-            ).distinct()
+            )
+            query &= vehicle_query
 
         for field, match in search_parts["attribute_filters"].items():
-            queryset = queryset.filter(
-                _attribute_constraint(
-                    field,
-                    match["value"],
-                    match["token"],
-                    include_descriptions=include_descriptions,
-                )
+            query &= _attribute_constraint(
+                field,
+                match["value"],
+                match["token"],
+                include_descriptions=include_descriptions,
             )
 
-        product_query = search_parts["product_query"]
-        if product_query:
-            queryset = queryset.filter(
-                _product_search_filter(
-                    _search_terms(product_query),
-                    include_descriptions=include_descriptions,
-                )
-            )
-        return queryset
+        if vehicle_filter:
+            # A name word (e.g. Sport) may also be a vehicle prefix (Sportage).
+            # Literal name matches must survive that interpretation. Explicit
+            # catalog filters still apply because they constrain the base queryset.
+            literal_name_query = _product_token_filter(search_context["tokens"], name_only=True)
+            if vehicle_filter.get("year") is not None:
+                # A year mentioned in a title must not override compatibility.
+                literal_name_query &= vehicle_query
+            query |= literal_name_query
+            return queryset.filter(query | identifier_query).distinct()
+        return queryset.filter(query | identifier_query)
 
-    search_terms = _search_terms(search_query)
-    if search_terms:
+    if search_context["tokens"]:
         return queryset.filter(
-            _product_search_filter(search_terms, include_descriptions=include_descriptions)
+            _product_token_filter(search_context["tokens"], include_descriptions=include_descriptions)
+            | identifier_query
         )
 
-    return queryset
+    return queryset.none()
 
 
 def _parse_bool(value, field_name):
@@ -987,8 +1106,9 @@ class ProductListAPIView(generics.ListAPIView):
             return queryset.annotate(
                 **_search_relevance_annotations(search_context),
             ).order_by(
-                "-in_stock_order",
                 "-search_identifier_match",
+                "-search_exact_name_match",
+                "-in_stock_order",
                 "-search_direct_name_match",
                 "-search_startswith_match",
                 "-search_contains_match",
@@ -1106,7 +1226,7 @@ class ProductSuggestionAPIView(generics.ListAPIView):
 
     def get_queryset(self):
         raw_query = self.request.query_params.get("q")
-        if not str(raw_query or "").strip():
+        if len(str(raw_query or "").strip()) < SEARCH_QUERY_MIN_LENGTH:
             return Product.objects.none()
         search_query = _validated_search_query(raw_query)
 
@@ -1142,8 +1262,9 @@ class ProductSuggestionAPIView(generics.ListAPIView):
                 **_search_relevance_annotations(search_context),
             )
             .order_by(
-                "-in_stock_order",
                 "-search_identifier_match",
+                "-search_exact_name_match",
+                "-in_stock_order",
                 "-search_direct_name_match",
                 "-search_startswith_match",
                 "-search_contains_match",

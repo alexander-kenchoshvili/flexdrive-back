@@ -1,5 +1,68 @@
 # Project Instructions
 
+## Catalog Search Year And Local Browser Verification - 2026-10-07
+
+- Free-text search now extracts a single unambiguous standalone year (1900-2100)
+  after resolving a vehicle and checks the inclusive ProductFitment year range.
+  Model numbers such as Peugeot 2008 and standalone numeric IDs remain searchable.
+  Engine and year must match the same fitment; universal products retain their
+  existing behavior. Description/title year mentions cannot bypass compatibility.
+  Explicit API filters still constrain search. No migration or product edit.
+- Georgian model spellings with a trailing ი (ფორესტერი) also resolve to their
+  Latin model names. Other product-word matching is unchanged in this follow-up.
+- Deployed mobile close/reopen worked when checked; the earlier reported bug was
+  in the unshipped local stale-response changes. Added explicit reload on mobile
+  open plus three tests, preventing that regression when the changes are deployed.
+- 62 backend search/cache/internal-SKU tests and 15 frontend tests pass; frontend
+  typecheck passes. Search stock fixtures now exceed the five-unit reserve so
+  ranking/stock-filter tests actually exercise customer-available stock.
+- Extended audit uses every fitment and adds start/end-year name combinations:
+  2,037 products, 25,091 membership checks / 16,316 distinct queries, zero failures
+  and no length skips. Separate read-only comparison of 216 vehicle/year queries
+  against saved fitments found no missing or extra products.
+- Browser verified user-started https://localhost:3000: no-year Forester cover
+  search 4 results, 2019 gives 2, full LH name gives 1 in dropdown and catalog;
+  2018 gives 2 covers for 2012-2018, 2020 gives none. Original full LH name gives 5.
+  Mobile 375px reopen/route-query loading, rapid input replacement, reordered Latin
+  spelling, compact company SKU and clear-search behavior verified. Viewport reset.
+  Temporary agent-started servers were stopped; user-started servers left running.
+  Production was not changed; push/deploy and PostgreSQL runtime verification remain.
+
+## Catalog Search Full Audit - 2026-10-07
+
+- Supersedes the narrower same-day fragment fix below. Search now requires all
+  meaningful words in any order, normalizes whitespace/punctuation/pasted invisible
+  characters and Georgian uppercase, and uses bounded per-word Latin patterns.
+- Whole-word side/placement aliases support legacy names without matching LH inside
+  unrelated words. Numeric name terms remain distinct; identifier prefixes work.
+  Shared/prefix vehicle matches retain all candidates and scope models to the make.
+  Literal name/identifier matches survive accidental vehicle interpretation;
+  explicit catalog filters and supplier-SKU privacy remain intact.
+- Exact code/name results precede partial matches/stock preference during search.
+  Standard FD codes support compact/spaced spelling; max query length is 255 to
+  accommodate Product.name. Default listing stock order is preserved.
+- Paired frontend HeaderSearch invalidates stale/debounced requests immediately on
+  input change/clear/close/unmount. 12 actual-Vue search tests and typecheck pass.
+- Read-only SQLite-only `audit_catalog_search --fail-on-missing --output <json>`
+  checks every public product's names/variants, vehicle combinations and public IDs.
+  Final local sweep: 2,037 products, 20,280 membership checks / 12,117 distinct
+  queries, zero failures and no length skips. Initial broad sweep had 2,183 missing
+  memberships (including 47 full-name checks); these are cases, not distinct bugs.
+  54 backend search/cache/internal-SKU tests pass. See docs/CATALOG_SEARCH.md.
+  No catalog/schema or remote changes. Both deployments and deployed-site/
+  PostgreSQL verification remain pending; no browser/server session was started.
+
+## Catalog Full-Name Search Fix - 2026-10-07
+
+- Reproduced zero results for `სარკის ქვედა ხუფი (LH)` locally: parsing removed
+  the middle placement word and incorrectly searched the adjacent phrase `სარკის ხუფი`.
+- Search now requires all original product phrase fragments around extracted
+  vehicle/attribute terms, preserving adjacency within each fragment. Normalize
+  bracketed attribute tokens and ignore standalone copied-name separators.
+- Dropdown and catalog APIs now return 5 matching LH covers locally; RH isolation
+  and the supplied rear-bumper example verified. 28 search/cache/internal-SKU tests pass.
+  No data/schema/frontend or remote changes; production deployment remains pending.
+
 ## Accounting Production Migrations - 2026-10-04
 
 - After user-confirmed production code deployment, applied only commerce 0033

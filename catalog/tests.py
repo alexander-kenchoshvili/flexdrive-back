@@ -834,7 +834,7 @@ class CatalogAPITests(APITestCase):
         self.assertIn("q", response.data)
 
     def test_product_search_rejects_too_long_query(self):
-        response = self.client.get(reverse("catalog-product-list"), {"q": "a" * 101})
+        response = self.client.get(reverse("catalog-product-list"), {"q": "a" * 256})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("q", response.data)
