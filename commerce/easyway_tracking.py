@@ -10,7 +10,7 @@ from django.utils.dateparse import parse_datetime
 
 from .easyway import EasywayClient, EasywayError
 from .easyway_reports import TrackingReport
-from .models import EasywayShipmentState, Order, OrderPaymentStatus, OrderStatus
+from .models import EasywayShipmentState, Order, OrderPaymentStatus, OrderStatus, OrderReturn
 
 
 TERMINAL_STATUSES = {"delivered", "canceled"}
@@ -182,7 +182,9 @@ def _apply_tracking(order_id, carrier_id, token, events):
         elif order.status == OrderStatus.CANCELLED:
             issue = "Tracking received for a cancelled order; order unchanged. Review required."
         elif target is not None:
-            if order.payment_status != OrderPaymentStatus.PAID:
+            if OrderReturn.objects.filter(order=order).exists():
+                issue = "დაბრუნება დაწყებულია; შეკვეთის მიწოდების მდგომარეობა არ შეცვლილა."
+            elif order.payment_status != OrderPaymentStatus.PAID:
                 issue = "Delivery update for an unpaid/refunding order; review required."
             elif ORDER_RANK.get(target, -1) > ORDER_RANK.get(order.status, -1):
                 order.status = target

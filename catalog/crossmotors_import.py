@@ -538,11 +538,23 @@ def validate_import_safety(report, *, archive_missing=False, max_missing_percent
 
 
 def _archive_missing_products(report):
-    return _missing_products(report).update(
-        status=ProductStatus.ARCHIVED,
-        supplier_missing=True,
-        updated_at=timezone.now(),
-    )
+    # Serialize with receipts/sales: a supplier disappearance cannot hide owned
+    # stock or leave the last supplier count sellable on the storefront.
+    products = list(_missing_products(report).select_for_update().order_by("pk"))
+    archived = 0
+    for product in products:
+        if not product.owned_stock_qty:
+            product.status = ProductStatus.ARCHIVED
+            archived += 1
+        product.supplier_missing = True
+        product.stock_qty = 0
+        product.supplier_stock_qty = 0
+        product.updated_at = timezone.now()
+    if products:
+        Product.objects.bulk_update(products, [
+            "status", "supplier_missing", "stock_qty", "supplier_stock_qty", "updated_at",
+        ])
+    return archived
 
 
 @transaction.atomic

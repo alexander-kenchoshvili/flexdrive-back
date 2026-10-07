@@ -9,6 +9,9 @@ from django.utils import timezone
 from .bog_payments import BogPaymentError, BogPaymentsClient, BogResponseError
 from .models import (
     Order,
+    OrderReturn,
+    ReturnDisposition,
+    ReturnReceiptStatus,
     OrderPaymentMethod,
     OrderPaymentStatus,
     OrderStatus,
@@ -41,14 +44,24 @@ class BogRefundReconciliationResult:
     result: str
 
 
+def _return_ready_for_refund(order):
+    case = OrderReturn.objects.filter(order=order).first()
+    if case and case.disposition == ReturnDisposition.FROM_CUSTOMER:
+        return (order.status in {OrderStatus.SHIPPED, OrderStatus.DELIVERED}
+                and case.receipt_status == ReturnReceiptStatus.RECEIVED)
+    return order.status in CANCELLABLE_ORDER_STATUSES
+
+
 def can_request_bog_full_refund(order):
     if (
         order.payment_method != OrderPaymentMethod.CARD
-        or order.payment_status != OrderPaymentStatus.PAID
-        or order.status not in CANCELLABLE_ORDER_STATUSES
+        or order.payment_status not in {OrderPaymentStatus.PAID, OrderPaymentStatus.REFUND_PENDING}
+        or not _return_ready_for_refund(order)
         or order.stock_restored_at is not None
     ):
         return False
+    if order.payment_status == OrderPaymentStatus.REFUND_PENDING:
+        return order.payment_transactions.filter(action="refund", status="refund_pending", provider_action_id="").exists()
     return _bog_paid_sales_for_order(order).count() == 1
 
 
@@ -56,7 +69,7 @@ def get_bog_sale_payment_for_order(order):
     payments = list(_bog_paid_sales_for_order(order)[:2])
     if len(payments) != 1:
         raise DjangoValidationError(
-            "The order must have exactly one confirmed BOG card payment."
+            "შეკვეთას უნდა ჰქონდეს ბანკის მიერ დადასტურებული ერთი გადახდა."
         )
     return payments[0]
 
@@ -74,11 +87,15 @@ def request_bog_full_refund(
     sale_payment=None,
     requested_by=None,
     client=None,
+    disposition=None,
+    not_dispatched=False,
 ):
     refund, should_submit = _prepare_bog_full_refund(
         order=order,
         sale_payment=sale_payment,
         requested_by=requested_by,
+        disposition=disposition,
+        not_dispatched=not_dispatched,
     )
     if not should_submit:
         return refund
@@ -115,6 +132,8 @@ def _prepare_bog_full_refund(
     order=None,
     sale_payment=None,
     requested_by=None,
+    disposition=None,
+    not_dispatched=False,
 ):
     if (order is None) == (sale_payment is None):
         raise ValueError("Provide either order or sale_payment.")
@@ -135,6 +154,25 @@ def _prepare_bog_full_refund(
             )
 
     _validate_refundable_sale(locked_sale, locked_order)
+
+    return_case = None
+    if locked_order and disposition == ReturnDisposition.FROM_CUSTOMER:
+        from .returns import _validate_actor
+        _validate_actor(requested_by)
+        return_case = OrderReturn.objects.filter(order=locked_order, disposition=disposition).first()
+        if not return_case or not _return_ready_for_refund(locked_order):
+            raise DjangoValidationError("თანხის დაბრუნებამდე მიიღეთ და შეამოწმეთ ყველა ნივთი.")
+    elif locked_order and (requested_by is not None or disposition is not None):
+        if not not_dispatched or disposition not in {ReturnDisposition.NOT_PURCHASED, ReturnDisposition.ON_HAND}:
+            raise DjangoValidationError("აირჩიეთ ნივთების მდგომარეობა და დაადასტურეთ, რომ შეკვეთა არ გაგზავნილა.")
+        if locked_order.status not in CANCELLABLE_ORDER_STATUSES:
+            raise DjangoValidationError("გაგზავნილი ნივთის მიღებამდე თანხას ვერ დააბრუნებთ.")
+        from .returns import prepare_order_return, has_external_items
+        if disposition == ReturnDisposition.NOT_PURCHASED and not has_external_items(locked_order):
+            raise DjangoValidationError("შეკვეთა ჩვენი მარაგიდანაა — აირჩიეთ „უკვე ჩემთანაა“.")
+        return_case = prepare_order_return(order=locked_order, disposition=disposition, actor=requested_by)
+    elif locked_order and OrderReturn.objects.filter(order=locked_order).exists():
+        raise DjangoValidationError("დაბრუნება შეასრულეთ შეკვეთის დაბრუნების ფანჯრიდან.")
 
     existing = (
         PaymentTransaction.objects.select_for_update()
@@ -169,13 +207,12 @@ def _prepare_bog_full_refund(
         locked_order is not None
         and (
             locked_order.payment_status != OrderPaymentStatus.PAID
-            or locked_order.status not in CANCELLABLE_ORDER_STATUSES
+            or not _return_ready_for_refund(locked_order)
             or locked_order.stock_restored_at is not None
         )
     ):
         raise DjangoValidationError(
-            "Only a paid BOG card order in new, confirmed, or processing "
-            "status can start this full refund flow."
+            "თანხის დაბრუნებისთვის საჭიროა გადახდილი შეკვეთა და ნივთების მდგომარეობის დადასტურება."
         )
 
     request_context = {
@@ -185,6 +222,8 @@ def _prepare_bog_full_refund(
     }
     if requested_by is not None and getattr(requested_by, "pk", None):
         request_context["requested_by_user_id"] = requested_by.pk
+    if return_case:
+        request_context["return_case_id"] = return_case.pk
 
     refund = create_payment_transaction(
         order=locked_order,
@@ -216,7 +255,7 @@ def _validate_refundable_sale(sale, order):
         or not sale.provider_order_id
     ):
         raise DjangoValidationError(
-            "A confirmed BOG card sale with a provider order ID is required."
+            "საჭიროა საქართველოს ბანკის მიერ დადასტურებული საბარათე გადახდა."
         )
     if order is not None:
         if (
@@ -225,7 +264,7 @@ def _validate_refundable_sale(sale, order):
             or order.total != sale.amount
         ):
             raise DjangoValidationError(
-                "The BOG sale does not match the card order."
+                "გადახდის თანხა ან მონაცემები შეკვეთას არ ემთხვევა."
             )
     elif sale.order_id is not None:
         raise DjangoValidationError("The payment target is inconsistent.")
@@ -663,7 +702,11 @@ def _mark_refund_completed(refund, provider_reference, action):
         )
     if request_context.get("restore_stock_on_success"):
         try:
-            order = cancel_refunded_order_and_restore_stock(order)
+            if request_context.get("return_case_id"):
+                from .returns import finalize_return_refund
+                order = finalize_return_refund(order=order, case_id=request_context["return_case_id"])
+            else:
+                order = cancel_refunded_order_and_restore_stock(order)
         except DjangoValidationError as error:
             refund.error_code = "bog_refund_completed_stock_restore_required"
             refund.error_message = error.messages[0][:2000]

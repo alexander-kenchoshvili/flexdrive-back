@@ -2,6 +2,14 @@
 
 {% block submit_buttons_bottom %}
 {{ block.super }}
+{% if return_case_url %}<p><a href="{{ return_case_url }}">დაბრუნების ჩანაწერის ნახვა</a></p>{% endif %}
+{% if return_flow_status %}<div class="module" style="padding:12px"><strong>{{ return_flow_status }}</strong>{% if return_flow_note %}<p>{{ return_flow_note }}</p>{% endif %}</div>{% endif %}
+{% if show_return_start or show_return_receive %}
+<div class="submit-row">
+  {% if show_return_start %}<a class="button" href="{{ return_start_url }}">დაბრუნების დაწყება</a>{% endif %}
+  {% if show_return_receive %}<a class="button" href="{{ return_receive_url }}">მიღება და შემოწმება</a>{% endif %}
+</div>
+{% endif %}
 {% if show_cancel_and_restore_stock %}
 <div class="submit-row">
   <input
@@ -14,10 +22,10 @@
 {% if show_bog_full_refund or show_bog_reconciliation %}
 <div class="submit-row">
   {% if show_bog_full_refund %}
-  <a class="button" href="{{ bog_refund_url }}">Request full BOG refund</a>
+  <a class="button" href="{{ bog_refund_url }}">თანხის დაბრუნება</a>
   {% endif %}
   {% if show_bog_reconciliation %}
-  <a class="button" href="{{ bog_reconcile_url }}">Refresh BOG status</a>
+  <a class="button" href="{{ bog_reconcile_url }}">ბანკის მდგომარეობის შემოწმება</a>
   {% endif %}
 </div>
 {% endif %}

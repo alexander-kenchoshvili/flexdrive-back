@@ -528,6 +528,9 @@ class Product(TimeStampedModel):
         blank=True,
     )
     stock_qty = models.PositiveIntegerField(default=0)
+    owned_stock_qty = models.PositiveIntegerField(
+        "FlexDrive-ის საკუთარი ნაშთი", default=0, db_default=0, editable=False,
+    )
     supplier_source = models.CharField(
         "მომწოდებელი",
         max_length=32,
@@ -640,6 +643,8 @@ class Product(TimeStampedModel):
     def save(self, *args, **kwargs):
         existing_code = None
         if self.pk and not self._state.adding:
+            # Only the inventory ledger may write this materialized balance.
+            self.owned_stock_qty = type(self).objects.select_for_update().filter(pk=self.pk).values_list("owned_stock_qty", flat=True).get()
             existing_code = type(self).objects.select_for_update().filter(pk=self.pk).values_list("internal_sku", flat=True).first()
             if existing_code:
                 # A stale importer/admin instance must never clear or replace a code.
@@ -692,7 +697,7 @@ class Product(TimeStampedModel):
 
     @property
     def customer_available_stock_qty(self):
-        return max(self.stock_qty - CUSTOMER_STOCK_RESERVE_QTY, 0)
+        return self.owned_stock_qty + max(self.stock_qty - CUSTOMER_STOCK_RESERVE_QTY, 0)
 
     @property
     def is_cross_motors_product(self):

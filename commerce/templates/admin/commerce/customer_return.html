@@ -1,0 +1,28 @@
+{% extends "admin/base_site.html" %}
+{% block breadcrumbs %}<div class="breadcrumbs"><a href="{{ cancel_url }}">შეკვეთაზე დაბრუნება</a> &rsaquo; {{ title }}</div>{% endblock %}
+{% block content %}
+<div style="max-width:850px">
+  <h2>შეკვეთა {{ order.order_number }}</h2>
+  {% if receiving %}
+  <p>მიუთითეთ მიღებული ნივთების მდგომარეობა. თითოეულ პროდუქტზე ორი რაოდენობის ჯამი დასაბრუნებელ რაოდენობას უნდა უდრიდეს. საჭირო ველში ჩაწერეთ 0.</p>
+  <p>მხოლოდ გასაყიდად ვარგისი ნივთები დაემატება FlexDrive-ის მარაგს. ამ მოქმედებით თანხა არ დაბრუნდება.</p>
+  {% else %}
+  <p>შეკვეთის ნივთები აღირიცხება უკან მოსალოდნელად. მათი მიღებისა და შემოწმების შემდეგ შეძლებთ თანხის დაბრუნებას.</p>
+  <table><thead><tr><th>პროდუქტი</th><th>დასაბრუნებელი რაოდენობა</th></tr></thead><tbody>{% for item in items %}<tr><td>{{ item.product_name }}</td><td>{{ item.quantity }}</td></tr>{% endfor %}</tbody></table>
+  <p>დაბრუნების დაწყება თანხას არ აბრუნებს და გასაყიდ მარაგს არ ზრდის.</p>
+  {% endif %}
+  {{ form.non_field_errors }}
+  {% if allowed %}
+  <form method="post">{% csrf_token %}
+    {% if receiving %}
+    <div style="overflow-x:auto"><table><thead><tr><th>პროდუქტი</th><th>დასაბრუნებელი</th><th>გასაყიდად ვარგისი</th><th>გასაყიდად უვარგისი</th></tr></thead><tbody>
+    {% for line, saleable, unsaleable in form.rows %}<tr><td>{{ line.order_item.product_name }}</td><td>{{ line.expected_quantity }}</td><td>{{ saleable.errors }}{{ saleable }}</td><td>{{ unsaleable.errors }}{{ unsaleable }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% endif %}
+    <p>{{ form.confirm.errors }}{{ form.confirm }} {{ form.confirm.label_tag }}</p>
+    <div class="submit-row"><input type="submit" value="{% if receiving %}მიღების დადასტურება{% else %}დაბრუნების დაწყება{% endif %}"></div>
+  </form>
+  {% else %}<p>ეს მოქმედება შეკვეთის მიმდინარე მდგომარეობაში მიუწვდომელია ან უკვე შესრულებულია.</p>{% endif %}
+  <p><a href="{{ cancel_url }}">შეკვეთაზე დაბრუნება</a></p>
+</div>
+{% endblock %}

@@ -399,12 +399,12 @@ class BogRefundFlowTests(TestCase):
             "admin:commerce_order_bog_refund",
             args=[self.order.pk],
         )
-        with patch("commerce.admin.request_bog_full_refund") as request_refund:
+        with patch("commerce.return_admin.request_bog_full_refund") as request_refund:
             response = self.admin_client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertContains(response, "Request full refund")
-        self.assertContains(response, "cannot be cancelled")
+        self.assertContains(response, "დადასტურება და თანხის დაბრუნება")
+        self.assertContains(response, "შეკვეთა მომხმარებელთან არ გაგზავნილა")
         request_refund.assert_not_called()
 
     def test_order_admin_submits_refund_only_after_confirmation(self):
@@ -416,10 +416,10 @@ class BogRefundFlowTests(TestCase):
             status=PaymentTransactionStatus.REFUND_PENDING,
         )
         with patch(
-            "commerce.admin.request_bog_full_refund",
+            "commerce.return_admin.request_bog_full_refund",
             return_value=refund,
         ) as request_refund:
-            response = self.admin_client.post(url)
+            response = self.admin_client.post(url, {"disposition": "not_purchased", "not_dispatched": "on"})
 
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         request_refund.assert_called_once()
@@ -433,5 +433,5 @@ class BogRefundFlowTests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertContains(response, "Request full BOG refund")
-        self.assertContains(response, "Refresh BOG status")
+        self.assertContains(response, "თანხის დაბრუნება")
+        self.assertContains(response, "ბანკის მდგომარეობის შემოწმება")

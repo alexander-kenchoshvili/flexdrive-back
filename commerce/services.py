@@ -18,7 +18,6 @@ from catalog.models import (
     Product,
     ProductImage,
     ProductStatus,
-    ProductSupplierSource,
 )
 
 from .images import build_product_primary_image_snapshot
@@ -47,10 +46,7 @@ from .models import (
 )
 from .payment_providers import get_provider_method_for_action
 from .meta_conversions import send_meta_purchase_event
-from .supplier_stock import (
-    create_supplier_stock_holds_for_order,
-    release_order_supplier_stock_holds,
-)
+from .supplier_stock import release_order_supplier_stock_holds
 
 logger = logging.getLogger(__name__)
 
@@ -1146,14 +1142,8 @@ def create_order_from_cart(
         ]
     )
 
-    locked_products = []
-    for snapshot in snapshots:
-        product = snapshot["product"]
-        product.stock_qty -= snapshot["quantity"]
-        locked_products.append(product)
-
-    Product.objects.bulk_update(locked_products, ["stock_qty"])
-    create_supplier_stock_holds_for_order(order=order)
+    from .inventory import consume_order_inventory
+    consume_order_inventory(order=order)
     locked_cart.items.all().delete()
     _finalize_checkout_reservations(
         reservation_ids=checkout_reservation_ids,
@@ -1291,9 +1281,8 @@ def create_order_from_buy_now_session(
         **purchase_snapshot_fields(build_purchase_snapshot(locked_product)),
     )
 
-    locked_product.stock_qty -= locked_session.quantity
-    locked_product.save(update_fields=["stock_qty", "updated_at"])
-    create_supplier_stock_holds_for_order(order=order)
+    from .inventory import consume_order_inventory
+    consume_order_inventory(order=order)
     locked_session.delete()
     _finalize_checkout_reservations(
         reservation_ids=checkout_reservation_ids,
@@ -1886,6 +1875,9 @@ def can_cancel_order(order):
 def can_transition_order_status(order, next_status):
     if next_status == order.status:
         return True
+    from .models import OrderReturn
+    if OrderReturn.objects.filter(order=order).exists():
+        return False
 
     if next_status == OrderStatus.CANCELLED:
         return False
@@ -2040,7 +2032,10 @@ def cancel_refunded_order_and_restore_stock(order):
     return _restore_order_stock_and_cancel(locked_order)
 
 
-def _restore_order_stock_and_cancel(locked_order):
+def _restore_order_stock_and_cancel(locked_order, *, return_case=None):
+    from .models import OrderReturn
+    if return_case is None and OrderReturn.objects.filter(order=locked_order).exists():
+        raise DjangoValidationError("მიღების ჩანაწერის მქონე დაბრუნებას ცალკე დამუშავება სჭირდება.")
     stock_restoration_rows = list(
         locked_order.items.order_by("product_id")
         .values("product_id")
@@ -2063,20 +2058,9 @@ def _restore_order_stock_and_cancel(locked_order):
             "Cannot restore stock because one or more order items are no longer linked to a product."
         )
 
-    supplier_product_ids = {
-        product.pk
-        for product in Product.objects.filter(
-            pk__in=product_ids,
-            supplier_source=ProductSupplierSource.CROSS_MOTORS,
-        )
-    }
+    from .inventory import restore_allocated_inventory
+    manual_stock_rows = restore_allocated_inventory(order=locked_order)
     release_order_supplier_stock_holds(order=locked_order)
-
-    manual_stock_rows = [
-        row
-        for row in stock_restoration_rows
-        if row["product_id"] not in supplier_product_ids
-    ]
     if manual_stock_rows:
         manual_product_ids = [row["product_id"] for row in manual_stock_rows]
         quantity_increment = Case(

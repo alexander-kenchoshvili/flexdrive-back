@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -1046,3 +1046,242 @@ class OrderReceipt(TimeStampedModel):
                 "Hard deletion is disabled for order receipts."
             )
         return super().delete(*args, **kwargs)
+
+
+class ReturnDisposition(models.TextChoices):
+    NOT_PURCHASED = "not_purchased", "მომწოდებლისგან ჯერ არ შემიძენია"
+    ON_HAND = "on_hand", "უკვე შეძენილია და ჩემთანაა"
+    FROM_CUSTOMER = "from_customer", "მომხმარებლისგან უკან ველოდები"
+
+
+class ReturnReceiptStatus(models.TextChoices):
+    NOT_REQUIRED = "not_required", "ნივთის მიღება საჭირო არ არის"
+    AWAITING = "awaiting", "ნივთის დაბრუნებას ველოდებით"
+    RECEIVED = "received", "მიღებულია და შემოწმებულია"
+
+
+class ReturnHistoryQuerySet(models.QuerySet):
+    def delete(self):
+        raise ValidationError("დაბრუნებისა და მარაგის ისტორიის წაშლა დაუშვებელია.")
+
+
+class ReturnHistoryModel(TimeStampedModel):
+    objects = models.Manager.from_queryset(ReturnHistoryQuerySet)()
+
+    class Meta:
+        abstract = True
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("დაბრუნებისა და მარაგის ისტორიის წაშლა დაუშვებელია.")
+
+
+class OrderReturn(ReturnHistoryModel):
+    """Physical return facts. Payment state remains in PaymentTransaction."""
+
+    order = models.OneToOneField(
+        Order, on_delete=models.PROTECT, related_name="return_case", verbose_name="შეკვეთა",
+    )
+    disposition = models.CharField("ნივთების მდგომარეობა", max_length=24, choices=ReturnDisposition.choices)
+    receipt_status = models.CharField(
+        "მიღების მდგომარეობა", max_length=24, choices=ReturnReceiptStatus.choices,
+        default=ReturnReceiptStatus.AWAITING, db_index=True,
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
+        related_name="requested_order_returns", verbose_name="დააფიქსირა",
+    )
+    received_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="received_order_returns", verbose_name="მიიღო და შეამოწმა",
+    )
+    received_at = models.DateTimeField("მიღებისა და შემოწმების დრო", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "დაბრუნება"
+        verbose_name_plural = "დასაბრუნებელი ნივთები"
+        ordering = ("-created_at", "-pk")
+        default_permissions = ("view", "change")
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(disposition="not_purchased", receipt_status="not_required", received_at__isnull=True)
+                    | Q(disposition="from_customer", receipt_status="awaiting", received_at__isnull=True)
+                    | Q(disposition__in=["on_hand", "from_customer"], receipt_status="received", received_at__isnull=False)
+                ),
+                name="commerce_return_receipt_state",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.order.order_number} — {self.get_receipt_status_display()}"
+
+
+class OrderReturnLine(ReturnHistoryModel):
+    return_case = models.ForeignKey(
+        OrderReturn, on_delete=models.PROTECT, related_name="lines", verbose_name="დაბრუნება",
+    )
+    order_item = models.OneToOneField(
+        OrderItem, on_delete=models.PROTECT, related_name="return_line", verbose_name="შეკვეთის პროდუქტი",
+    )
+    expected_quantity = models.PositiveIntegerField("მოსალოდნელი რაოდენობა", validators=[MinValueValidator(1)])
+    saleable_quantity = models.PositiveIntegerField("გასაყიდად ვარგისი", default=0)
+    unsaleable_quantity = models.PositiveIntegerField("გასაყიდად უვარგისი", default=0)
+    inspected_at = models.DateTimeField("შემოწმების დრო", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "დაბრუნების პროდუქტი"
+        verbose_name_plural = "დაბრუნების პროდუქტები"
+        default_permissions = ("view",)
+        constraints = [
+            models.CheckConstraint(condition=Q(expected_quantity__gte=1), name="commerce_return_qty_positive"),
+            models.CheckConstraint(
+                condition=(
+                    Q(inspected_at__isnull=True, saleable_quantity=0, unsaleable_quantity=0)
+                    | (Q(inspected_at__isnull=False)
+                       & Q(expected_quantity=models.F("saleable_quantity") + models.F("unsaleable_quantity")))
+                ),
+                name="commerce_return_full_inspection",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.order_item_id and self.return_case_id:
+            if self.order_item.order_id != self.return_case.order_id:
+                raise ValidationError("პროდუქტი ამ შეკვეთას არ ეკუთვნის.")
+            if self.expected_quantity != self.order_item.quantity:
+                raise ValidationError("საჭიროა შეკვეთის პროდუქტის სრული რაოდენობა.")
+
+    def __str__(self):
+        return f"{self.order_item.product_name} × {self.expected_quantity}"
+
+
+class OwnedStockLotQuerySet(ReturnHistoryQuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("მარაგის მიღების ისტორიული ჩანაწერის შეცვლა დაუშვებელია.")
+
+    def bulk_create(self, *args, **kwargs):
+        raise ValidationError("მარაგის მიღება აღრიცხეთ მიღების მოქმედებით.")
+
+
+class OwnedStockLot(ReturnHistoryModel):
+    """Immutable receipt; sale allocations determine the available balance."""
+
+    objects = models.Manager.from_queryset(OwnedStockLotQuerySet)()
+    return_line = models.ForeignKey(
+        OrderReturnLine, on_delete=models.PROTECT, related_name="stock_lots", verbose_name="მიღების წყარო",
+    )
+    batch_number = models.PositiveIntegerField("პარტიის ნომერი", default=1, validators=[MinValueValidator(1)])
+    product = models.ForeignKey(
+        Product, on_delete=models.PROTECT, related_name="owned_stock_lots", verbose_name="პროდუქტი",
+    )
+    quantity = models.PositiveIntegerField("მიღებული რაოდენობა", validators=[MinValueValidator(1)])
+    purchase_unit_gross = models.DecimalField(
+        "ისტორიული შესყიდვის ფასი დღგ-ით", max_digits=10, decimal_places=2,
+        null=True, blank=True, validators=[MinValueValidator(Decimal("0.00"))],
+    )
+    purchase_cost_recorded_at = models.DateTimeField("ფასის დაფიქსირების დრო", null=True, blank=True)
+    source_lot = models.ForeignKey(
+        "self", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="subsequent_receipts", verbose_name="წინა მიღების პარტია",
+    )
+
+    class Meta:
+        verbose_name = "FlexDrive-ის მარაგის მიღება"
+        verbose_name_plural = "FlexDrive-ის მარაგი"
+        ordering = ("created_at", "pk")
+        default_permissions = ("view",)
+        constraints = [
+            models.UniqueConstraint(fields=["return_line", "batch_number"], name="commerce_owned_lot_receipt_unique"),
+            models.CheckConstraint(condition=Q(quantity__gte=1), name="commerce_owned_lot_qty_positive"),
+            models.CheckConstraint(condition=Q(batch_number__gte=1), name="commerce_owned_lot_batch_positive"),
+            models.CheckConstraint(
+                condition=Q(purchase_unit_gross__isnull=True) | Q(purchase_unit_gross__gte=0),
+                name="commerce_owned_lot_cost_nonnegative",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.return_line_id:
+            line = self.return_line
+            if self.product_id != line.order_item.product_id:
+                raise ValidationError("მარაგის პროდუქტი დაბრუნებულ პროდუქტს არ ემთხვევა.")
+            if not line.inspected_at or self.quantity > line.saleable_quantity:
+                raise ValidationError("მარაგში დასამატებელი რაოდენობა მიღებულ ვარგის რაოდენობას აჭარბებს.")
+            already_received = line.stock_lots.exclude(pk=self.pk).aggregate(total=models.Sum("quantity"))["total"] or 0
+            if already_received + self.quantity > line.saleable_quantity:
+                raise ValidationError("ამ დაბრუნების ვარგისი რაოდენობა უკვე აღრიცხულია მარაგში.")
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("მარაგის მიღების ისტორიული ჩანაწერის შეცვლა დაუშვებელია.")
+        # Global inventory writer order: product, then lot/receipt rows.
+        product = Product.objects.select_for_update().get(pk=self.product_id)
+        # Serialize all receipt batches for one line before checking their sum.
+        if self.return_line_id:
+            self.return_line = OrderReturnLine.objects.select_for_update().get(pk=self.return_line_id)
+        self.full_clean()
+        result = super().save(*args, **kwargs)
+        changes = {"owned_stock_qty": models.F("owned_stock_qty") + self.quantity}
+        if product.status == "archived" and product.supplier_missing and product.internal_sku:
+            changes["status"] = "published"
+        Product.objects.filter(pk=product.pk).update(**changes)
+        from .inventory import inventory_changed
+        inventory_changed()
+        return result
+
+    def __str__(self):
+        return f"{self.product.internal_sku or self.product.name} × {self.quantity}"
+
+
+class OrderItemInventory(ReturnHistoryModel):
+    """Actual source and total historical cost fixed when the sale consumes stock."""
+
+    objects = models.Manager.from_queryset(OwnedStockLotQuerySet)()
+    order_item = models.OneToOneField(OrderItem, on_delete=models.PROTECT, related_name="inventory")
+    external_quantity = models.PositiveIntegerField("გარე მარაგიდან რაოდენობა")
+    external_source = models.CharField("გარე მარაგის წყარო", max_length=32)
+    purchase_total_gross = models.DecimalField(
+        "ისტორიული შესყიდვის ჯამი დღგ-ით", max_digits=16, decimal_places=2, null=True,
+    )
+
+    class Meta:
+        default_permissions = ("view",)
+        constraints = [models.CheckConstraint(
+            condition=Q(purchase_total_gross__isnull=True) | Q(purchase_total_gross__gte=0),
+            name="commerce_inventory_cost_nonnegative",
+        )]
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("გაყიდვის მარაგის ისტორიის შეცვლა დაუშვებელია.")
+        return super().save(*args, **kwargs)
+
+
+class OwnedStockAllocationQuerySet(ReturnHistoryQuerySet):
+    def update(self, **kwargs):
+        if set(kwargs) != {"restored_at"} or kwargs["restored_at"] is None:
+            raise ValidationError("მარაგის ჩამოკლების ისტორიის შეცვლა დაუშვებელია.")
+        return super().update(**kwargs)
+
+
+class OwnedStockAllocation(ReturnHistoryModel):
+    objects = models.Manager.from_queryset(OwnedStockAllocationQuerySet)()
+    lot = models.ForeignKey(OwnedStockLot, on_delete=models.PROTECT, related_name="allocations")
+    inventory = models.ForeignKey(OrderItemInventory, on_delete=models.PROTECT, related_name="allocations")
+    quantity = models.PositiveIntegerField("გაყიდული რაოდენობა", validators=[MinValueValidator(1)])
+    restored_at = models.DateTimeField("გაუქმებისას აღდგენის დრო", null=True, blank=True)
+
+    class Meta:
+        default_permissions = ("view",)
+        constraints = [
+            models.UniqueConstraint(fields=["inventory", "lot"], name="commerce_inventory_lot_unique"),
+            models.CheckConstraint(condition=Q(quantity__gte=1), name="commerce_allocation_qty_positive"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("მარაგის ჩამოკლების ისტორიის შეცვლა დაუშვებელია.")
+        return super().save(*args, **kwargs)

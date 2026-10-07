@@ -465,6 +465,95 @@ class BogCallbackFlowTests(APITransactionTestCase):
             str(payment.provider_reference),
         )
 
+    def _seed_owned_unit(self):
+        from .models import OrderItem, ReturnDisposition
+        from .returns import prepare_order_return
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        source = Order.objects.create(
+            order_number="OWNED-ORIGIN", payment_status="paid",
+            subtotal=Decimal("90"), total=Decimal("90"),
+        )
+        OrderItem.objects.create(
+            order=source, product=self.product, product_name=self.product.name,
+            sku=self.product.sku, quantity=1, unit_price=Decimal("90"), line_total=Decimal("90"),
+            purchase_unit_gross=Decimal("30"), purchase_cost_source="catalog_supplier_price",
+            purchase_cost_recorded_at=timezone.now(),
+        )
+        prepare_order_return(order=source, disposition=ReturnDisposition.ON_HAND, actor=self.user)
+        self.product.stock_qty = 0
+        self.product.save(update_fields=["stock_qty"])
+        self.product.refresh_from_db()
+        return source
+
+    def test_owned_cart_payment_reserves_and_consumes_one_unit_once(self):
+        from .models import OwnedStockAllocation
+        self._seed_owned_unit()
+        _, start, payment = self._start_cart_payment(quantity=1)
+        self.assertEqual(start.status_code, 201, start.data)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.owned_stock_qty, 1)
+        from .services import get_available_stock_quantity
+        self.assertEqual(get_available_stock_quantity(product=self.product), 0)
+        payload = self._callback_payload(payment)
+        for _ in range(2):
+            response = self._signed_callback_request(payload)
+            self.assertEqual(response.status_code, 200, response.data)
+        payment.refresh_from_db()
+        self.assertEqual(payment.order.items.get().inventory.purchase_total_gross, Decimal("30"))
+        self.product.refresh_from_db()
+        self.assertEqual((self.product.owned_stock_qty, self.product.stock_qty), (0, 0))
+        self.assertEqual(OwnedStockAllocation.objects.count(), 1)
+
+    def test_owned_buy_now_payment_uses_same_allocation(self):
+        self._seed_owned_unit()
+        _, start, payment = self._start_buy_now_payment(quantity=1)
+        self.assertEqual(start.status_code, 201, start.data)
+        response = self._signed_callback_request(self._callback_payload(payment))
+        self.assertEqual(response.status_code, 200, response.data)
+        payment.refresh_from_db()
+        self.assertEqual(payment.order.items.get().inventory.external_quantity, 0)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.owned_stock_qty, 0)
+
+    def test_owned_inventory_mismatch_records_paid_incident_without_partial_order(self):
+        source = self._seed_owned_unit()
+        Product.objects.filter(pk=self.product.pk).update(owned_stock_qty=2)
+        _, start, payment = self._start_cart_payment(quantity=2)
+        self.assertEqual(start.status_code, 201, start.data)
+        response = self._signed_callback_request(self._callback_payload(payment))
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["result"], "paid_fulfillment_blocked")
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, PaymentTransactionStatus.PAID)
+        self.assertEqual(payment.error_code, "paid_inventory_allocation_failed")
+        self.assertFalse(Order.objects.exclude(pk=source.pk).exists())
+
+    def test_owned_direct_cart_checkout_uses_own_inventory(self):
+        source = self._seed_owned_unit()
+        cart = Cart.objects.create(user=self.user)
+        CartItem.objects.create(cart=cart, product=self.product, quantity=1, unit_price_snapshot=self.product.price)
+        payload = self._checkout_payload()
+        payload["payment_method"] = OrderPaymentMethod.CASH_ON_DELIVERY
+        response = self.client.post(reverse("commerce-order-checkout"), payload, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        order = Order.objects.exclude(pk=source.pk).get()
+        self.assertEqual(order.items.get().inventory.external_quantity, 0)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.owned_stock_qty, 0)
+
+    def test_owned_direct_buy_now_checkout_uses_own_inventory(self):
+        source = self._seed_owned_unit()
+        session = BuyNowSession.objects.create(user=self.user, product=self.product, quantity=1, unit_price_snapshot=self.product.price)
+        payload = self._checkout_payload(source=OrderCheckoutSource.BUY_NOW, items=[session])
+        payload["payment_method"] = OrderPaymentMethod.CASH_ON_DELIVERY
+        response = self.client.post(reverse("commerce-buy-now-checkout"), payload, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        order = Order.objects.exclude(pk=source.pk).get()
+        self.assertEqual(order.items.get().inventory.purchase_total_gross, Decimal("30"))
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.owned_stock_qty, 0)
+
     def test_duplicate_completed_callback_does_not_duplicate_order_or_stock(self):
         _, _, payment = self._start_cart_payment(quantity=1)
         payload = self._callback_payload(payment)

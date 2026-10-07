@@ -53,6 +53,9 @@ from .supplier_stock import release_supplier_stock_hold
 
 admin.site.index_template = "admin/commerce/accounting/index.html"
 
+# Register the two read-only return/inventory sections alongside order actions.
+from . import inventory_admin  # noqa: F401, E402
+
 
 @admin.register(EasywaySyncReport)
 class EasywaySyncReportAdmin(admin.ModelAdmin):
@@ -504,6 +507,10 @@ class OrderAdmin(admin.ModelAdmin):
 
     def get_urls(self):
         custom_urls = [
+            path("<path:object_id>/return-start/", self.admin_site.admin_view(self.return_start_view),
+                 name="commerce_order_return_start"),
+            path("<path:object_id>/return-receive/", self.admin_site.admin_view(self.return_receive_view),
+                 name="commerce_order_return_receive"),
             path(
                 "<path:object_id>/easyway-tracking/",
                 self.admin_site.admin_view(self.easyway_tracking_view),
@@ -540,6 +547,30 @@ class OrderAdmin(admin.ModelAdmin):
             extra_context["show_cancel_and_restore_stock"] = bool(
                 order and can_cancel_order(order)
             )
+            from .models import OrderReturn
+            case = OrderReturn.objects.filter(order=order).first() if order else None
+            if case:
+                extra_context["return_case_url"] = reverse("admin:commerce_orderreturn_change", args=[case.pk])
+            extra_context["show_return_start"] = bool(order and not case and order.payment_status == "paid"
+                                                     and order.status in {"shipped", "delivered"})
+            extra_context["show_return_receive"] = bool(case and case.disposition == "from_customer"
+                                                       and case.receipt_status == "awaiting")
+            if case:
+                extra_context["return_flow_status"] = {
+                    "refund_pending": "თანხის დაბრუნება მუშავდება — ველოდებით ბანკის დადასტურებას.",
+                    "refunded": "თანხა დაბრუნებულია.",
+                    "paid": "დაბრუნება დაფიქსირებულია — თანხა ჯერ არ დაბრუნებულა.",
+                }.get(order.payment_status, "დაბრუნება დაფიქსირებულია.")
+                extra_context["return_flow_note"] = (
+                    "ნივთები FlexDrive-ის მარაგში აღრიცხულია." if case.disposition == "on_hand"
+                    else ("რეზერვაცია გათავისუფლებულია." if order.payment_status == "refunded" else "მომწოდებლის რეზერვაცია თანხის დაბრუნების დადასტურების შემდეგ გათავისუფლდება.")
+                )
+                if case.disposition == "from_customer":
+                    extra_context["return_flow_note"] = (
+                        "ველოდებით ნივთების მიღებასა და შემოწმებას. მიღებამდე თანხა ვერ დაბრუნდება."
+                        if case.receipt_status == "awaiting" else
+                        "ნივთები მიღებული და შემოწმებულია. გასაყიდად ვარგისი რაოდენობა FlexDrive-ის მარაგშია აღრიცხული."
+                    )
             sale_payment = self._bog_sale_payment_or_none(order)
             extra_context["show_bog_full_refund"] = bool(
                 order and can_request_bog_full_refund(order)
@@ -557,6 +588,8 @@ class OrderAdmin(admin.ModelAdmin):
                 order and order.delivery_provider == "easyway" and order.easyway_order_id
             )
             if order:
+                extra_context["return_start_url"] = reverse("admin:commerce_order_return_start", args=[order.pk])
+                extra_context["return_receive_url"] = reverse("admin:commerce_order_return_receive", args=[order.pk])
                 extra_context["easyway_tracking_url"] = reverse(
                     "admin:commerce_order_easyway_tracking", args=[order.pk]
                 )
@@ -621,63 +654,16 @@ class OrderAdmin(admin.ModelAdmin):
         return HttpResponseRedirect(".")
 
     def bog_refund_view(self, request, object_id):
-        order = self._get_action_order(request, object_id)
-        if request.method == "POST":
-            try:
-                refund = request_bog_full_refund(
-                    order=order,
-                    requested_by=request.user,
-                )
-            except DjangoValidationError as error:
-                self.message_user(
-                    request,
-                    error.messages[0],
-                    level=messages.ERROR,
-                )
-            except BogPaymentError as error:
-                level = (
-                    messages.WARNING
-                    if error.retryable or error.outcome_unknown
-                    else messages.ERROR
-                )
-                self.message_user(
-                    request,
-                    (
-                        f"BOG refund was not confirmed ({error.code}). "
-                        "Check the refund transaction and reconcile its status."
-                    ),
-                    level=level,
-                )
-            else:
-                self.message_user(
-                    request,
-                    (
-                        "BOG accepted the full refund request. The refund is "
-                        "pending until BOG confirms the final status."
-                        if refund.status == PaymentTransactionStatus.REFUND_PENDING
-                        else "The existing refund record was reused."
-                    ),
-                    level=messages.SUCCESS,
-                )
-            return HttpResponseRedirect(
-                reverse("admin:commerce_order_change", args=[order.pk])
-            )
+        from .return_admin import predispatched_refund_view
+        return predispatched_refund_view(self, request, self._get_action_order(request, object_id))
 
-        return self._confirmation_response(
-            request,
-            original=order,
-            title=f"Confirm full BOG refund for {order.order_number}",
-            action_label="Request full refund",
-            warning=(
-                f"BOG will receive a full GEL {order.total} refund request. "
-                "The request cannot be cancelled. Stock will be restored only "
-                "after BOG confirms the refund."
-            ),
-            cancel_url=reverse(
-                "admin:commerce_order_change",
-                args=[order.pk],
-            ),
-        )
+    def return_start_view(self, request, object_id):
+        from .return_admin import customer_return_view
+        return customer_return_view(self, request, self._get_action_order(request, object_id))
+
+    def return_receive_view(self, request, object_id):
+        from .return_admin import customer_return_view
+        return customer_return_view(self, request, self._get_action_order(request, object_id), receiving=True)
 
     def easyway_tracking_view(self, request, object_id):
         order = self._get_action_order(request, object_id)
@@ -814,8 +800,8 @@ class OrderAdmin(admin.ModelAdmin):
                 self.message_user(
                     request,
                     (
-                        f"BOG status could not be reconciled ({error.code}). "
-                        "No payment state was guessed."
+                        "ბანკის მდგომარეობის შემოწმება ვერ დასრულდა. "
+                        "თანხის დაბრუნება დადასტურებულად არ ჩაითვალა."
                     ),
                     level=messages.ERROR,
                 )
@@ -828,7 +814,7 @@ class OrderAdmin(admin.ModelAdmin):
             else:
                 self.message_user(
                     request,
-                    f"BOG status reconciliation result: {result.result}.",
+                    {"refunded_and_cancelled": "თანხა დაბრუნებულია და შეკვეთა გაუქმებულია.", "already_refunded": "თანხა უკვე დაბრუნებულია.", "refund_pending": "თანხის დაბრუნება ჯერ მუშავდება.", "refund_rejected": "ბანკმა დაბრუნება უარყო. შეგიძლიათ მიზეზის მოგვარების შემდეგ ხელახლა სცადოთ.", "refunded_stock_review_required": "თანხა დაბრუნებულია; მარაგის აღრიცხვას შემოწმება სჭირდება."}.get(result.result, "ბანკის მდგომარეობა შემოწმებულია. იხილეთ შეკვეთის გადახდის მდგომარეობა."),
                     level=_bog_reconciliation_message_level(result.result),
                 )
             return HttpResponseRedirect(
@@ -838,11 +824,11 @@ class OrderAdmin(admin.ModelAdmin):
         return self._confirmation_response(
             request,
             original=order,
-            title=f"Refresh BOG status for {order.order_number}",
-            action_label="Refresh BOG status",
+            title=f"ბანკის მდგომარეობის შემოწმება — {order.order_number}",
+            action_label="მდგომარეობის შემოწმება",
             warning=(
-                "FlexDrive will read the latest payment/refund status from BOG "
-                "and apply only a verified state transition."
+                "ბანკიდან მივიღებთ გადახდისა და დაბრუნების მიმდინარე მდგომარეობას. "
+                "ახალი თანხის დაბრუნების მოთხოვნა არ გაიგზავნება."
             ),
             cancel_url=reverse(
                 "admin:commerce_order_change",
@@ -887,6 +873,7 @@ class OrderAdmin(admin.ModelAdmin):
                 "action_label": action_label,
                 "warning": warning,
                 "cancel_url": cancel_url,
+                "cancel_label": "უკან" if request.resolver_match.url_name == "commerce_order_bog_reconcile" else "Cancel",
             },
         )
 
@@ -1174,6 +1161,8 @@ class PaymentTransactionAdmin(admin.ModelAdmin):
 
     def bog_refund_view(self, request, object_id):
         payment = self._get_action_payment(request, object_id)
+        if payment.order_id:
+            return HttpResponseRedirect(reverse("admin:commerce_order_bog_refund", args=[payment.order_id]))
         if request.method == "POST":
             try:
                 refund = request_bog_full_refund(

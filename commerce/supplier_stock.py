@@ -46,7 +46,7 @@ def create_supplier_stock_holds_for_order(*, order, now=None):
         seconds=settings.CROSSMOTORS_SALE_HOLD_SECONDS
     )
     order_items = list(
-        order.items.select_related("product")
+        order.items.select_related("product", "inventory")
         .filter(
             product__supplier_source=ProductSupplierSource.CROSS_MOTORS,
         )
@@ -66,11 +66,18 @@ def create_supplier_stock_holds_for_order(*, order, now=None):
     holds = []
     for order_item in order_items:
         product = products[order_item.product_id]
+        from .models import OrderItemInventory
+        try:
+            quantity = order_item.inventory.external_quantity
+        except OrderItemInventory.DoesNotExist:
+            quantity = order_item.quantity
+        if not quantity:
+            continue
         hold, _ = SupplierStockHold.objects.get_or_create(
             order_item=order_item,
             defaults={
                 "product": product,
-                "quantity": order_item.quantity,
+                "quantity": quantity,
                 "supplier_stock_at_sale": product.supplier_stock_qty,
                 "expires_at": hold_expires_at,
             },
@@ -132,15 +139,15 @@ def release_supplier_stock_hold(
     now=None,
 ):
     now = now or timezone.now()
+    product_id = SupplierStockHold.objects.values_list("product_id", flat=True).get(pk=hold.pk)
+    product = Product.objects.select_for_update().get(pk=product_id)
     locked_hold = (
         SupplierStockHold.objects.select_for_update()
-        .select_related("product", "order_item__order")
         .get(pk=hold.pk)
     )
     if locked_hold.status != SupplierStockHoldStatus.ACTIVE:
         return locked_hold, False
 
-    product = Product.objects.select_for_update().get(pk=locked_hold.product_id)
     locked_hold.status = status
     locked_hold.released_at = now
     locked_hold.released_by = released_by
@@ -162,15 +169,11 @@ def release_supplier_stock_hold(
 def release_order_supplier_stock_holds(*, order, now=None):
     now = now or timezone.now()
     locked_order = Order.objects.select_for_update().get(pk=order.pk)
-    holds = list(
-        SupplierStockHold.objects.select_for_update()
-        .filter(
-            order_item__order=locked_order,
-            status=SupplierStockHoldStatus.ACTIVE,
-        )
-        .order_by("product_id", "id")
+    hold_query = SupplierStockHold.objects.filter(
+        order_item__order=locked_order,
+        status=SupplierStockHoldStatus.ACTIVE,
     )
-    product_ids = sorted({hold.product_id for hold in holds})
+    product_ids = sorted(set(hold_query.values_list("product_id", flat=True)))
     products = list(
         Product.objects.select_for_update()
         .filter(
@@ -179,6 +182,7 @@ def release_order_supplier_stock_holds(*, order, now=None):
         )
         .order_by("pk")
     )
+    holds = list(hold_query.select_for_update().order_by("product_id", "id"))
     if holds:
         SupplierStockHold.objects.filter(pk__in=[hold.pk for hold in holds]).update(
             status=SupplierStockHoldStatus.ORDER_CANCELLED,

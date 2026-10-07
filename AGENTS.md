@@ -1,5 +1,138 @@
 # Project Instructions
 
+## Offline Returns Walkthrough - 2026-10-08
+
+- User explicitly forbids real bank/supplier/carrier requests during walkthrough.
+  Ordinary admin refund buttons remain real: never use them for this demo.
+- Standalone scripts/returns_preview.py creates a fresh temporary SQLite DB,
+  three synthetic BOG-shaped orders (TEST-01/02/03), and a disposable auto-login
+  superuser. Binds only 127.0.0.1:8011, with an unmistakable Georgian yellow banner.
+  No existing database/env/credentials changed. Do not expose/proxy this server.
+- In the preview process only, BOG transport is simulated; status check completes
+  the fake refund. Outbound socket connections/DNS blocked before Django startup;
+  email/caches/storage local, browser external subresources blocked by CSP.
+- --check passed all three complete admin flows, stock/payment finalization and
+  outbound socket/DNS denial checks. The server uses a separate fresh DB, leaving
+  its three demo orders untouched for user review. Browser review remains pending.
+- See docs/RETURNS_OFFLINE_PREVIEW.md. Stop the preview process after review;
+  normal user-started servers must remain running.
+
+## Return And Inventory Admin Lists - 2026-10-07
+
+- Registered read-only OrderReturn (დასაბრუნებელი ნივთები) and OwnedStockLot
+  (FlexDrive-ის მარაგი). No schema change or manual stock editing. Return lines
+  remain inline-only. Order actions remain the only receipt/refund mutation path.
+- Return list defaults to awaiting; received/all-history filters preserve history.
+  Shows products/quantities, linked order details, receipt and separate payment
+  state. Details link to the existing permission-checked receipt action and order.
+- Stock list defaults to positive remaining lots, with empty/all history filters,
+  received and remaining quantities, company code and source-order link. Balance
+  subtracts non-restored sale allocations; each row is a receipt batch, explicitly
+  explained in Georgian. Search supports product, company SKU and source order.
+- View permissions enforced, accountants stay report-only. History cannot be
+  added/edited/deleted in these admin sections. Existing foundation admin test
+  updated to reflect read-only registration instead of inactive models.
+- SQLite checks: 20 foundation/customer-return tests passed; 3 new list tests
+  passed after correcting test expectations for Georgian label capitalization
+  and switching the accountant fixture to an ordinary viewer for access checks.
+- User explicitly deferred BROWSER verification: do not start a server or open
+  browser for this stage. User will start backend and open admin in Chrome first;
+  then jointly review the three agreed scenarios. No real provider/remote work.
+
+## Dispatched Return Actions - 2026-10-07
+
+- Order admin now exposes Georgian return start for paid shipped/delivered orders,
+  then receipt/inspection while awaiting goods. Start records intent only; GET
+  and invalid submissions do not mutate stock/payments. Order-change permission
+  is enforced on all action endpoints.
+- Full receipt requires saleable + unsaleable counts equal every expected line.
+  Only saleable units credit owned inventory. Identical receipt retries are safe.
+  Refund becomes available only after receipt; the server enforces this on direct
+  requests too. Receipt does not itself send a bank request.
+- Customer-return refund form omits supplier-procurement questions. Dedicated
+  bank finalization cancels the order without crediting stock a second time or
+  restoring purchased supplier inventory. Existing pre-dispatch paths preserved.
+- 23 focused SQLite tests pass (4 new dispatched-flow tests plus 19 previous
+  refund tests), including real admin routes with mocked bank, invalid receipt,
+  permissions, unreceived refund denial and repeated receipt/bank completion.
+- No migration, business-data edit, real provider request or remote change.
+  Next: operational waiting/owned-stock lists and integrated browser review.
+  Return cancellation/restart is not implemented; rollout checks remain separate.
+
+## Pre-Dispatch Return UI And Refund Integration - 2026-10-07
+
+- User clarified Georgian text applies ONLY to this return workflow, not the
+  entire admin. User wants focused implementation/checks, no legacy fixture audit.
+- Order refund button now opens a Georgian confirmation page: whole-order
+  procurement choice (no initial selection), product quantities, full amount,
+  consequences and required non-dispatch confirmation. All-owned orders hide
+  the unpurchased choice. Existing choice stays locked across retries.
+- Admin refund preparation atomically records the case/physical on-hand receipt
+  before requesting BOG. Unpurchased releases source stock only on confirmed
+  refund; on-hand credits owned stock immediately and finalization does NOT
+  credit it again or release purchased supplier holds. Bank timeout/rejection
+  retains receipt history. Repeated requests reuse the existing bank action/key.
+- Linked payment-admin refund route redirects to order confirmation; no bypass.
+  Dispatched returns remain blocked pending the next receipt workflow stage.
+  Return cases freeze manual fulfilment, new EasyWay submission and tracking
+  advancement even if bank rejection restores payment status to paid.
+- Order return banners and bank-status check labels/messages are Georgian.
+  No schema, business-data, provider or remote changes in this stage.
+- 19 focused refund tests passed (7 new); existing UI assertions updated to the
+  intended Georgian form/required choice. Next: dispatched return start/receipt,
+  then operational waiting/owned inventory lists. No full-admin translation.
+
+## Returns Inventory Selling Stage - 2026-10-07
+
+- User clarified ALL existing orders are test orders. Site is deployed but not
+  publicly launched/on its own domain. Do not add elaborate historical-order
+  compatibility solely for them; no data reset requested or performed.
+- Own-stock allocation implemented in cart, buy-now and verified BOG finalization.
+  Product.owned_stock_qty is separate from external stock_qty; one owned unit is
+  sellable without the external five-unit reserve. Public API shapes unchanged.
+- OrderItemInventory stores external quantity/source and exact allocated cost;
+  OwnedStockAllocation consumes FIFO receipt lots. Combined checkout reservations
+  reserve quantity, not specific lots; actual source/cost fixed at finalization.
+  Owned-only sales create no supplier hold. Pre-dispatch cancellation restores
+  the same sources once. Receipt-driven cases cannot use old refund/restore routes
+  until the next dedicated finalizer stage. New operational UI remains disabled.
+- Supplier regular/bulk sync preserves owned stock; missing-feed handling zeros
+  external stock and retains owned products. Only supplier-auto-archived products
+  can reopen on receipt/restoration; manual visibility choices are retained.
+- Accounting uses exact total allocated cost; original supplier snapshots stay
+  unchanged, unknown costs remain NULL, resale receipts retain lot provenance.
+- Applied catalog.0027 + commerce.0035/0036 LOCAL SQLite only, with ignored backup
+  local-docs/returns-stage3-backup-7r5l_yzn/db.sqlite3. Old columns across 33 existing
+  catalog/commerce/accounts tables verified unchanged by hashes; target plan empty.
+- Tests: 77 foundation/refund/hold/accounting passed; final inventory/callback/hold
+  suite 79 passed, 1 PostgreSQL concurrency skipped; search/accounting UI/export/
+  migration suite 87 passed. Broader old SKU-fixture and category-price failures
+  reproduced on unmodified HEAD. PostgreSQL runtime/browser checks remain.
+- No remote mutations, real bank/supplier calls, push or deployment. Next is stage
+  4 pre-dispatch Georgian refund choice + source-aware bank finalization, followed
+  by dispatched receipt workflow and operational lists. See the detailed plan.
+
+## Returns And Owned Inventory Foundation - 2026-10-07
+
+- User approved staged implementation of full-order returns and FlexDrive-owned
+  stock, with Georgian admin UI. Procurement selection is ONCE per order.
+  Unpurchased cancellation releases supplier reservation; bought/on-hand goods
+  go directly into owned inventory; dispatched goods require receipt/inspection
+  before any refund request. Do not enable incomplete flows between stages.
+- First checkpoint implemented only inactive foundation: OrderReturn,
+  OrderReturnLine, immutable OwnedStockLot and internal commerce/returns.py receipt
+  services. No admin registration/routes, bank/carrier integration or changes to
+  checkout, stock availability, supplier holds/sync or existing refund behavior.
+- commerce.0035 adds only new tables/constraints; created and tested, NOT applied
+  to local business DB, staging or production. No legacy procurement backfill.
+- 16 new foundation + 24 existing refund/supplier-hold tests pass on disposable
+  SQLite. Migration drift and whitespace checks pass. PostgreSQL/browser pending.
+- Next is source-aware inventory selling (all checkout/callback paths), then
+  refund integration, returns UI and end-to-end checks. Lots are not yet available
+  to customers. Preserve original historical costs, supplier safety reserve/hold
+  behavior and intentional catalog publication controls when integrating.
+- Detailed stages and invariants: docs/RETURNS_IMPLEMENTATION_PLAN.md.
+
 ## Catalog Search Year And Local Browser Verification - 2026-10-07
 
 - Free-text search now extracts a single unambiguous standalone year (1900-2100)

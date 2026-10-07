@@ -1,0 +1,28 @@
+{% extends "admin/base_site.html" %}
+{% block breadcrumbs %}<div class="breadcrumbs"><a href="{{ cancel_url }}">შეკვეთაზე დაბრუნება</a> &rsaquo; თანხის დაბრუნება</div>{% endblock %}
+{% block content %}
+<div style="max-width:760px">
+  <h2>შეკვეთა {{ order.order_number }}</h2>
+  <table style="width:100%"><thead><tr><th>პროდუქტი</th><th>რაოდენობა</th></tr></thead>
+  <tbody>{% for item in items %}<tr><td>{{ item.product_name }}</td><td>{{ item.quantity }}</td></tr>{% endfor %}</tbody></table>
+  <p><strong>სრულად დასაბრუნებელი თანხა: {{ order.total }} ₾</strong></p>
+  {% if allowed %}
+  <p>{% if customer_return %}ნივთები მიღებული და შემოწმებულია. დაბრუნდება შეკვეთის სრული თანხა.{% else %}არჩევანი ეხება მთელ შეკვეთას.{% endif %}</p>
+  <form method="post">{% csrf_token %}{{ form.as_p }}
+    <div class="module" style="padding:16px">
+      {% if customer_return %}<p>მარაგი უკვე აღრიცხულია. თანხის დაბრუნება პროდუქტებს მეორედ არ დაამატებს.</p>{% else %}
+      <p><strong>თუ ჯერ არ შეგიძენიათ:</strong> ბანკის დადასტურების შემდეგ მომწოდებლის რეზერვაცია გათავისუფლდება. ჩვენი მარაგიდან აღებული ცალები თავის მარაგს დაუბრუნდება.</p>
+      <p><strong>თუ უკვე თქვენთანაა:</strong> პროდუქტები პირდაპირ FlexDrive-ის მარაგს დაემატება. უკან მოსალოდნელ ნივთებში არ მოხვდება.</p>
+      {% endif %}
+      <p>ბანკში გაიგზავნება სრული თანხის დაბრუნების მოთხოვნა. თანხა დაბრუნებულად ჩაითვლება მხოლოდ ბანკის დადასტურების შემდეგ.</p>
+      <p>ბანკში გაგზავნილ მოთხოვნას ვეღარ გააუქმებთ.</p>
+    </div>
+    <div class="submit-row"><input type="submit" value="დადასტურება და თანხის დაბრუნება"><a href="{{ cancel_url }}" class="closelink">უკან, მოქმედების გარეშე</a></div>
+  </form>
+  {% else %}
+    {{ form.non_field_errors }}
+    <p>ამ ეტაპზე თანხის დაბრუნების ახალი მოთხოვნა მიუწვდომელია. მიმდინარე მოთხოვნის შემთხვევაში შეამოწმეთ ბანკის მდგომარეობა შეკვეთის გვერდიდან. გაგზავნილი ნივთის დაბრუნებას ჯერ მიღება და შემოწმება სჭირდება.</p>
+    <a href="{{ cancel_url }}">შეკვეთაზე დაბრუნება</a>
+  {% endif %}
+</div>
+{% endblock %}

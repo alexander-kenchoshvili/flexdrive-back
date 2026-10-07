@@ -62,13 +62,16 @@ class ProductLineAmounts:
 
 
 def calculate_product_line(*, unit_sale_gross, quantity, unit_purchase_gross=None,
-                           sale_vat_rate=None, purchase_vat_rate=None):
+                           sale_vat_rate=None, purchase_vat_rate=None, purchase_total_gross=None):
     if type(quantity) is not int or not 1 <= quantity <= 2147483647:
         raise ValueError("Quantity must be a positive supported integer.")
     sale = split_vat_inclusive(_money(unit_sale_gross) * quantity, vat_rate=sale_vat_rate)
     purchase = None if unit_purchase_gross is None else split_vat_inclusive(
         _money(unit_purchase_gross) * quantity, vat_rate=purchase_vat_rate,
     )
+    if purchase_total_gross is not None:
+        # Actual lot totals avoid rounding a mixed-cost unit average before VAT.
+        purchase = split_vat_inclusive(purchase_total_gross, vat_rate=purchase_vat_rate)
     markup = percent = adjustment = None
     if purchase is not None and purchase.net is not None and sale.net is not None:
         # Match the reference workbook: subtract before rounding. Expose the

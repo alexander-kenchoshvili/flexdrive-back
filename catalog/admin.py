@@ -277,9 +277,9 @@ class InStockListFilter(admin.SimpleListFilter):
     def queryset(self, request, queryset):
         value = self.value()
         if value == "yes":
-            return queryset.filter(stock_qty__gt=CUSTOMER_STOCK_RESERVE_QTY)
+            return queryset.filter(Q(owned_stock_qty__gt=0) | Q(stock_qty__gt=CUSTOMER_STOCK_RESERVE_QTY))
         if value == "no":
-            return queryset.filter(stock_qty__lte=CUSTOMER_STOCK_RESERVE_QTY)
+            return queryset.filter(owned_stock_qty=0, stock_qty__lte=CUSTOMER_STOCK_RESERVE_QTY)
         return queryset
 
 

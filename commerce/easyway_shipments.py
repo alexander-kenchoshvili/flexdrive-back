@@ -31,11 +31,13 @@ class EasywayShipmentError(Exception):
 
 
 def can_submit_easyway_shipment(order):
+    from .models import OrderReturn
     return bool(
         order
         and order.delivery_provider == "easyway"
         and order.payment_status == OrderPaymentStatus.PAID
         and order.status != OrderStatus.CANCELLED
+        and not OrderReturn.objects.filter(order=order).exists()
         and order.easyway_order_id is None
         and order.easyway_shipment_state
         in {EasywayShipmentState.NOT_SENT, EasywayShipmentState.FAILED}
@@ -324,6 +326,9 @@ def _easyway_order_date(now=None):
 
 
 def _validate_submission(order):
+    from .models import OrderReturn
+    if OrderReturn.objects.filter(order=order).exists():
+        raise ValidationError("დაბრუნების დაწყების შემდეგ შეკვეთას ვეღარ გაგზავნით.")
     if order.delivery_provider != "easyway":
         raise ValidationError("Only EasyWay regional orders can be submitted.")
     if order.payment_status != OrderPaymentStatus.PAID:

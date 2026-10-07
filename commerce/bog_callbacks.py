@@ -51,7 +51,6 @@ from .models import (
     StockReservationStatus,
 )
 from .services import build_order_number, transition_order_payment_status
-from .supplier_stock import create_supplier_stock_holds_for_order
 
 
 BOG_CALLBACK_EVENT = "order_payment"
@@ -682,6 +681,7 @@ def _create_order_from_paid_snapshot(payment):
     for product_id, required_quantity in expected_quantities.items():
         available_quantity = (
             products_by_id[product_id].stock_qty
+            + products_by_id[product_id].owned_stock_qty
             - other_reserved.get(product_id, 0)
         )
         if available_quantity < required_quantity:
@@ -749,11 +749,11 @@ def _create_order_from_paid_snapshot(payment):
         ]
     )
     now = timezone.now()
-    for product in products:
-        product.stock_qty -= expected_quantities[product.pk]
-        product.updated_at = now
-    Product.objects.bulk_update(products, ["stock_qty", "updated_at"])
-    create_supplier_stock_holds_for_order(order=order, now=now)
+    from .inventory import consume_order_inventory
+    try:
+        consume_order_inventory(order=order, allow_safety_reserve=True)
+    except DjangoValidationError as error:
+        raise BogFulfillmentError("paid_inventory_allocation_failed") from error
 
     reservation.status = StockReservationStatus.COMPLETED
     reservation.completed_order = order

@@ -16,7 +16,7 @@
   {% csrf_token %}
   <div class="submit-row">
     <input type="submit" value="{{ action_label }}">
-    <a class="button cancel-link" href="{{ cancel_url }}">Cancel</a>
+    <a class="button cancel-link" href="{{ cancel_url }}">{{ cancel_label|default:"Cancel" }}</a>
   </div>
 </form>
 {% endblock %}

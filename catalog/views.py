@@ -412,7 +412,7 @@ def _name_boundary_whens(search_terms, score):
 
 def _in_stock_order_annotation():
     return Case(
-        When(stock_qty__gt=CUSTOMER_STOCK_RESERVE_QTY, then=1),
+        When(Q(owned_stock_qty__gt=0) | Q(stock_qty__gt=CUSTOMER_STOCK_RESERVE_QTY), then=1),
         default=0,
         output_field=IntegerField(),
     )
@@ -1072,9 +1072,9 @@ class ProductListAPIView(generics.ListAPIView):
 
         in_stock = _parse_bool(params.get("in_stock"), "in_stock")
         if in_stock is True:
-            queryset = queryset.filter(stock_qty__gt=CUSTOMER_STOCK_RESERVE_QTY)
+            queryset = queryset.filter(Q(owned_stock_qty__gt=0) | Q(stock_qty__gt=CUSTOMER_STOCK_RESERVE_QTY))
         elif in_stock is False:
-            queryset = queryset.filter(stock_qty__lte=CUSTOMER_STOCK_RESERVE_QTY)
+            queryset = queryset.filter(owned_stock_qty=0, stock_qty__lte=CUSTOMER_STOCK_RESERVE_QTY)
 
         on_sale = _parse_bool(params.get("on_sale"), "on_sale")
         if on_sale is True:

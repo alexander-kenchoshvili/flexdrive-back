@@ -9,10 +9,10 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from django.db.models import Q, Exists, OuterRef
+from django.db.models import Q, Exists, OuterRef, Prefetch
 
 from .accounting_calculations import calculate_product_line
-from .models import Order, PaymentTransaction
+from .models import Order, OrderItem, OrderItemInventory, PaymentTransaction
 
 
 TBILISI = ZoneInfo("Asia/Tbilisi")
@@ -81,7 +81,8 @@ def order_queryset(period, search=""):
     refunds = PaymentTransaction.objects.filter(order_id=OuterRef("pk"), action="refund", status="refunded", refunded_at__isnull=False)
     orders = Order.objects.annotate(accounting_paid=Exists(receipts), accounting_refunded=Exists(refunds)).filter(
         Q(accounting_paid=True) | Q(accounting_refunded=True))
-    return _search_orders(_dated(orders, "created_at", period), search).order_by("created_at", "pk").prefetch_related("items")
+    return _search_orders(_dated(orders, "created_at", period), search).order_by("created_at", "pk").prefetch_related(
+        Prefetch("items", queryset=OrderItem.objects.select_related("inventory")))
 
 
 def event_queryset(period, search=""):
@@ -93,7 +94,7 @@ def event_queryset(period, search=""):
     if search:
         queryset = queryset.filter(order_id__in=_search_orders(Order.objects.all(), search).values("pk"))
     return queryset.select_related("order").prefetch_related(
-        "order__items", "order__payment_transactions",
+        Prefetch("order__items", queryset=OrderItem.objects.select_related("inventory")), "order__payment_transactions",
     ).order_by("pk")
 
 
@@ -106,9 +107,14 @@ def order_row(order, *, tax_rates=None):
     issues, lines = [], []
     for item in order.items.all():
         sale_rate, purchase_rate = (None, None) if tax_rates is None else tax_rates(item)
+        try:
+            inventory = item.inventory
+        except OrderItemInventory.DoesNotExist:
+            inventory = None
         amounts = calculate_product_line(
             unit_sale_gross=item.unit_price, quantity=item.quantity,
-            unit_purchase_gross=item.purchase_unit_gross,
+            unit_purchase_gross=item.purchase_unit_gross if inventory is None else None,
+            purchase_total_gross=inventory.purchase_total_gross if inventory is not None else None,
             sale_vat_rate=sale_rate, purchase_vat_rate=purchase_rate,
         )
         line_issues = []
@@ -122,8 +128,8 @@ def order_row(order, *, tax_rates=None):
             "item_id": item.pk, "order_id": order.pk, "name": item.product_name,
             "internal_sku": item.internal_sku, "supplier_sku": item.sku,
             "quantity": item.quantity, "line_total": item.line_total,
-            "purchase_source": item.purchase_cost_source,
-            "purchase_recorded_at": item.purchase_cost_recorded_at,
+            "purchase_source": "inventory_allocation" if inventory is not None else item.purchase_cost_source,
+            "purchase_recorded_at": inventory.created_at if inventory is not None else item.purchase_cost_recorded_at,
             "amounts": amounts, "issues": tuple(line_issues),
         })
     if not lines:
