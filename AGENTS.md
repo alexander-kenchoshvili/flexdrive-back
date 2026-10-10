@@ -1,5 +1,476 @@
 # Project Instructions
 
+## Browser Analytics Isolation Completed - 2026-10-10
+
+- User authorized frontend host isolation. Shared exact flexdrive.ge hostname
+  guard blocks GTM initialization and ecommerce/search events on local, staging,
+  www and temporary hosting domains, even with tracking consent. Existing consent
+  and private-business guards retained; dashboard read access remains independent.
+- 35 focused frontend tracking/search/business tests, typecheck and scoped lint
+  pass. User handles push/deploy. No browser/server start, secret or provider edit,
+  real payment or production changes. Supersedes earlier browser isolation pending
+  notes; final-domain event delivery and purchase dedup are still unverified.
+
+## Dashboard User Checkpoint And Deferred Verification - 2026-10-10
+
+- User confirms the local Google dashboard now works after the focused start.ps1
+  dotenv-loader fix. Startup uses the existing python-dotenv parser; all env values
+  and actual GA4 credential loading verified without exposing secrets or starting
+  a server. User keeps the same startup workflow.
+- Staging Render backend has the existing CAPI token and Pixel 1020718363721235.
+  User confirms production CAPI variables were saved and deployed, and staging
+  META_CAPI_ENABLED was changed to false. Supersedes older missing-production-env
+  audit notes; actual purchase delivery and token validity are not yet verified.
+- User will push/deploy dashboard code himself; completion is not yet confirmed.
+  User explicitly defers purchase testing until another time. Do not initiate a
+  payment, create a paid order, or claim browser/server deduplication verified.
+- Staging CAPI disabled does NOT prove browser Pixel/GTM environment isolation.
+  Keep browser tracking isolation and cart/purchase delivery checks outstanding.
+- At restricted flexdrive.ge cutover: verify Search Console and connect GA4;
+  verify Meta domain and domain-dependent Pixel settings; activate/verify canonical
+  flexdrive.ge and www redirect, GA4 scope and GTM/domain configuration; verify
+  consent, event delivery, company SKUs/values and browser/server purchase dedup.
+  Preserve the separate existing domain/provider and reconciliation checklist.
+
+## Pixel/CAPI Current Audit - 2026-10-10
+
+- User authorized current audit; domain verification deferred with Search Console.
+  Live GTM public script has correct Pixel/AddToCart/Purchase/eventID forwarding;
+  frontend/server purchase IDs match. Meta overview still shows only older browser
+  PageView/ViewContent, not server/cart/purchase proof.
+- Local CAPI disabled, Pixel setting absent, no CAPI token/test code. Reporting
+  reader token must NOT be reused for CAPI. Production DO service41/app-level31
+  variable-name fields inspected read-only: all three CAPI config names absent.
+  Secret values were not output; no Save/Cancel/deploy. Deployed process not read.
+- User-running local storefront cart add worked. Added one FD-08-0127 then removed
+  only that line; original FD-04-0669 x1/65 GEL retained. Original optional consent
+  all-false restored after test. No checkout/order/provider requests or new server.
+- Meta Test Events did not activate local URL/receive a visible cart test. Runtime
+  network inspection unavailable. Do NOT claim real AddToCart/Purchase/dedup proved.
+- Five internal-SKU tests passed; three old Meta tests failed during legacy fixture
+  setup on published-SKU constraint. Five in-memory mocked purchase/consent checks
+  passed; no real transport or business DB writes. No legacy fixture repair.
+- See docs/META_PIXEL_CAPI_AUDIT.md. Next coordinate CAPI config and an agreed test
+  scenario with user; no new credentials/env edits/fake paid records on own initiative.
+
+## Meta Domain Cutover Deferred By User - 2026-10-10
+
+- User explicitly requests recording Meta flexdrive.ge domain verification and
+  domain-dependent Pixel configuration alongside Search Console at domain cutover.
+  Do not perform domain/DNS/allowlist edits before that stage. Restricted-access
+  cutover requirements remain in force. User separately requests Pixel/CAPI audit
+  now; this supersedes earlier audit deferral only for current verification work.
+
+## Meta Dashboard Connector - 2026-10-10
+
+- User authorized dashboard connection; production variable will be entered by
+  user. BUSINESS_META_ACCESS_TOKEN is now consumed by local backend; supersedes
+  older preparation-only status below. Do not generate another token or change
+  customer login/CAPI credentials. No push/deploy or production env edit performed.
+- Protected business/marketing endpoint reads only the fixed FlexDrive Page, IG
+  and ad account via Graph v26.0. Page insights use a transient derived Page token.
+  Ads currency/timezone come from account; USD is not relabeled/converted to GEL.
+  Whole-period reach stays distinct from daily sums; website purchase attribution
+  is 7d_click/1d_view by conversion date, not financial ledger sales.
+- Independent five-minute source caches, bounded reads/pagination/backoff, stale
+  snapshots with original timestamps and explicit missing/failed/range states.
+  Facebook maximum90/IG maximum30-day activity ranges; current profiles remain
+  available. No cron/job, data/schema write or bank/carrier/supplier requests.
+- Paired frontend marketing page uses Georgian Tailwind/design tokens, Lazy modular
+  ECharts cost chart, campaign/social stats, observed-fact summary and existing
+  business auth. Period changes/unmount abort old requests. Secrets stay server-side.
+- 70 full business tests passed; final Meta consistency change passed 11 focused
+  tests. Frontend47 business tests, typecheck/scoped ESLint and production build
+  passed. Details in docs/BUSINESS_DASHBOARD_STAGE5.md.
+- Actual new connector returned ready for Oct1-10: FB followers3, ten complete
+  days zero views/interactions; IG followers0/reach0/views0/interactions0; Ads empty,
+  USD, no campaigns. No demo data. Active campaigns/nonzero stats and visual browser
+  checks remain; user review is next. No servers/browser started for this work.
+- User must add only backend Runtime secret BUSINESS_META_ACCESS_TOKEN using its
+  existing complete local .env value. Works in production after code deploy.
+  Domain verification/ecommerce delivery/deduplication remain separate later work.
+
+## Meta Reporting Token Ready - 2026-10-10
+
+- User explicitly confirmed Never expiry after automatic review's earlier block.
+  Generated ONE token for FlexDrive Analytics 1432926452359920 and Employee reader
+  61594899706565. Selected exactly ads_read, instagram_basic,
+  instagram_manage_insights, pages_read_engagement, pages_show_list, read_insights.
+- Stored only BUSINESS_META_ACCESS_TOKEN in backend ignored local .env; no secret
+  output/artifact, app secret read, production config change, push or deployment.
+  Token dialog closed only after verified local file write. Do not generate again.
+- Reload verified four assets: Page/Instagram Insights, ad account View performance,
+  analytics app View insights + auto Test app. No management/content/message grants.
+- Actual read-only Graph v23.0 calls all returned HTTP 200: Page ID 1044408968766868
+  followers=3 and links IG 17841432881478668; IG username flexdrive.ge followers=0,
+  media_count=0; ad account 1462913205812039 active USD Asia/Tbilisi. Oct1-10 ad
+  insights spend/impressions/clicks returned genuine zero rows. No provider writes.
+- A first probe output hit Windows stdout Unicode encoding; the corrected ASCII
+  JSON probe succeeded. No secret was printed in either run. Page/IG time-series
+  insights, production credential configuration and dashboard connector/UI remain
+  NEXT work; current token is not consumed by application code yet. Existing CAPI
+  user/credentials and customer login app unchanged.
+- Proof: artifacts/analytics/meta-reporting-reader-ready.png.
+
+## Meta Reporting Reader Created - 2026-10-10
+
+- User explicitly confirmed non-discrimination policy acceptance, reader creation,
+  reporting asset access and token generation. Policy accepted; created Employee
+  FlexDrive Analytics Reader 61594899706565 in flexdrive.ge portfolio.
+- Added optional app read_insights, instagram_basic, instagram_manage_insights;
+  Ready for testing observed. Selected Facebook/linked IG Insights, ad account
+  View performance, reporting app View insights (auto Test app). Meta success
+  dialog confirmed four assets assigned. No content/messages/ads-management grants.
+- Prepared token for app 1432926452359920 with ads_read, instagram_basic,
+  instagram_manage_insights, pages_read_engagement, pages_show_list, read_insights.
+  Never expiry selected, but automatic review rejected generation because user
+  had not explicitly confirmed permanent expiry. NO TOKEN GENERATED/STORED.
+- Expiry confirmation requested; browser left on Never/60-day step. Returning
+  from the open permissions overlay accidentally deselected pages_show_list in
+  the draft; MUST restore and verify all six scopes before eventual generation.
+  Do not generate temporary token as a workaround for permanent-expiry rejection.
+- Existing CAPI user/token, old login app, billing, ads and code unchanged.
+  Proof: artifacts/analytics/meta-reporting-token-expiry-confirm.png.
+
+## Meta Reporting App Preparation - 2026-10-10
+
+- Instagram reauthentication completed: Login needed disappeared, Insights access
+  remains available. User approved separate FlexDrive ad account: 1462913205812039,
+  owned by flexdrive.ge, USD, Asia/Tbilisi. Created successfully; no billing or ads.
+- User approved Meta Platform Terms/Developer Policies and completed Facebook
+  password reauthentication. Created FlexDrive Analytics app 1432926452359920 with
+  Marketing API ad performance, Instagram and Pages use cases. Existing customer
+  login app FLEXDRIVE 1321658899670696 remains unchanged; neither app is Ads Manager.
+- ads_read/pages_read_engagement/pages_show_list are Ready for testing. Optional
+  read_insights, instagram_basic and instagram_manage_insights not added yet.
+  Instagram Facebook-login path supports insights; avoid bulk content/message grants.
+- Prepared Employee system user name FlexDrive Analytics Reader, NOT created yet.
+  Meta opened non-discrimination policy acceptance before creation. Await explicit
+  approval for this policy and reporting-only asset access/persistent credentials.
+  Existing Conversions API System User and tokens untouched. No connector code,
+  credentials, billing, ads or deployment changes in this stage.
+
+## Meta Dashboard Read-Only Audit - 2026-10-10
+
+- User requested inspection before deciding on integration. Audited only FlexDrive
+  portfolio 1761419678356905; Auto Mate is unrelated and must not be used.
+- Facebook Page 1044408968766868 is portfolio-owned with Alexander full access.
+  Instagram @flexdrive.ge (17841432881478668) is owned but shows Login needed;
+  Alexander has partial access including Insights. User login is the next step.
+- Portfolio Ad accounts shows No ad accounts added. Do not create one without
+  agreeing account/currency/timezone settings. No ads/payment action authorized.
+- FlexDrive Web Pixel 1020718363721235: Sep12-Oct9 overview shows PageView 92,
+  ViewContent 13, browser Pixel only; cart/purchase delivery remains unverified.
+  Diagnostics asks to allowlist flexdrive-front.vercel.app; no allowlist created.
+  Conversions API connection pending; do not claim server delivery verified.
+- FLEXDRIVE 1321658899670696 is an APP, not a second website Pixel. Unpublished,
+  Facebook Login use case only. Add-use-case dialog offers app-install ads explicitly
+  without Marketing API. Recommend a separate reporting app, subject to user decision.
+- Existing Conversions API System User has Pixel/dataset assets only, no Page/IG/ad
+  assets. No token generated/read, privileges changed or code written during audit.
+  Business Domains list is empty; flexdrive.ge verification remains cutover work.
+- Prior production GA4 env preparation was saved after user accepted possible
+  restart; DigitalOcean confirmed config updated and deployment started (55fed051-
+  9f59-411f-883f-5b5b3f2e4641). User explicitly stopped deployment monitoring and
+  will check completion himself. No code push. Production env setup is now done.
+  Credential appeared in a private tool response by mistake; user informed and
+  explicitly declined rotation. Do not rotate or repeat requests about this.
+
+## GA4 Local Credentials And Live Read Verified - 2026-10-10
+
+- User approved the prepared reader JSON key creation; created exactly one active
+  key for flexdrive-analytics-reader. Google confirmed file download. Initial
+  browser download event timed out and local file was not found; do not create
+  another key. User then confirmed Desktop location and explicitly requested
+  local env configuration. Exact Desktop file found and parsed successfully.
+- Configured ONLY BUSINESS_GA4_CREDENTIALS_JSON in local ignored .env from the
+  complete JSON. Verified dotenv round-trip retains every field/private-key newline
+  and all unrelated env values remain identical. No credential contents in logs,
+  artifacts/docs or frontend. Desktop original left in place; no duplicate key file.
+- Enabled Analytics Data API in existing flexdrive-494109, verified Status Enabled.
+  Existing Viewer permission unchanged, no extra Cloud roles. Actual Google OAuth
+  and both GA4 report batches succeeded using readonly scope and exact flexdrive.ge.
+  October 1-10 period returned genuine empty data (traffic/search zero), Asia/Tbilisi.
+- Live empty dimensionless GA report omitted metricHeaders/rows/rowCount. Fixed
+  parser to accept that precise successful report kind/metadata/empty shape while
+  still rejecting malformed/nonempty responses. 15 focused connector/scope tests
+  pass, including this regression. No financial/other provider requests or DB edits.
+- No prod env/config, push/deployment or storefront browser/server start. Local
+  backend restart may be needed to pick up .env. Production still needs its own
+  secret environment configuration and code deployment; launch event delivery/
+  actual nonempty dashboard visual review remain pending.
+- Proof: artifacts/analytics/ga4-data-api-enabled.png, ga4-reader-key-created.png
+  and ga4-live-connection-verified.json (safe aggregate-only live verification).
+  Supersedes prepared/unconfigured notes below. Browser chrome://downloads was
+  blocked; no browser-policy bypass attempted. File was found after user direction.
+
+## GA4 Dashboard Connector And Users UI Prepared - 2026-10-09
+
+- User asked to continue GA4 dashboard connection now, before domain cutover;
+  this supersedes older notes deferring connector implementation to the domain.
+- Added read-only business/analytics.py and protected GET business/analytics/;
+  fixed property 538949234 and exact flexdrive.ge on every request, excluding
+  private business/admin paths. Separate batches for traffic and version-2 search.
+  No financial/provider mutations; full-period users are not summed from days.
+- Paired frontend /business/users now has real API states, period controls,
+  modular ECharts chart/daily table, sources, result/no-result search words and
+  deterministic Georgian summary. Tailwind/shared BaseButton; existing scrollbar
+  styles retained. No fake values when credentials/API are missing.
+- Existing google-auth/requests used with analytics.readonly scope, fixed reader
+  identity/token endpoint, bounded timeouts. New FILE or JSON credential settings
+  support backend-only secrets; neither configured. Existing Google OAuth unchanged.
+  Server cache: 5-min fresh, <=24-hour last-good with stale timestamp, 60-sec failure
+  backoff and concurrent request lock. Cache scope includes source/period/config.
+- 59 business backend tests, 40 business frontend tests, typecheck, scoped ESLint,
+  Django check and Nuxt production build passed. Google transport mocked; actual
+  Google API compatibility/read, event delivery and dashboard visual review pending.
+  No storefront browser or server start, database/demo changes, env edit, push/deploy.
+- Reader key-create JSON dialog is prepared UNSUBMITTED in Chrome tab 1158491097,
+  marked handoff. No key downloaded/created, Data API not enabled. Need action-time
+  confirmation for one persistent reader key, backend-only local config and Data API
+  activation. Proof: artifacts/analytics/ga4-reader-key-prepared.png.
+- Stage 4 is still in progress until auth/live read and user review; ordered purchase
+  funnel/events must not be claimed verified. See docs/BUSINESS_DASHBOARD_STAGE4.md.
+
+## GA4 Reader Account And Viewer Access Created - 2026-10-09
+
+- User confirmed the prepared action: create the technical account and grant
+  Analytics viewing access. Created flexdrive-analytics-reader in Cloud project
+  flexdrive-494109 with Create and close, skipping optional project/principal roles.
+  Credentials table confirms the new account; existing sheets-reader unchanged.
+- Added flexdrive-analytics-reader@flexdrive-494109.iam.gserviceaccount.com as
+  Viewer on GA4 property 538949234 ONLY. Persisted property-access table has two
+  rows: existing owner Administrator and new reader Viewer. Email notification off;
+  no other Analytics roles, restrictions or account-level permission edits.
+- No JSON key/secret created/downloaded, API enabled, env/config or backend/frontend
+  connector changes, provider requests, deployment or push. Authentication to the
+  server and report/API/UI implementation remain; this is not a live connection.
+- Proof: artifacts/analytics/ga4-reader-account-created.png and
+  ga4-reader-viewer-access-saved.png. Supersedes unsubmitted-form status below.
+
+## GA4 Dashboard Access Preparation - 2026-10-09
+
+- User now wants available GA4 dashboard connection prepared BEFORE domain cutover;
+  exact flexdrive.ge reporting scope is retained, so pre-cutover reports may be empty.
+- Read-only browser check found existing Cloud project FLEXDRIVE, flexdrive-494109.
+  Enabled-API list has 25 services, no Google Analytics Data API. Credentials list
+  contains only the existing sheets-reader service account; do not repurpose it.
+- Prepared UNSUBMITTED create form for flexdrive-analytics-reader in this project.
+  Proposed Analytics access is Viewer on property 538949234 only, no Cloud project
+  roles or unrelated access. No service account/key/API enable/permission writes yet.
+  Action-time confirmation required before creating persistent/security access.
+- Chrome tab 1158491097 holds the filled create form, marked handoff. Screenshot
+  artifacts/analytics/ga4-reader-account-prepared.png. No secret values inspected.
+  Backend connector/API and frontend users report are not implemented yet.
+
+## GA4 Event Retention Extended - 2026-10-09
+
+- User explicitly requested GA4 event retention change from 2 to 14 months.
+  Saved property 538949234 Event data = 14 months and reloaded the page to verify
+  persistence. User data was already 14 months; reset-on-new-activity stays enabled.
+  Google states retention changes take effect after 24 hours. No code/deploy needed.
+- User deferred Google Ads setup because no Google advertising is running yet.
+  Search Console is NOT connected; earlier search work was on-site search tracking,
+  not Google organic search reporting. Search Console remains at domain cutover.
+- Proof: artifacts/analytics/ga4-retention-14-months-saved.png. No account links,
+  internal filter activation, provider requests, code/DB or deployment changes.
+
+## Search GTM Published - 2026-10-09
+
+- User explicitly overrode the GTM deferral and requested immediate publication.
+  Published exactly the eight prepared search changes as GTM-MVNFL9TH version 10,
+  GA4 search results and selection tracking. UI verified Version 10 is Live and
+  Live, Latest at 23:06 Asia/Tbilisi. No other container changes included.
+- Frontend push/deployment remains deferred to the user. New payload fields begin
+  after deployment; end-to-end delivery/DebugView verification remains pending.
+  Dashboard connector/domain cutover and internal filter Testing are unchanged.
+- Supersedes unpublished-draft status below. See docs/SEARCH_ANALYTICS.md and
+  artifacts/analytics/ga4-search-version-10-live.png. No code/DB/provider/deploy work.
+
+## Search Analytics Prepared - 2026-10-09
+
+- User authorized search analytics work after consent fixes; push and production
+  deployment are explicitly deferred until all agreed work is finished.
+- Paired frontend now emits search only from successful current catalog API count,
+  with search_result_count, search_outcome, search_filtered and tracking version 2.
+  Suggestion selection is separate select_search_result with public company SKU.
+  No API/search ranking, database, schema, credentials or storefront UI changes.
+- Shared in-memory query/revision state prevents pagination/sort/filter/category
+  remount duplicates and stale A->B->A replies. SSR/setup waits for client mount.
+  Invalid/failed results are not zero; denied searches are not replayed on consent.
+  Full reload/reentry is a new results view, not session-wide unique-search counting.
+- Analytics-only text normalizes whitespace, masks obvious email/Georgian mobile
+  numbers and caps 100 characters. This does NOT sanitize query-bearing page_view
+  URLs or automatic Enhanced Measurement events; their privacy audit remains.
+- 48 focused frontend tests passed (11 search analytics, 16 HeaderSearch, 8 consent,
+  13 business). Scoped lint, Nuxt typecheck and whitespace checks passed.
+  No dev server or storefront browser test started; existing user servers retained.
+- GTM-MVNFL9TH Default Workspace had zero changes before this work. Saved EIGHT
+  unpublished changes: Search tag modification, five Version 2 data-layer variables,
+  Search Selection tag and exact select_search_result trigger. No Submit/Publish.
+- GA4 property 538949234 now has three Event dimensions search_outcome,
+  search_filtered, search_tracking_version and one Standard metric search_result_count.
+  Persisted table rows verified. Existing standard searchTerm is reused.
+- Future report must filter eventName search + tracking version 2 + exact flexdrive.ge;
+  never sum automatic view_search_results, suggestion selections or old search data.
+  New fields/history cannot be claimed delivered until coordinated frontend/GTM
+  release and DebugView verification. Dashboard connector remains deferred to domain
+  cutover. No provider/order/payment requests, publish, deploy or push performed.
+- Details docs/SEARCH_ANALYTICS.md; screenshots artifacts/analytics/ga4-search-*.png.
+
+## GA4 Consent Dispatch Fixed Locally - 2026-10-09
+
+- After inspection user explicitly authorized the proposed consent correction.
+  Paired frontend google-tag-manager.client.ts now queues real Arguments objects
+  for Google consent commands, matching Google's official gtag implementation.
+  Consent defaults still precede GTM initialization; original combined choice,
+  saved cookie semantics, and private business-route exclusion are preserved.
+- Existing loaded Meta Pixel receives fbq consent revoke/grant on changes; GTM
+  script onload also synchronizes it with the latest choice. No separate Meta
+  script, pixel ID, consent split, GTM settings/publish, or credential edits.
+- 8 new tests execute actual plugin/composable with Vue reactivity, covering
+  denied default/refusal/no script, acceptance ordering and single GTM start,
+  saved accept/reject reload, partial/invalid consent, revoke/reaccept to Google
+  and existing Meta, late-load Meta synchronization, existing gtag and private
+  routes. All 21 focused tests (including 13 business regressions) passed;
+  scoped ESLint, frontend typecheck and whitespace checks passed.
+- Browser used user-started https://localhost:3000. Tag Assistant live container
+  showed recognised Consent Default/Update, granted tracking at container load,
+  and the explicit denied update payload after revocation. Initial denied default
+  verified too; after denial/reload no Google/Meta script elements were present.
+  Local preferences/functionality/tracking restored to their original false values.
+  Temporary debug session stopped; normal user servers left running.
+- Evidence artifacts/analytics/ga4-consent-{granted,revoked,default-denied}-local.png.
+  Meta command dispatch is unit-tested, not a full Meta network/delivery proof.
+  Deployment and repeated production consent/vendor network verification remain;
+  GA4's dashboard notification is not expected to change from local code alone.
+  No backend/data/schema, order/payment/provider, deploy or push changes.
+
+## GA4 Consent Audit - 2026-10-09
+
+- User authorized inspection only before deciding on changes. Inspected the online
+  DigitalOcean storefront and local frontend consent code. Existing UI preferences
+  and functionality/tracking switches were all enabled; no consent Save submitted.
+- Google Tag Assistant connected to the deployed site and debugged the existing
+  live GTM-MVNFL9TH version. GA4 G-CKQC30CKYJ and Meta Base fired while opted in.
+  Consent pane at Container loaded showed Consent not configured / Default consent
+  state has not been set yet. Evidence: artifacts/analytics/ga4-consent-not-configured.png.
+- Local google-tag-manager.client.ts gtag shim pushes a rest-parameter Array;
+  Google's official consent setup uses dataLayer.push(arguments). This mismatch
+  is the leading explanation, not proof every deployed consent failure has one cause.
+  Initial refusal and later revocation remain unverified; UI toggle actions timed
+  out and no changed choice was saved. Do not claim full consent lifecycle verified.
+- Frontend AGENTS explicitly keeps analytics/marketing combined. Preserve that
+  decision unless user asks to split. Proposed next step is narrowly correcting
+  consent message dispatch, then checking accept/refuse/revoke and Meta handling.
+  This was an inspection-only checkpoint; subsequent user authorization and local
+  implementation are recorded in the section above.
+- Temporary Tag Assistant session stopped; no domains left actively debugging.
+  No app code, GTM publish/settings, GA4 configuration, env, DB, provider or deploy
+  changes. Browser checks generated ordinary page/debug analytics only, no orders.
+
+## GA4 Internal Traffic Rule Saved - 2026-10-09
+
+- User confirmed a fixed home public IP and supplied it specifically for GA4
+  internal-traffic configuration. The stream previously had no internal IP rules.
+  Saved ONE rule named FlexDrive — სახლის ინტერნეტი with IP address equals the
+  user-supplied address and traffic_type internal. Reopened and verified persistence.
+- Existing property Internal Traffic filter is Exclude, traffic_type exactly
+  internal, and remains Testing. No activation or permanent exclusion performed.
+  Real home-network visit recognition and Test data filter name reporting still
+  require verification before activating. Do not claim the visit test has passed.
+- Evidence: artifacts/analytics/ga4-internal-ip-rule-saved.png and
+  artifacts/analytics/ga4-internal-filter-testing.png. No app code, provider flow,
+  credentials, database, deployment or other analytics setting changed.
+
+## GA4 Reporting Domain Decision - 2026-10-09
+
+- Latest user instruction: defer activation and live verification of the prepared
+  flexdrive.ge GA4 scope and www redirect until the flexdrive.ge domain cutover.
+  At that checkpoint bind DNS/TLS/hosting, deploy/verify the redirect, set canonical
+  siteUrl, and connect/verify read-only GA4 reporting with the exact domain scope.
+  Do not treat prepared code as an already active live integration.
+- User explicitly chose ONLY flexdrive.ge for dashboard GA4 reporting, excluding
+  old DigitalOcean/Vercel/localhost history. Reuse property 538949234, stream
+  G-CKQC30CKYJ and GTM-MVNFL9TH. Browser read-only audit confirmed those IDs.
+- business/ga4.py prepares runReport bodies with hostName EXACT flexdrive.ge;
+  additional filters use AND so they cannot widen the source. This is preparation
+  only: no Google credentials, live API requests, new business API route or UI
+  connection yet. Future connector must use this scope and include it in caching.
+- Paired frontend server middleware prepares a 308 www.flexdrive.ge -> HTTPS
+  flexdrive.ge redirect for GET/HEAD, preserving path/query. Main/local/preview
+  hosts, forwarded-host headers and POST callbacks do not trigger it.
+- 2 backend scope tests, 3 frontend redirect tests, scoped ESLint and frontend
+  typecheck passed. No servers, browser tests, DNS/TLS/hosting or deploy changes.
+  Domain binding/restricted-access verification remains in the agreed cutover.
+- GA4 domain filter does NOT remove test orders from DB financial reports.
+  Actual launch/report start date is undecided; do not guess it or delete history.
+- Audit findings remain separately pending: mixed source hosts, empty unwanted
+  referrals (subsequently fixed below), internal filter Testing, consent
+  signals inactive, add_to_cart/purchase delivery unverified in last 28 days,
+  missing search-result count tracking. Do not resolve other issues automatically.
+
+## GA4 Bank Referral Exclusion Saved - 2026-10-09
+
+- User explicitly authorized this browser configuration change. In the existing
+  G-CKQC30CKYJ stream's Google tag, saved List unwanted referrals with ONE condition:
+  Referral domain exactly matches payment.bog.ge. Observed Configuration saved
+  and reopened the panel to verify the persisted exact-match value.
+- Screenshot: artifacts/analytics/ga4-bog-referral-saved.png. No other analytics
+  setting, consent policy, GTM workspace publish, app code, payment/provider flow
+  or deployment changed. This verifies configuration persistence, not a new
+  end-to-end bank-return attribution test. Existing historical attribution is
+  not rewritten automatically. Other audit findings remain pending separately.
+
+## Business Dashboard Operations - 2026-10-09
+
+- User authorized stage 3 after reviewing sales/finance. Protected GET-only
+  business operations API and paired frontend `/business/operations` are implemented.
+  Current snapshot: physical returns, owned receipt-lot balances/age/history cost,
+  saved payment attempts/issues and latest stored Cross Motors/EasyWay results.
+- Independent 20-row pages and return/payment filters; full matching totals.
+  Restored allocations do not consume stock. Unknown costs remain unknown;
+  negative lot balances are flagged. Private supplier IDs/PII/provider JSON and
+  raw errors are excluded. Missing sync history is not proof of failed scheduling;
+  EasyWay omits unchanged successful checks. No live bank/provider checks or actions.
+- 44 focused backend tests pass on disposable SQLite; 33 frontend tests, scoped
+  ESLint/typecheck/template compilation pass. Compiled CSS includes all 110 static
+  operations utilities; 17 public manifest roots do not statically import its API
+  code. Local frontend build passed; the next checkpoint is user browser review.
+- No real business-data/schema/env/credential, provider, remote DB, deployment or
+  push changes. No browser/dev server started; user reviews each completed stage.
+  Do not begin stage 4 automatically. Do not create branch/worktree.
+- User deferred combining delivery/buffer profit and full/net business profit until
+  discussion with their accountant and agreement on calculations. Preserve existing
+  separate financial figures. See docs/BUSINESS_DASHBOARD_STAGE3.md and the plan.
+- During review user explicitly requested reusable `BaseSelect` for dashboard
+  dropdowns. Both operations filters now use it; retain this shared component pattern.
+  Short payment labels have explanatory hints; ordinary paid transactions remain
+  in sales/finance, while stored review issues can include paid transactions.
+
+## Production Returns Migrations - 2026-10-08
+
+- User confirmed code pushed and explicitly authorized migration-only production
+  rollout using the supplied DigitalOcean database. Pending plan contained only
+  catalog.0027 and commerce.0035/0036; pricing dependencies were already applied.
+- Applied these three migrations in one committed PostgreSQL transaction with
+  bounded lock/statement timeouts and exact target/dependency guards. Verified
+  owned-stock field, all five return/inventory tables and required admin permissions.
+  All-app migration plan is now empty.
+- No demo orders/data, bank/supplier/carrier requests, credential/config edits or
+  deployed-browser checks. Production schema is ready; this is not a claim of
+  real bank refund verification. Staging had already applied these migrations.
+
+## Staging Returns Schema Verified - 2026-10-08
+
+- After user-confirmed push, connected only to the explicitly supplied Neon staging
+  database. Both return-target and all-app migration plans were already empty.
+  Confirmed catalog.0027 and commerce.0035/0036 applied; no migration rerun needed.
+- Read queries succeeded for owned balance and all five return/inventory tables;
+  required return view/change and owned-stock view permissions exist.
+- No database writes, demo orders, bank/carrier/supplier calls or production access.
+  User requests migration-only rollout, without creating remote test data.
+
 ## Offline Returns Walkthrough - 2026-10-08
 
 - User explicitly forbids real bank/supplier/carrier requests during walkthrough.
@@ -368,6 +839,9 @@
 
 ## Domain Cutover Decision - 2026-09-28
 
+- 2026-10-09 follow-up: activate and verify prepared www.flexdrive.ge ->
+  https://flexdrive.ge redirect and flexdrive.ge-only dashboard GA4 reporting
+  at this cutover, including the required read-only reporting connection.
 - User deferred BOG reconciliation scheduler setup until migration to flexdrive.ge; do not provision it before that stage.
 - flexdrive.ge must initially remain restricted to authorized testers, not publicly open. Establish and verify access protection before exposing the domain; noindex alone is not access control. Account for direct hosting URLs and required bank/provider callbacks without exposing the storefront.
 - After restricted domain cutover, update domain-dependent configuration/URLs (frontend/backend origins, OAuth redirects, reCAPTCHA, email links, bank redirects/callback where applicable), configure payment reconciliation scheduler, and complete deferred integration/analytics checks before public launch.

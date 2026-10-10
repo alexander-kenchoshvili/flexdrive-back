@@ -69,6 +69,7 @@ class NoStorePrivateApiMiddleware:
     PRIVATE_API_PREFIXES = (
         "/api/accounts/",
         "/api/commerce/",
+        "/api/business/",
     )
 
     def __init__(self, get_response):

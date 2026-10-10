@@ -9,6 +9,10 @@ venv/
 # Environment variables
 .env
 
+# Local server service-account credentials (never commit keys).
+/secrets/
+*service-account*.json
+
 # DB
 db.sqlite3
 

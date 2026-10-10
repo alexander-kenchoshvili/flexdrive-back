@@ -567,6 +567,7 @@ INSTALLED_APPS = [
     'pages.apps.PagesConfig',
     'accounts',
     'commerce',
+    'business.apps.BusinessConfig',
     'ckeditor',
     'corsheaders',  
     'rest_framework',
@@ -795,6 +796,9 @@ REST_FRAMEWORK = {
         'password_reset': '100000/min' if TESTING else '5/min',
         'activation_resend': '100000/hour' if TESTING else '5/hour',
         'catalog_search': '100000/min' if TESTING else '30/min',
+        'business_login': '5/min',
+        'business_login_account': '5/min',
+        'business_dashboard': '120/min',
     }
 }
 
@@ -815,6 +819,12 @@ GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
 GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
 GOOGLE_OAUTH_REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "").strip()
 GOOGLE_AUTH_CLOCK_SKEW_SECONDS = _parse_int_env("GOOGLE_AUTH_CLOCK_SKEW_SECONDS", 30)
+
+# Private read-only dashboard identity, separate from customer Google OAuth.
+# Choose one source. No secret is ever included in frontend/runtime config.
+BUSINESS_GA4_CREDENTIALS_FILE = os.getenv("BUSINESS_GA4_CREDENTIALS_FILE", "").strip()
+BUSINESS_GA4_CREDENTIALS_JSON = os.getenv("BUSINESS_GA4_CREDENTIALS_JSON", "").strip()
+BUSINESS_META_ACCESS_TOKEN = os.getenv("BUSINESS_META_ACCESS_TOKEN", "").strip()
 FACEBOOK_APP_ID = os.getenv("FACEBOOK_APP_ID", "").strip()
 FACEBOOK_APP_SECRET = os.getenv("FACEBOOK_APP_SECRET", "").strip()
 FACEBOOK_OAUTH_REDIRECT_URI = os.getenv("FACEBOOK_OAUTH_REDIRECT_URI", "").strip()

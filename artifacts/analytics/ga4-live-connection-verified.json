@@ -1,0 +1,14 @@
+{
+  "status": "empty",
+  "hostname": "flexdrive.ge",
+  "summary": {
+    "totalUsers": 0,
+    "sessions": 0,
+    "engagedSessions": 0,
+    "screenPageViews": 0
+  },
+  "search_status": "ready",
+  "search_views": 0,
+  "fetched_at": "2026-10-09T20:21:41.362631+00:00",
+  "report_timezone": "Asia/Tbilisi"
+}

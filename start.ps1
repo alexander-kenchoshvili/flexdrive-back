@@ -9,19 +9,19 @@ function Load-DotEnv {
     return
   }
 
-  Get-Content $Path | ForEach-Object {
-    $line = $_.Trim()
+  $dotenvCode = @'
+import json, sys
+from dotenv import dotenv_values
+print(json.dumps({k: v for k, v in dotenv_values(sys.argv[1]).items() if v is not None}))
+'@
+  $dotenvJson = & (Join-Path $PSScriptRoot "venv\Scripts\python.exe") -c $dotenvCode $Path
+  if ($LASTEXITCODE -ne 0) {
+    throw "Could not load .env."
+  }
 
-    if (-not $line -or $line.StartsWith("#")) {
-      return
-    }
-
-    $parts = $line -split "=", 2
-    if ($parts.Length -ne 2) {
-      return
-    }
-
-    [System.Environment]::SetEnvironmentVariable($parts[0].Trim(), $parts[1].Trim(), "Process")
+  $dotenvValues = $dotenvJson | ConvertFrom-Json
+  foreach ($entry in $dotenvValues.PSObject.Properties) {
+    [System.Environment]::SetEnvironmentVariable($entry.Name, [string]$entry.Value, "Process")
   }
 }
 
