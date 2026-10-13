@@ -542,6 +542,8 @@ class CrossMotorsImportTests(TestCase):
             name="Existing manually categorized",
             slug="existing-manually-categorized",
             sku="CM-000015",
+            # Product-only pricing superseded the old category markup policy.
+            markup_percent_override=Decimal("10.00"),
             price=Decimal("10.00"),
             stock_qty=1,
             status=ProductStatus.PUBLISHED,

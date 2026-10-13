@@ -438,6 +438,13 @@ class Product(TimeStampedModel):
         blank=True,
     )
     name = models.CharField(max_length=255)
+    preserve_manual_name = models.BooleanField(
+        "ხელით შეცვლილი დასახელება დაცულია",
+        default=False,
+        db_default=False,
+        editable=False,
+        help_text="ადმინისტრატორში სახელის შეცვლისას ავტომატურად ირთვება; იმპორტი ფასსა და მარაგს კვლავ აახლებს.",
+    )
     slug = models.SlugField(max_length=255, unique=True)
     sku = models.CharField(max_length=64, unique=True)
     internal_sku = models.CharField(
@@ -682,6 +689,12 @@ class Product(TimeStampedModel):
     @property
     def display_sku(self):
         return self.internal_sku or ""
+
+    @property
+    def effective_seo_title(self):
+        from .seo import product_seo_title
+
+        return product_seo_title(self)
 
     @property
     def public_slug(self):

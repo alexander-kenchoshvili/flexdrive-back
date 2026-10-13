@@ -126,14 +126,27 @@ EASYWAY_SENDER_LEGAL_FORM_ID=3
 EASYWAY_RECEIVER_TAX_CODE_PLACEHOLDER=11111111111
 EASYWAY_STANDARD_PACKAGE_ID=2
 EASYWAY_DELIVERY_MARGIN_GEL=2.00
-EASYWAY_INTERNAL_DELIVERY_PRICE_GEL=0.00
 EASYWAY_QUOTE_MAX_AGE_SECONDS=900
 ```
 
 `EASYWAY_SENDER_CITY_ID` is mandatory for regional quotes and must not be
 guessed: it is the EasyWay city ID corresponding to FlexDrive's real pickup
-location. Tbilisi/internal delivery does not call EasyWay and currently returns
-zero delivery cost.
+location. Tbilisi/internal delivery does not call EasyWay. Its customer fee is
+10 GEL per order, or 20 GEL if any of these strict limits is exceeded:
+
+- Total packaged weight: 10 kg (including each item's quantity).
+- Longest side of any packaged item: 100 cm (sides are not added together).
+- Sum of packaged item volumes: 100,000 cm³, calculated as
+  `sum(length_cm * width_cm * height_cm * quantity)`.
+
+Exactly at a limit, the order remains 10 GEL unless another limit is exceeded.
+Product shipping fields take precedence over the existing category defaults.
+Missing measurements still prevent quoting when neither source supplies them.
+The fee applies once to the whole cart or buy-now order. For internal quotes,
+carrier cost and margin remain zero placeholders; they do not record actual
+self-delivery expenses. Regional EasyWay pricing and its configured margin are
+unchanged. The legacy `EASYWAY_INTERNAL_DELIVERY_PRICE_GEL` environment variable
+is no longer used; no environment or database change is required for this tariff.
 
 ## Meta Purchase delivery
 

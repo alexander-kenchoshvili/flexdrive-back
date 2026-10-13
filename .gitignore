@@ -22,3 +22,6 @@ media/
 
 # Local generated catalog search audit reports
 /local-docs/search-audit*.json
+
+# Local SEO reports, audit scripts and verification logs
+/local-docs/seo-2026-10-13/

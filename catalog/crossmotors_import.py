@@ -995,7 +995,8 @@ def _bulk_upsert_products(
 
         brand = brands.get((values.get("part_manufacturer") or "").casefold())
         product.brand = brand
-        product.name = values["name"]
+        if not product.preserve_manual_name:
+            product.name = values["name"]
         product.manufacturer_part_number = values["oem"]
         if not product.preserve_manual_fitment_content:
             product.short_description = values["short_description"]
@@ -1013,7 +1014,6 @@ def _bulk_upsert_products(
             active_hold_quantity=active_hold_quantities.get(product.pk, 0),
         )
         _apply_supplier_publication(product, created=is_created)
-        product.seo_title = f"{values['clean_name'] or values['name']} | FlexDrive"
         if not product.preserve_manual_fitment_content:
             product.seo_description = values["short_description"]
         product.is_universal_fitment = False
@@ -1046,7 +1046,6 @@ def _bulk_upsert_products(
                 "supplier_stock_synced_at",
                 "status",
                 "supplier_missing",
-                "seo_title",
                 "seo_description",
                 "is_universal_fitment",
                 "updated_at",
@@ -1525,7 +1524,8 @@ def _upsert_product(values, *, category, brand, synced_at):
         product.category = category
 
     product.brand = brand
-    product.name = values["name"]
+    if not product.preserve_manual_name:
+        product.name = values["name"]
     product.manufacturer_part_number = values["oem"]
     if not product.preserve_manual_fitment_content:
         product.short_description = values["short_description"]
@@ -1553,7 +1553,6 @@ def _upsert_product(values, *, category, brand, synced_at):
         active_hold_quantity=active_hold_quantity,
     )
     _apply_supplier_publication(product, created=created)
-    product.seo_title = f"{values['clean_name'] or values['name']} | FlexDrive"
     if not product.preserve_manual_fitment_content:
         product.seo_description = values["short_description"]
     product.is_universal_fitment = False

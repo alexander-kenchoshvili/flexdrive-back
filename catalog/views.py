@@ -39,6 +39,7 @@ from .serializers import (
     VehicleModelSerializer,
 )
 from .search_cache import get_vehicle_search_catalog
+from .seo import active_seo_fitment_queryset
 
 
 SEARCH_QUERY_MIN_LENGTH = 2
@@ -994,7 +995,8 @@ class ProductListAPIView(generics.ListAPIView):
                 Prefetch(
                     "images",
                     queryset=ProductImage.objects.order_by("-is_primary", "sort_order", "id"),
-                )
+                ),
+                Prefetch("fitments", queryset=active_seo_fitment_queryset()),
             )
         )
 
@@ -1359,7 +1361,8 @@ class ProductDetailAPIView(generics.RetrieveAPIView):
                 Prefetch(
                     "images",
                     queryset=ProductImage.objects.order_by("-is_primary", "sort_order", "id"),
-                )
+                ),
+                Prefetch("fitments", queryset=active_seo_fitment_queryset()),
             )
             .annotate(
                 in_stock_order=_in_stock_order_annotation()
@@ -1505,3 +1508,14 @@ class CategoryListAPIView(generics.ListAPIView):
     @cache_api_response(CACHE_GROUP_CATALOG_CATEGORIES, "CACHE_TTL_CATALOG_CATEGORIES")
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
+
+
+class CategoryDetailAPIView(generics.RetrieveAPIView):
+    """Validate an active category even when it currently has no products."""
+    serializer_class = CategorySerializer
+    lookup_field = "slug"
+
+    def get_queryset(self):
+        return Category.objects.filter(is_active=True).annotate(
+            product_count=Count("products", filter=Q(products__status=ProductStatus.PUBLISHED)),
+        )

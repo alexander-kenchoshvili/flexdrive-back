@@ -1,5 +1,27 @@
 # Project Instructions
 
+## Delivery And SEO Current Decisions - 2026-10-13
+
+- Tbilisi/internal delivery: 10 GEL/order; 20 if total packaged weight >10 kg,
+  any individual packaged side >100 cm, or summed volume >100,000 cm3.
+  Quantities multiply weight/volume. EasyWay regional API/margin unchanged;
+  EASYWAY_INTERNAL_DELIVERY_PRICE_GEL is obsolete. No delivery migration.
+- Blank seo_title derives current name, real active make/model/year range, side
+  and manufacturer. NO automatic OEM/MPN or SKU additions. Manual SEO overrides
+  survive both importers; clearing restores auto. Admin name edits are protected
+  from both imports while price/stock still update. URLs/company SKUs unchanged.
+- Paired frontend fixes JSON-LD textContent/escaping, one FlexDrive title suffix,
+  SSR pagination links, visible OEM/fitments, genuine Product schema photos and
+  initial HTTP errors. Active category lookup includes empty categories; unknown
+  and inactive return404. Preserve the user's BlogInnerHeader.vue edit.
+- Local catalog0028/0029 applied; production migrations pending. Deploy backend
+  category detail API before paired frontend. See docs/SEO_RELEASE_2026-10-13.md.
+  Earlier broad tests/build passed; post-revert21 backend SEO tests and3 frontend
+  title tests passed. Local2037 products include86 in41 repeated-title groups.
+- User handles push/deploy. No domain/indexing/provider checks or changes without
+  a new request. No browser/server start, production migrations or env edits.
+- Detailed reports/logs are local-only in ignored local-docs/seo-2026-10-13/.
+
 ## Browser Analytics Isolation Completed - 2026-10-10
 
 - User authorized frontend host isolation. Shared exact flexdrive.ge hostname

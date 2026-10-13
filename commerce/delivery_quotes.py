@@ -17,6 +17,11 @@ from .easyway import (
 MONEY_QUANTUM = Decimal("0.01")
 MEASUREMENT_QUANTUM = Decimal("0.01")
 QUOTE_SIGNING_SALT = "commerce.easyway.delivery-quote.v1"
+TBILISI_STANDARD_PRICE_GEL = Decimal("10.00")
+TBILISI_LARGE_PRICE_GEL = Decimal("20.00")
+TBILISI_STANDARD_MAX_WEIGHT_KG = Decimal("10.00")
+TBILISI_STANDARD_MAX_SIDE_CM = Decimal("100.00")
+TBILISI_STANDARD_MAX_VOLUME_CM3 = Decimal("100000.00")
 
 
 class DeliveryQuoteError(Exception):
@@ -44,10 +49,7 @@ def build_delivery_quote(*, source, items, region, city, client=None):
     if region.is_internal_delivery:
         carrier_cost = Decimal("0.00")
         margin = Decimal("0.00")
-        customer_price = _money_setting(
-            "EASYWAY_INTERNAL_DELIVERY_PRICE_GEL",
-            settings.EASYWAY_INTERNAL_DELIVERY_PRICE_GEL,
-        )
+        customer_price = _calculate_tbilisi_price(normalized_items)
         provider = "internal"
     else:
         sender_city_id = _positive_int_setting(
@@ -240,6 +242,32 @@ def _normalize_items(items):
     if not normalized:
         raise DeliveryQuoteError("კალათა ცარიელია.", code="delivery_items_empty")
     return normalized
+
+
+def _calculate_tbilisi_price(items):
+    """Price the whole order using unrounded, packaged item measurements."""
+    weight = sum(
+        (item["weight"] * item["quantity"] for item in items),
+        Decimal("0.00"),
+    )
+    volume = sum(
+        (
+            item["length"] * item["width"] * item["height"] * item["quantity"]
+            for item in items
+        ),
+        Decimal("0.00"),
+    )
+    longest_side = max(
+        max(item["length"], item["width"], item["height"])
+        for item in items
+    )
+    if (
+        weight > TBILISI_STANDARD_MAX_WEIGHT_KG
+        or longest_side > TBILISI_STANDARD_MAX_SIDE_CM
+        or volume > TBILISI_STANDARD_MAX_VOLUME_CM3
+    ):
+        return TBILISI_LARGE_PRICE_GEL
+    return TBILISI_STANDARD_PRICE_GEL
 
 
 def _calculate_measurements(items):

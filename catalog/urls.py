@@ -2,6 +2,7 @@
 
 from .views import (
     CategoryListAPIView,
+    CategoryDetailAPIView,
     ProductDetailAPIView,
     ProductListAPIView,
     ProductSuggestionAPIView,
@@ -16,6 +17,7 @@ urlpatterns = [
     path("products/suggestions/", ProductSuggestionAPIView.as_view(), name="catalog-product-suggestions"),
     path("products/<slug:slug>/", ProductDetailAPIView.as_view(), name="catalog-product-detail"),
     path("categories/", CategoryListAPIView.as_view(), name="catalog-category-list"),
+    path("categories/<slug:slug>/", CategoryDetailAPIView.as_view(), name="catalog-category-detail"),
     path("vehicles/makes/", VehicleMakeListAPIView.as_view(), name="catalog-vehicle-make-list"),
     path("vehicles/models/", VehicleModelListAPIView.as_view(), name="catalog-vehicle-model-list"),
     path("vehicles/years/", VehicleYearListAPIView.as_view(), name="catalog-vehicle-year-list"),

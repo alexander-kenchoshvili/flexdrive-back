@@ -444,7 +444,13 @@ class BogCallbackFlowTests(APITransactionTestCase):
         self.assertEqual(payment.order, order)
         self.assertEqual(order.payment_status, OrderPaymentStatus.PAID)
         self.assertEqual(order.payment_method, OrderPaymentMethod.CARD)
-        self.assertEqual(order.total, Decimal("180.00"))
+        self.assertEqual(order.total, Decimal("190.00"))
+        self.assertEqual(order.delivery_price, Decimal("10.00"))
+        self.assertEqual(payment.amount, Decimal("190.00"))
+        self.assertEqual(
+            self.provider_client.create_order.call_args.kwargs["delivery_amount"],
+            "10.00",
+        )
         self.assertEqual(order.items.get().quantity, 2)
         self.assertEqual(order.items.get().internal_sku, "FD-03-0001")
         self.assertEqual(order.items.get().sku, self.product.sku)
@@ -464,6 +470,37 @@ class BogCallbackFlowTests(APITransactionTestCase):
             "548888xxxxxx9893",
             str(payment.provider_reference),
         )
+
+    def test_large_buy_now_delivery_survives_payment_snapshot_and_callback(self):
+        self.product.shipping_length_cm = Decimal("140.00")
+        self.product.shipping_width_cm = Decimal("120.00")
+        self.product.shipping_height_cm = Decimal("15.00")
+        self.product.save(update_fields=[
+            "shipping_length_cm", "shipping_width_cm", "shipping_height_cm",
+        ])
+        _, start_response, payment = self._start_buy_now_payment()
+        self.assertEqual(start_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(payment.amount, Decimal("110.00"))
+        self.assertEqual(payment.checkout_snapshot["totals"]["delivery"], "20.00")
+        self.assertEqual(
+            self.provider_client.create_order.call_args.kwargs["delivery_amount"],
+            "20.00",
+        )
+
+        # Finalization must retain the paid quote even if dimensions change later.
+        self.product.shipping_length_cm = Decimal("20.00")
+        self.product.shipping_width_cm = Decimal("15.00")
+        self.product.shipping_height_cm = Decimal("10.00")
+        self.product.save(update_fields=[
+            "shipping_length_cm", "shipping_width_cm", "shipping_height_cm",
+        ])
+        response = self._signed_callback_request(self._callback_payload(payment))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payment.refresh_from_db()
+        self.assertEqual(payment.order.delivery_provider, "internal")
+        self.assertEqual(payment.order.delivery_price, Decimal("20.00"))
+        self.assertEqual(payment.order.shipping_length_cm, Decimal("140.00"))
+        self.assertEqual(payment.order.total, Decimal("110.00"))
 
     def _seed_owned_unit(self):
         from .models import OrderItem, ReturnDisposition
@@ -630,8 +667,8 @@ class BogCallbackFlowTests(APITransactionTestCase):
             )
         ).decode()
         changed_body = signed_body.replace(
-            b'"request_amount":"90.00"',
-            b'"request_amount":"91.00"',
+            b'"request_amount":"100.00"',
+            b'"request_amount":"101.00"',
         )
 
         response = self._signed_callback_request(

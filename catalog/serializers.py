@@ -53,7 +53,7 @@ def _resolve_category_seo_payload(request, category):
 
 
 def _resolve_product_seo_payload(request, product, primary_image=None):
-    title = (product.seo_title or "").strip() or product.name
+    title = product.effective_seo_title
     description = (
         (product.seo_description or "").strip()
         or (product.short_description or "").strip()

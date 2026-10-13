@@ -496,6 +496,8 @@ class ProductAdminForm(forms.ModelForm):
 
     def clean(self):
         data = super().clean()
+        if self.instance.pk and "name" in self.changed_data:
+            self.instance.preserve_manual_name = True
         category = data.get("category")
         can_assign = category is not None and category_sequence(category) is not None
         self.instance._admin_sku_pending = not self.instance.internal_sku and can_assign
@@ -558,6 +560,12 @@ class ProductAdmin(admin.ModelAdmin):
         if "sku" in form.base_fields:
             form.base_fields["sku"].label = "მომწოდებლის / არსებული SKU"
             form.base_fields["sku"].help_text = "მხოლოდ შიდა ინტეგრაციებისთვის. FlexDrive SKU კატეგორიით შენახვისას ავტომატურად შეიქმნება."
+        if "seo_title" in form.base_fields:
+            form.base_fields["seo_title"].label = "SEO სათაური (ხელით — სურვილისამებრ)"
+            form.base_fields["seo_title"].help_text = (
+                "ცარიელი ველი იყენებს მიმდინარე დასახელების, მოდელის, წლებისა და მხარის ავტომატურ სათაურს. "
+                "აქ ჩაწერილ სათაურს იმპორტი არ შეცვლის. წაშლისას ისევ ავტომატური სათაური გამოიყენება."
+            )
         return form
 
     list_display = (
@@ -623,6 +631,8 @@ class ProductAdmin(admin.ModelAdmin):
         SupplierStockHoldInline,
     )
     readonly_fields = (
+        "preserve_manual_name",
+        "effective_seo_title",
         "supplier_missing",
         "effective_markup_percent_readonly",
         "calculated_customer_price_readonly",
@@ -682,6 +692,7 @@ class ProductAdmin(admin.ModelAdmin):
             {
                 "fields": (
                     "name",
+                    "preserve_manual_name",
                     "slug",
                     "sku",
                     "internal_sku",
@@ -698,6 +709,7 @@ class ProductAdmin(admin.ModelAdmin):
             {
                 "fields": (
                     "seo_title",
+                    "effective_seo_title",
                     "seo_description",
                     "seo_image",
                     "seo_noindex",
@@ -912,8 +924,23 @@ class ProductAdmin(admin.ModelAdmin):
         if "status" in form.changed_data:
             obj.supplier_missing = False
         with transaction.atomic():
+            if change:
+                current = Product.objects.select_for_update().values(
+                    "name", "preserve_manual_name", "seo_title",
+                ).get(pk=obj.pk)
+                if "name" in form.changed_data:
+                    obj.preserve_manual_name = True
+                else:
+                    obj.name = current["name"]
+                    obj.preserve_manual_name = current["preserve_manual_name"]
+                if "seo_title" not in form.changed_data:
+                    obj.seo_title = current["seo_title"]
             assign_admin_sku(obj)
             super().save_model(request, obj, form, change)
+
+    @admin.display(description="მოქმედი SEO სათაური")
+    def effective_seo_title(self, obj):
+        return obj.effective_seo_title if obj else "შენახვის შემდეგ გამოჩნდება"
 
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
