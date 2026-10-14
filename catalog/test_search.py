@@ -350,6 +350,77 @@ class CatalogSearchRegressionTests(APITestCase):
         self.left.save(update_fields=["manufacturer_part_number"])
         self.assert_search_ids("1234", [self.left])
 
+    def test_oem_spaces_are_ignored_in_both_query_and_saved_code(self):
+        for stored in ("17A853651", "17A 853 651", "17A\u00a0853\u202f651"):
+            self.left.manufacturer_part_number = stored
+            self.left.save(update_fields=["manufacturer_part_number"])
+            for query in (
+                "17A853651", "17A 853 651", "  17a   853  651  ",
+                "17A\t853\n651", "17A\u00a0853\u202f651", "17A\u2009853\u2009651",
+                "17A85 3651", "17A\u200b853\ufeff651", "１７Ａ ８５３ ６５１",
+            ):
+                with self.subTest(stored=stored, query=query):
+                    self.assert_search_ids(query, [self.left])
+            self.left.refresh_from_db()
+            self.assertEqual(self.left.manufacturer_part_number, stored)
+
+    def test_spaced_oem_prefixes_work_and_different_codes_do_not_match(self):
+        self.left.manufacturer_part_number = "17A 853 651"
+        self.left.save(update_fields=["manufacturer_part_number"])
+        for query in ("17A 853", "17A853", "853 651"):
+            self.assert_search_ids(query, [self.left])
+        self.assert_search_ids("17A 853 652", [])
+
+    def test_exact_spaced_oem_precedes_in_stock_partial_matches(self):
+        self.left.manufacturer_part_number = "17A 853 651"
+        self.left.stock_qty = 0
+        self.left.save(update_fields=["manufacturer_part_number", "stock_qty"])
+        for index in range(6):
+            self.product(f"Partial OEM part {index}", f"spaced-oem-{index}",
+                         manufacturer_part_number=f"17A853651-{index}")
+        for query in ("17A853651", "17A 853 651"):
+            for endpoint in ("catalog-product-list", "catalog-product-suggestions"):
+                response = self.client.get(reverse(endpoint), {"q": query})
+                self.assertEqual(response.status_code, 200)
+                rows = response.data["results"] if endpoint == "catalog-product-list" else response.data
+                self.assertEqual(rows[0]["id"], self.left.pk)
+
+    def test_spaced_oem_matching_keeps_explicit_filters_and_public_visibility(self):
+        self.left.manufacturer_part_number = "17A853651"
+        self.left.save(update_fields=["manufacturer_part_number"])
+        self.product("Hidden OEM", "hidden-oem", manufacturer_part_number="17A853651", status=ProductStatus.DRAFT)
+        self.assert_search_ids("17A 853 651", [self.left])
+        response = self.client.get(reverse("catalog-product-list"), {"q": "17A 853 651", "side": ProductSide.RIGHT})
+        self.assertEqual(response.data["count"], 0)
+        response = self.client.get(reverse("catalog-product-list"), {"q": "17A 853 651", "category": self.category.slug})
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["facets"]["categories"][0]["count"], 1)
+        self.left.stock_qty = 0
+        self.left.save(update_fields=["stock_qty"])
+        response = self.client.get(reverse("catalog-product-list"), {"q": "17A 853 651", "in_stock": "true"})
+        self.assertEqual(response.data["count"], 0)
+
+    def test_oem_separators_remain_literal_and_multiword_name_search_stays_strict(self):
+        self.left.manufacturer_part_number = "ABC.12-34"
+        self.left.save(update_fields=["manufacturer_part_number"])
+        self.assert_search_ids("ABC. 12-34", [self.left])
+        self.assert_search_ids("ABCx 12-34", [])
+        self.assert_search_ids("სარკის ქვედა ხუფი არარსებული", [])
+
+    def test_admin_oem_search_ignores_spaces_and_keeps_queryset_filters(self):
+        from django.contrib.admin.sites import AdminSite
+        from django.test import RequestFactory
+        from .admin import ProductAdmin
+        self.left.manufacturer_part_number = "17A 853 651"
+        self.left.save(update_fields=["manufacturer_part_number"])
+        admin = ProductAdmin(Product, AdminSite())
+        request = RequestFactory().get("/")
+        for query in ("17A853651", "17A 853 651", "17a\u00a0853\u202f651"):
+            results, _ = admin.get_search_results(request, Product.objects.all(), query)
+            self.assertEqual(set(results.values_list("pk", flat=True)), {self.left.pk})
+            filtered, _ = admin.get_search_results(request, Product.objects.exclude(pk=self.left.pk), query)
+            self.assertFalse(filtered.exists())
+
     def test_invalid_and_empty_queries_have_predictable_responses(self):
         suggestions = reverse("catalog-product-suggestions")
         listing = reverse("catalog-product-list")

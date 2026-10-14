@@ -40,6 +40,7 @@ from .serializers import (
 )
 from .search_cache import get_vehicle_search_catalog
 from .seo import active_seo_fitment_queryset
+from .oem import oem_search_patterns
 
 
 SEARCH_QUERY_MIN_LENGTH = 2
@@ -394,6 +395,7 @@ def _build_search_context(raw_query):
         "phrase_terms": phrase_terms,
         "token_terms": token_terms,
         "tokens": _search_tokens(search_query),
+        "oem_patterns": oem_search_patterns(search_query),
     }
 
 
@@ -427,6 +429,14 @@ def _search_relevance_annotations(search_context):
     identifier_match_whens = []
     startswith_match_whens = []
     contains_match_whens = []
+    oem_patterns = search_context.get("oem_patterns")
+    if oem_patterns:
+        identifier_match_whens.append(
+            When(manufacturer_part_number__iregex=oem_patterns["exact"], then=3)
+        )
+        startswith_match_whens.append(
+            When(manufacturer_part_number__iregex=oem_patterns["prefix"], then=1)
+        )
     for term in relevance_terms:
         identifier_match_whens.extend(
             [
@@ -721,6 +731,9 @@ def _apply_catalog_search(queryset, search_context, include_descriptions=False):
     company_code = _company_search_code(search_context["raw_query"])
     if company_code:
         identifier_query |= Q(internal_sku__icontains=company_code)
+    oem_patterns = search_context.get("oem_patterns")
+    if oem_patterns:
+        identifier_query |= Q(manufacturer_part_number__iregex=oem_patterns["contains"])
     search_parts = search_context["search_parts"]
     if search_parts:
         query = Q()

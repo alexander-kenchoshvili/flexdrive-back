@@ -179,3 +179,11 @@ or sync job. It adds only a boolean with database default false and changes no
 existing OEM values. Automatic protection records edits made through the new admin;
 older manual edits cannot be inferred retroactively. Existing reports remain readable;
 OEM change history starts with committed imports after this release.
+
+Production checkpoint, 2026-10-14: the user authorized migration after deploying
+the backend. The read-only all-app plan contained only catalog.0030. It committed
+in one guarded PostgreSQL transaction; existing product/specification and access
+grant fingerprints remained identical, with 2185 products retained. A fresh
+read-only connection verified boolean NOT NULL DEFAULT false and an empty
+all-app migration plan. No production test OEM edits or supplier API calls were
+made, and credentials were not stored in files or output.

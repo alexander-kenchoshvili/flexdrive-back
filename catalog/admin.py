@@ -20,7 +20,7 @@ from common.cache_utils import CACHE_GROUP_CATALOG_CATEGORIES, invalidate_groups
 
 from .background_removal import remove_background_to_white
 from .internal_skus import assign_admin_sku, category_sequence
-from .oem import is_oem_key, sync_oem_specs
+from .oem import is_oem_key, oem_search_patterns, sync_oem_specs
 
 from .models import (
     CUSTOMER_STOCK_RESERVE_QTY,
@@ -599,6 +599,18 @@ class ProductAdminForm(forms.ModelForm):
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     form = ProductAdminForm
+
+    def get_search_results(self, request, queryset, search_term):
+        results, may_have_duplicates = super().get_search_results(request, queryset, search_term)
+        patterns = oem_search_patterns(search_term)
+        if patterns:
+            # Reuse the filtered admin queryset, retaining all changelist filters.
+            results = queryset.filter(
+                Q(pk__in=results.values("pk"))
+                | Q(manufacturer_part_number__iregex=patterns["contains"])
+            )
+        return results, may_have_duplicates
+
     def get_form(self, request, obj=None, **kwargs):
         form = super().get_form(request, obj, **kwargs)
         if "sku" in form.base_fields:

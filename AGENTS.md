@@ -1,5 +1,40 @@
 # Project Instructions
 
+## Whitespace-Tolerant OEM Search - 2026-10-14
+
+- User requested that 17A 853 651 find the same OEM as 17A853651. Shared bounded,
+  escaped OEM patterns now ignore whitespace in both query and stored MPN, with
+  copied Unicode spaces/zero-width characters and case-insensitive matching.
+  Used by public catalog listing, suggestions and Product admin search.
+- Exact normalized OEMs retain identifier ranking ahead of partial/stock matches.
+  Existing name-token search, literal identifier punctuation, public visibility,
+  explicit listing/admin filters, suggestion limit and private supplier SKUs remain.
+  Stored OEM/spec values and automatic manual protection are unchanged.
+- 107 focused search/performance/internal-SKU/OEM/admin/SEO tests passed on disposable
+  SQLite, including six new OEM whitespace regressions. Paired frontend inspected:
+  it already forwards the query correctly, so only backend push/deploy is needed.
+  No migration, data/schema/env change, production DB request, server/browser start,
+  provider request or push/deploy. PostgreSQL runtime and deployed HTTP verification
+  of this new search patch remain pending. See docs/CATALOG_SEARCH.md.
+
+## Production OEM Migration Completed - 2026-10-14
+
+- User explicitly supplied the production database connection and authorized
+  needed migrations. Read-only all-app plan contained ONLY catalog.0030; the
+  preserve_manual_oem column was absent. Applied that exact migration in one
+  guarded PostgreSQL transaction with bounded locks/statements and no post-migrate
+  permission creation. Existing product/spec data and permission/grant fingerprints
+  stayed identical; 2185 products retained. New column boolean NOT NULL DEFAULT false.
+- Fresh, separate read-only connection confirmed the column and empty all-app
+  migration plan. Password entered via hidden input only; no credential file,
+  persistent env edit or secret output. No provider requests, catalog business
+  edits, server restart, code push or new deployment initiated.
+- Prior read-only DigitalOcean inspection observed commit 6131fbe deployed Live at
+  18:10:43 Asia/Tbilisi. Backend source checkout began at 18:07:24 after the 17:45:43
+  request; build completed 18:08:51, builder itself 8.8s. No build code error seen;
+  long pre-build wait likely platform scheduling. Post-migration admin HTTP/OEM edit
+  and actual supplier sync remain untested; do not create production test edits.
+
 ## Automatic Manual OEM Protection And Sync Reports - 2026-10-14
 
 - User authorized automatic OEM protection without a checkbox and supplier report

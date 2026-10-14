@@ -1,7 +1,8 @@
 # Catalog search audit and regression checks
 
-Updated 2026-10-07. Changes are local; the user-started localhost site has been
-browser-verified. Production deployment and PostgreSQL runtime verification remain.
+Updated 2026-10-14. The OEM whitespace change is verified by offline backend tests.
+Earlier search flows were browser-verified on the user-started localhost site.
+The new OEM whitespace patch still needs backend deployment and PostgreSQL runtime verification.
 No schema or catalog data change is needed.
 
 ## Behavior
@@ -31,6 +32,12 @@ No schema or catalog data change is needed.
 - Company SKU and manufacturer part numbers remain searchable even when they
   coincide with a vehicle/attribute term. Standard `FD-03-0001` codes also work as
   `fd030001` or `fd 03 0001`. Supplier SKUs remain private.
+- OEM searches ignore whitespace on both sides: `17A853651`, `17A 853 651` and
+  `17a  853   651` match the same code, including when the saved MPN has spaces.
+  Partial codes, tabs/newlines, Unicode copied spaces and zero-width characters
+  are supported. Dots/hyphens/underscores remain literal identifier characters.
+  This applies to listing, suggestions and Product admin search; exact normalized
+  OEM matches retain their ranking. Saved OEM/spec values are not rewritten.
 - Exact identifier/name matches precede partial matches and stock preference in
   search results. Default listings retain their existing stock ordering.
 - Suggestions remain limited to five, with name/code/fitment search. Catalog
@@ -38,6 +45,9 @@ No schema or catalog data change is needed.
 - Blank/one-character suggestion queries return an empty list. Catalog one-character
   queries and either endpoint's queries above 255 characters return a validation error.
   The length bound now accommodates the entire `Product.name` field (previously 100).
+- The OEM whitespace patch passed 107 focused search/performance/internal-SKU/OEM/
+  admin/SEO tests, including six new whitespace/ranking/filter regressions. Only
+  backend code is changed; no frontend change, dependency or migration is required.
 - The paired frontend invalidates pending results on input changes, clearing,
   panel closure and unmount. Obsolete queued requests do not execute, and stale
   responses/errors cannot overwrite the latest query. Mobile opening explicitly
