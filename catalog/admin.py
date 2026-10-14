@@ -20,6 +20,7 @@ from common.cache_utils import CACHE_GROUP_CATALOG_CATEGORIES, invalidate_groups
 
 from .background_removal import remove_background_to_white
 from .internal_skus import assign_admin_sku, category_sequence
+from .oem import is_oem_key, sync_oem_specs
 
 from .models import (
     CUSTOMER_STOCK_RESERVE_QTY,
@@ -160,8 +161,50 @@ class SupplierStockHoldInline(admin.TabularInline):
         return False
 
 
+class ProductSpecAdminForm(forms.ModelForm):
+    class Meta:
+        model = ProductSpec
+        fields = "__all__"
+
+    def clean_key(self):
+        key = self.cleaned_data["key"]
+        return "OEM" if is_oem_key(key) else key
+
+
+class ProductSpecInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+        oem_forms = []
+        oem_edited = False
+        for form in self.forms:
+            data = form.cleaned_data
+            was_oem = is_oem_key(form.initial.get("key"))
+            is_oem = is_oem_key(data.get("key")) and not data.get("DELETE")
+            if is_oem:
+                oem_forms.append(form)
+            if (was_oem or is_oem) and any(
+                field in form.changed_data for field in ("key", "value", "DELETE")
+            ):
+                oem_edited = True
+        if len(oem_forms) > 1:
+            raise forms.ValidationError("პროდუქტს მხოლოდ ერთი OEM სპეციფიკაცია შეიძლება ჰქონდეს.")
+        if not oem_edited:
+            return
+        value = oem_forms[0].cleaned_data.get("value", "") if oem_forms else ""
+        max_length = Product._meta.get_field("manufacturer_part_number").max_length
+        if len(value) > max_length:
+            raise forms.ValidationError(f"OEM უნდა შეიცავდეს მაქსიმუმ {max_length} სიმბოლოს.")
+        if getattr(self.instance, "_admin_oem_changed", False) and value != self.instance.manufacturer_part_number:
+            raise forms.ValidationError("Manufacturer part number და OEM სპეციფიკაცია ერთნაირი უნდა იყოს.")
+        self.instance._admin_spec_oem = value
+
+
 class ProductSpecInline(admin.TabularInline):
     model = ProductSpec
+    form = ProductSpecAdminForm
+    formset = ProductSpecInlineFormSet
     extra = 1
     fields = ("key", "value", "sort_order")
     ordering = ("sort_order", "id")
@@ -496,6 +539,7 @@ class ProductAdminForm(forms.ModelForm):
 
     def clean(self):
         data = super().clean()
+        self.instance._admin_oem_changed = "manufacturer_part_number" in self.changed_data
         if self.instance.pk and "name" in self.changed_data:
             self.instance.preserve_manual_name = True
         category = data.get("category")
@@ -566,6 +610,11 @@ class ProductAdmin(admin.ModelAdmin):
                 "ცარიელი ველი იყენებს მიმდინარე დასახელების, მოდელის, წლებისა და მხარის ავტომატურ სათაურს. "
                 "აქ ჩაწერილ სათაურს იმპორტი არ შეცვლის. წაშლისას ისევ ავტომატური სათაური გამოიყენება."
             )
+        if "manufacturer_part_number" in form.base_fields:
+            form.base_fields["manufacturer_part_number"].help_text = (
+                "OEM-ის შეცვლა ავტომატურად განაახლებს OEM სპეციფიკაციას და დაიცავს ორივეს მომწოდებლისგან გადაწერისგან. "
+                "დაცვა ვრცელდება ხელით წაშლაზეც; დამატებით მონიშვნა არ არის საჭირო."
+            )
         return form
 
     list_display = (
@@ -632,6 +681,7 @@ class ProductAdmin(admin.ModelAdmin):
     )
     readonly_fields = (
         "preserve_manual_name",
+        "preserve_manual_oem",
         "effective_seo_title",
         "supplier_missing",
         "effective_markup_percent_readonly",
@@ -697,6 +747,7 @@ class ProductAdmin(admin.ModelAdmin):
                     "sku",
                     "internal_sku",
                     "manufacturer_part_number",
+                    "preserve_manual_oem",
                     "brand",
                     "category",
                     "status",
@@ -924,10 +975,19 @@ class ProductAdmin(admin.ModelAdmin):
         if "status" in form.changed_data:
             obj.supplier_missing = False
         with transaction.atomic():
+            oem_changed = "manufacturer_part_number" in form.changed_data or hasattr(obj, "_admin_spec_oem")
+            if hasattr(obj, "_admin_spec_oem"):
+                obj.manufacturer_part_number = obj._admin_spec_oem
+            if oem_changed:
+                obj.preserve_manual_oem = True
             if change:
                 current = Product.objects.select_for_update().values(
                     "name", "preserve_manual_name", "seo_title",
+                    "manufacturer_part_number", "preserve_manual_oem",
                 ).get(pk=obj.pk)
+                if not oem_changed:
+                    obj.manufacturer_part_number = current["manufacturer_part_number"]
+                    obj.preserve_manual_oem = current["preserve_manual_oem"]
                 if "name" in form.changed_data:
                     obj.preserve_manual_name = True
                 else:
@@ -943,10 +1003,13 @@ class ProductAdmin(admin.ModelAdmin):
         return obj.effective_seo_title if obj else "შენახვის შემდეგ გამოჩნდება"
 
     def save_related(self, request, form, formsets, change):
-        super().save_related(request, form, formsets, change)
-        product = form.instance
-        if product.preserve_manual_fitment_content:
-            _regenerate_manual_fitment_descriptions(product)
+        with transaction.atomic():
+            # The admin change view holds the product lock through inline saves.
+            product = Product.objects.select_for_update().get(pk=form.instance.pk)
+            super().save_related(request, form, formsets, change)
+            sync_oem_specs([product])
+            if product.preserve_manual_fitment_content:
+                _regenerate_manual_fitment_descriptions(product)
 
     def ai_background_preview_view(self, request):
         if request.method != "POST":
@@ -1294,7 +1357,8 @@ class SupplierSyncReportAdmin(admin.ModelAdmin):
             rows = format_html_join(
                 "", "<li><strong>{}</strong> — {} {}</li>",
                 ((display_sku(item), item["name"],
-                  f"({item['before']} → {item['after']} GEL)" if "before" in item else "")
+                  (f"({item['before']} → {item['after']}{' GEL' if key == 'supplier_price' else ''})"
+                   if "before" in item else ""))
                  for item in group.get("items", [])),
             )
             note = f"ნაჩვენებია პირველი {DETAIL_LIMIT} პროდუქტი." if group["count"] > DETAIL_LIMIT else ""

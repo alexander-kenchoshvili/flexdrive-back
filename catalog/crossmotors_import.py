@@ -25,6 +25,7 @@ from django.utils.text import slugify
 
 from common.cache_utils import CACHE_GROUP_CATALOG_CATEGORIES, invalidate_groups
 from catalog.search_cache import invalidate_vehicle_search_catalog
+from catalog.oem import sync_oem_specs
 
 from catalog.models import (
     Brand,
@@ -619,6 +620,9 @@ def import_crossmotors_report(report, *, archive_missing=False, max_missing_perc
         else:
             counters.updated_products += 1
 
+        oem_result = sync_oem_specs([product])
+        counters.created_specs += oem_result["created"]
+        counters.updated_specs += oem_result["updated"]
         if product.preserve_manual_fitment_content:
             continue
 
@@ -716,6 +720,9 @@ def import_crossmotors_report_bulk(
     )
     counters.created_specs = spec_result["created"]
     counters.updated_specs = spec_result["updated"]
+    oem_result = sync_oem_specs(product_result["products"].values(), batch_size=batch_size)
+    counters.created_specs += oem_result["created"]
+    counters.updated_specs += oem_result["updated"]
 
     counters.created_fitments = _bulk_replace_fitments(
         valid_rows,
@@ -997,7 +1004,8 @@ def _bulk_upsert_products(
         product.brand = brand
         if not product.preserve_manual_name:
             product.name = values["name"]
-        product.manufacturer_part_number = values["oem"]
+        if not product.preserve_manual_oem:
+            product.manufacturer_part_number = values["oem"]
         if not product.preserve_manual_fitment_content:
             product.short_description = values["short_description"]
             product.description = values["description"]
@@ -1064,6 +1072,8 @@ def _bulk_upsert_specs(rows, *, products, now, batch_size):
         if product.preserve_manual_fitment_content:
             continue
         for key, value, sort_order in _desired_specs(row.values):
+            if key == "OEM":
+                continue
             desired.append(
                 ProductSpec(
                     product=product,
@@ -1526,7 +1536,8 @@ def _upsert_product(values, *, category, brand, synced_at):
     product.brand = brand
     if not product.preserve_manual_name:
         product.name = values["name"]
-    product.manufacturer_part_number = values["oem"]
+    if not product.preserve_manual_oem:
+        product.manufacturer_part_number = values["oem"]
     if not product.preserve_manual_fitment_content:
         product.short_description = values["short_description"]
         product.description = values["description"]
@@ -1582,6 +1593,8 @@ def _upsert_specs(product, values):
     created_count = 0
     updated_count = 0
     for key, value, order in desired_specs:
+        if key == "OEM":
+            continue
         _spec, created = ProductSpec.objects.update_or_create(
             product=product,
             key=key,

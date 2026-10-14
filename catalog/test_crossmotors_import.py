@@ -401,7 +401,7 @@ class CrossMotorsImportTests(TestCase):
         product.refresh_from_db()
         self.assertEqual(result.updated_products, 1)
         self.assertEqual(result.created_fitments, 0)
-        self.assertEqual(result.created_specs, 0)
+        self.assertEqual(result.created_specs, 1)  # OEM stays aligned with the product field.
         self.assertEqual(result.updated_specs, 0)
         self.assertEqual(product.supplier_price, Decimal("250.00"))
         self.assertEqual(product.price, Decimal("250.00"))
@@ -657,7 +657,7 @@ class CrossMotorsImportTests(TestCase):
         product.refresh_from_db()
         self.assertEqual(result.updated_products, 1)
         self.assertEqual(result.created_fitments, 0)
-        self.assertEqual(result.created_specs, 0)
+        self.assertEqual(result.created_specs, 1)  # Other manually protected specs remain untouched.
         self.assertEqual(result.updated_specs, 0)
         self.assertEqual(product.supplier_price, Decimal("250.00"))
         self.assertEqual(product.price, Decimal("250.00"))

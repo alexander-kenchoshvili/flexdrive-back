@@ -1,5 +1,32 @@
 # Project Instructions
 
+## Automatic Manual OEM Protection And Sync Reports - 2026-10-14
+
+- User authorized automatic OEM protection without a checkbox and supplier report
+  OEM changes. Product admin now syncs Manufacturer part number and the OEM spec
+  in either direction after Save. A real edit/add/delete enables hidden
+  preserve_manual_oem automatically, including intentional empty/removal values.
+  Conflicting simultaneous edits and inline OEM values over 120 chars are rejected.
+  Unrelated saves retain current OEM/protection and do not enable the flag.
+- Cross Motors normal/bulk imports preserve manual OEMs while price/stock refresh.
+  Other OEMs follow the supplier, with aligned spec creation/update/removal.
+  OEM has its own protection; the older fitment/content switch still protects
+  other specs/descriptions/fitments. Sheets has no OEM input and leaves it alone.
+- Committed sync reports add OEM added/changed/removed groups, with product codes
+  and old/new values, without GEL units. Only actual canonical OEM changes count;
+  ignored supplier overrides and new-product initial OEMs are not double-counted.
+  Existing reports, limits, rollback, permissions and escaping remain compatible.
+- 88 focused admin/OEM/report/Cross Motors/sync/SEO tests passed, including real
+  admin POSTs and mocked command reports for both import paths. Full extended run
+  hit two existing Sheets tests with published-SKU constraint failures; no unrelated
+  fixture/importer repair. Migration state check and whitespace/compile checks pass.
+- catalog.0030 applied ONLY to local SQLite after exact single-step plan and backup
+  in ignored local-docs/oem-2026-10-14/db.sqlite3. All prior table data fingerprinted
+  unchanged, 2037 products retained; new field boolean NOT NULL DEFAULT FALSE.
+  No retrospective inference/protection of older manual edits or OEM data migration.
+  User handles push/deploy and remote migration; none performed. No server/browser,
+  provider calls or production changes. See docs/SUPPLIER_SYNC_APP_PLATFORM.md.
+
 ## JPEG XL Upload Support - 2026-10-14
 
 - User requested JXL uploads while retaining existing WebP conversion. Added

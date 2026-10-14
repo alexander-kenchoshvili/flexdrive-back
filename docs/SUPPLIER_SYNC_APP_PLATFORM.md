@@ -136,7 +136,12 @@ Each committed management-command run stores a report in
 **Catalog → სინქრონიზაციის ანგარიშები**. Dry runs and alternate-day skips create no report.
 The list shows start/end time, success/failure and a compact summary. Open a report
 for new Draft products, sellable-stock exhaustion/return, archiving/restoration and
-supplier-price changes. Ordinary stock quantity changes are not listed. Each group
+supplier-price changes, and OEM additions/changes/removals on existing products.
+OEM entries include the old/new value and distinguish a newly filled OEM from a
+replacement or removal. Only committed catalog changes count; an incoming OEM
+ignored because of manual protection is not reported as a catalog change.
+New products are listed in the existing new-product group without double-counting
+their initial OEM as an addition. Ordinary stock quantity changes are not listed. Each group
 stores the full count and up to 50 product names/SKUs; price changes include old/new costs.
 These are private staff reports, never customer API data.
 
@@ -151,3 +156,26 @@ Failure summaries contain the failed phase, not raw exception text, credentials 
 payloads; consult the job logs for diagnosis. If the database is unavailable or the
 process is forcibly terminated, saving a report is not guaranteed, so job activity/logs
 remain the source for such execution failures.
+
+## Automatic protection of admin OEM edits — 2026-10-14
+
+Changing **Manufacturer part number** in Product admin automatically updates the
+**OEM** specification after Save. Editing/adding/deleting that specification also
+updates the product field. Both values become protected from supplier overwrite;
+no checkbox is required. Clearing the product field or deleting the OEM row is a
+protected manual removal. The read-only **ხელით შეცვლილი OEM დაცულია** value shows
+the protection state. Simultaneously submitting different values in both places
+is rejected without saving the product.
+
+Unedited OEMs keep following the supplier, including filling an empty OEM.
+Cross Motors normal/bulk paths keep both fields aligned. Supplier price and stock
+still refresh. OEM synchronization uses its own automatic protection, independently
+of the older manual fitment/content switch; that switch still protects other specs,
+fitments and descriptions. The Sheets importer has no OEM input and leaves both
+the product OEM and its protection state unchanged.
+
+Apply **catalog.0030_product_preserve_manual_oem** before starting the new backend
+or sync job. It adds only a boolean with database default false and changes no
+existing OEM values. Automatic protection records edits made through the new admin;
+older manual edits cannot be inferred retroactively. Existing reports remain readable;
+OEM change history starts with committed imports after this release.

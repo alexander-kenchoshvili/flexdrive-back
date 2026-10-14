@@ -453,6 +453,13 @@ class Product(TimeStampedModel):
         help_text="Customer-facing code. The existing SKU remains the supplier/integration identifier.",
     )
     manufacturer_part_number = models.CharField(max_length=120, blank=True)
+    preserve_manual_oem = models.BooleanField(
+        "ხელით შეცვლილი OEM დაცულია",
+        default=False,
+        db_default=False,
+        editable=False,
+        help_text="ადმინისტრატორში OEM-ის შეცვლისას ავტომატურად ირთვება; ფასი და მარაგი კვლავ განახლდება.",
+    )
     seo_title = models.CharField(max_length=255, blank=True, null=True)
     seo_description = models.TextField(blank=True, null=True)
     seo_image = models.ImageField(upload_to="seo/", blank=True, null=True)

@@ -12,6 +12,9 @@ CHANGE_LABELS = {
     "archived": "დაარქივდა",
     "restored": "არქივიდან გამოქვეყნდა",
     "supplier_price": "მომწოდებლის ფასი შეიცვალა",
+    "oem_added": "OEM დაემატა",
+    "oem_changed": "OEM შეიცვალა",
+    "oem_removed": "OEM წაიშალა",
 }
 DETAIL_LIMIT = 50
 
@@ -24,6 +27,7 @@ def supplier_snapshot(*, lock=False):
         row["sku"]: row
         for row in products.values(
             "sku", "internal_sku", "name", "status", "stock_qty", "supplier_price",
+            "manufacturer_part_number",
         )
     }
 
@@ -59,6 +63,11 @@ def create_success_report(*, started_at, before, after):
                 before=str(old["supplier_price"]) if old["supplier_price"] is not None else "—",
                 after=str(row["supplier_price"]) if row["supplier_price"] is not None else "—",
             )
+        old_oem = old.get("manufacturer_part_number") or ""
+        new_oem = row.get("manufacturer_part_number") or ""
+        if old_oem != new_oem:
+            key = "oem_added" if not old_oem else "oem_removed" if not new_oem else "oem_changed"
+            add(key, row, before=old_oem or "—", after=new_oem or "—")
 
     summary = "; ".join(
         f"{label}: {changes[key]['count']}"
