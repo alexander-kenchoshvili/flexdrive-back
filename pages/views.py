@@ -70,11 +70,17 @@ def _resolve_page_for_seo(page_slug=None, content_item=None):
     return None
 
 
-def _build_content_item_canonical_path(page_slug, content_item):
-    content_type = (getattr(content_item, "content_type", "") or "").strip().strip("/")
+def _content_item_route_slug(content_item):
+    return (
+        (getattr(content_item, "content_type", "") or "").strip().strip("/")
+        or (getattr(content_item.singlePageRoute, "slug", "") or "").strip().strip("/")
+    )
+
+
+def _build_content_item_canonical_path(content_item):
     content_slug = (getattr(content_item, "slug", "") or "").strip().strip("/")
     content_id = getattr(content_item, "id", None)
-    base_slug = (page_slug or content_type or "").strip().strip("/")
+    base_slug = _content_item_route_slug(content_item)
 
     if not base_slug or not content_slug or not content_id:
         return None
@@ -115,17 +121,7 @@ def _build_page_sitemap_loc(page):
 
 
 def _build_blog_sitemap_loc(content_item):
-    base_slug = (
-        (getattr(content_item, "content_type", "") or "").strip().strip("/")
-        or (getattr(content_item.singlePageRoute, "slug", "") or "").strip().strip("/")
-    )
-    content_slug = (getattr(content_item, "slug", "") or "").strip().strip("/")
-    content_id = getattr(content_item, "id", None)
-
-    if not base_slug or not content_slug or not content_id:
-        return None
-
-    return f"/{base_slug}/{content_id}-{content_slug}"
+    return _build_content_item_canonical_path(content_item)
 
 
 def _build_page_seo_payload(request, page):
@@ -141,7 +137,7 @@ def _build_page_seo_payload(request, page):
     }
 
 
-def _build_single_view_seo_payload(request, page, content_item, page_slug=None):
+def _build_single_view_seo_payload(request, page, content_item):
     page_payload = _build_page_seo_payload(request, page)
 
     if not _is_blog_item(content_item):
@@ -152,7 +148,7 @@ def _build_single_view_seo_payload(request, page, content_item, page_slug=None):
     except BlogPost.DoesNotExist:
         return page_payload
 
-    canonical_path = _build_content_item_canonical_path(page_slug, content_item)
+    canonical_path = _build_content_item_canonical_path(content_item)
     return {
         "title": _normalize_text(blog_meta.seo_title)
         or _normalize_text(content_item.title)
@@ -413,7 +409,7 @@ class SitemapEntriesAPIView(APIView):
             entries.append(
                 {
                     "loc": loc,
-                    "lastmod": blog_meta.updated_at or blog_meta.published_at or content_item.updated_at,
+                    "lastmod": content_item.effective_updated_at,
                 }
             )
 
@@ -544,8 +540,26 @@ class BlogPostListAPIView(generics.ListAPIView):
 
 
 class GetCurrentContentAPIView(APIView):
-    @cache_api_response(CACHE_GROUP_PAGES_CONTENT, "CACHE_TTL_PAGE_CONTENT", include_body=True)
     def post(self, request):
+        # Validate before the response cache: older cached alias responses must
+        # not bypass the authoritative route check after deployment.
+        single_id = request.data.get("single_id")
+        if single_id:
+            try:
+                content_item = ContentItem.objects.select_related(
+                    "content", "blog_post", "catalog_category", "singlePageRoute",
+                ).get(id=single_id)
+            except (ContentItem.DoesNotExist, ValueError, TypeError, OverflowError):
+                return Response({"error": "ContentItem not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            route_slug = _content_item_route_slug(content_item)
+            if not route_slug or request.data.get("slug") != route_slug:
+                return Response({"error": "ContentItem not found"}, status=status.HTTP_404_NOT_FOUND)
+            request.canonical_content_item = content_item
+        return self._content_response(request)
+
+    @cache_api_response(CACHE_GROUP_PAGES_CONTENT, "CACHE_TTL_PAGE_CONTENT", include_body=True)
+    def _content_response(self, request):
 
         single_id = request.data.get("single_id", None)
         single_slug = request.data.get("single_slug", None)
@@ -555,22 +569,7 @@ class GetCurrentContentAPIView(APIView):
 
         if single_id:
             # SINGLE VIEW
-            try:
-                content_item = (
-                    ContentItem.objects
-                    .select_related(
-                        "content",
-                        "blog_post",
-                        "catalog_category",
-                        "singlePageRoute",
-                    )
-                    .get(id=single_id)
-                )
-            except ContentItem.DoesNotExist:
-                return Response(
-                    {"error": "ContentItem not found"},
-                    status=status.HTTP_404_NOT_FOUND
-                )
+            content_item = request.canonical_content_item
 
             if _is_blog_item(content_item):
                 try:
@@ -633,7 +632,7 @@ class GetCurrentContentAPIView(APIView):
             seo_page = _resolve_page_for_seo(page_slug=page_slug, content_item=content_item)
             actual_slug = (getattr(content_item, "slug", "") or "").strip().strip("/")
             requested_slug = (single_slug or "").strip().strip("/")
-            canonical_path = _build_content_item_canonical_path(page_slug, content_item)
+            canonical_path = _build_content_item_canonical_path(content_item)
             if requested_slug and requested_slug == actual_slug:
                 canonical_path = None
 
@@ -643,7 +642,6 @@ class GetCurrentContentAPIView(APIView):
                     request,
                     seo_page,
                     content_item,
-                    page_slug=page_slug,
                 ),
                 "canonical_path": canonical_path,
             })

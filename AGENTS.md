@@ -1,5 +1,29 @@
 # Project Instructions
 
+## JPEG XL Upload Support - 2026-10-14
+
+- User requested JXL uploads while retaining existing WebP conversion. Added
+  pillow-jxl-plugin==1.3.8 and startup registration in CommonConfig.ready so
+  Django image/extension validation and shared Pillow processing accept JXL.
+- Existing original-file preservation, WebP variants, sizes/quality and storage
+  behavior remain. No model/schema changes or migration required.
+- Installed in the local repository venv. Eight new real-codec tests plus four
+  existing page-image tests passed on disposable SQLite/local storage; final
+  eight tests also pass with raw/container JXL, uppercase suffix, alpha,
+  invalid/truncated files, admin form save and product/category/blog variants.
+  pip check passes. No production upload, provider request, push/deploy or server
+  restart. User handles deployment; running local backend needs a restart.
+
+## Product Header OEM Removal - 2026-10-14
+
+- User requested removing the separate OEM / part-number row from the product
+  header. Paired frontend removed the row introduced in SEO commit 986b285
+  (2026-10-13 05:20 +04:00). This supersedes the visible-header OEM decision below.
+- Existing specifications, OEM search/data and Product schema mpn remain. Do not
+  restore the header row during SEO work. User handles frontend push/deploy.
+- 18 focused product-content/structured-data tests passed; no backend code or DB
+  change is required.
+
 ## Delivery And SEO Current Decisions - 2026-10-13
 
 - Tbilisi/internal delivery: 10 GEL/order; 20 if total packaged weight >10 kg,
@@ -14,13 +38,37 @@
   SSR pagination links, visible OEM/fitments, genuine Product schema photos and
   initial HTTP errors. Active category lookup includes empty categories; unknown
   and inactive return404. Preserve the user's BlogInnerHeader.vue edit.
-- Local catalog0028/0029 applied; production migrations pending. Deploy backend
-  category detail API before paired frontend. See docs/SEO_RELEASE_2026-10-13.md.
+- Local catalog0028/0029 applied. User confirms paired code pushed/deployed;
+  authorized production catalog0028/0029 and explicitly approved business0001.
+  All three committed in one guarded PostgreSQL transaction; all-app plan empty.
+  2051 exact legacy titles converted; all other product fields and user/group
+  permission grants verified unchanged. Business view_dashboard registered.
+  Fresh read-only connection verified field boolean NOT NULL DEFAULT false and
+  2030 published active-category automatic titles/public serializer contract.
+  Focused original-title recovery copy and helper are ignored/local-only.
+  No deployed HTTP/browser check or provider request. See release doc.
   Earlier broad tests/build passed; post-revert21 backend SEO tests and3 frontend
   title tests passed. Local2037 products include86 in41 repeated-title groups.
 - User handles push/deploy. No domain/indexing/provider checks or changes without
-  a new request. No browser/server start, production migrations or env edits.
+  a new request. No browser/server start or env edits during this rollout.
 - Detailed reports/logs are local-only in ignored local-docs/seo-2026-10-13/.
+- SEO re-audit inspected source/readonly
+  production2030 products+3 blogs and18 GETs to the user-provided temporary front
+  host. CMS/blog prefix aliases return200/self-canonical; blog updated_at omitted.
+  Public catalog/blogs/contact/faq Page noindex flags persist beyond global switch.
+  Production353 products lack renderable photos;77 retain duplicate titles by
+  agreed rule.35 frontend+21 backend tests and22 offline SEO probes pass; old CMS
+  suite has2 stale assertions and1 invalid published-SKU fixture. Report local-only
+  local-docs/seo-2026-10-13/SEO_REAUDIT_KA_2026-10-13.md. No indexing/domain/DB write.
+- User then authorized ONLY issue2 URL validation now. Backend validates saved
+  content_type/route page BEFORE cache hits; invented prefixes404, real prefix
+  with old article slug retains301 target. Frontend rejects fake nested CMS paths,
+  retaining catalog category/dedicated routes.33 backend and41 frontend tests,
+  scoped lint/typecheck pass. No migration or push/deploy; photos user-owned.
+- User separately authorized issue3 blog dates. Public updated_at and sitemap
+  lastmod now share the newest ContentItem/BlogPost update; published_at stays
+  independent.18 focused backend tests pass, including save/cache invalidation.
+  Sitemap page selection/noindex/domain changes deferred until indexing opening.
 
 ## Browser Analytics Isolation Completed - 2026-10-10
 

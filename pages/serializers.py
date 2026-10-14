@@ -77,6 +77,7 @@ class BlogPostMetaSerializer(serializers.ModelSerializer):
 
 class ContentItemSerializer(serializers.ModelSerializer):
     singlePageRoute = serializers.IntegerField(source="singlePageRoute_id", allow_null=True)
+    updated_at = serializers.DateTimeField(source="effective_updated_at", read_only=True)
     image = serializers.SerializerMethodField()
     blog_meta = serializers.SerializerMethodField()
     catalog_category = serializers.SerializerMethodField()
@@ -96,6 +97,7 @@ class ContentItemSerializer(serializers.ModelSerializer):
             "catalog_category",
             "editor",
             "created_at",
+            "updated_at",
             "blog_meta",
         ]
 

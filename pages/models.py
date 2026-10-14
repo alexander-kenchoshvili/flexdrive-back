@@ -186,6 +186,17 @@ class ContentItem(WebPImageMixin,models.Model):
     def __str__(self):
         return self.title or f"Item of {self.content.name}"
 
+    @property
+    def effective_updated_at(self):
+        """Include article text and metadata edits in the public modification date."""
+        try:
+            blog_post = self.blog_post
+        except BlogPost.DoesNotExist:
+            return self.updated_at
+
+        updates = [value for value in (self.updated_at, blog_post.updated_at) if value is not None]
+        return max(updates) if updates else blog_post.published_at
+
 
 class BlogStatus(models.TextChoices):
     DRAFT = "draft", "Draft"
