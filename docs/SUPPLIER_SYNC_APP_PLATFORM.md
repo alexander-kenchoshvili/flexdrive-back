@@ -22,13 +22,40 @@ in unit tests; the production database/job still needs the deployment verificati
   not assumed to have been approved for automatic return.
 - Supplier product blocks are still skipped. The admin block action also clears the
   automatic-return marker. Use this action to exclude an unwanted SKU permanently.
-- Admin status changes and publish/draft actions clear the automatic-return marker.
+- Admin status changes and publish/draft/manual-archive actions clear the automatic-return marker.
 
-To prepare a new product: Catalog → Products → Status: Draft; edit its category,
-markup/price settings and images, then use **Publish selected products**.
-Supplier-priced products continue to use category markup or the per-product markup
-override; the importer does not introduce a new fixed-price override.
-The read-only **Supplier missing** field/filter identifies automatic archiving.
+### Separate product admin sections (2026-10-15)
+
+- **Catalog → Drafts** contains only Draft products, including existing drafts and
+  newly imported supplier products. Edit category, individual price/markup,
+  images, OEM and other content using the existing shared Product editor.
+- **გამოქვეყნება** saves the current form and inlines, validates them and allocates
+  a company SKU under the existing category rules. On success the product appears
+  in **Products**, which lists only Published products. Invalid forms do not publish
+  or partially save edits. **Publish selected products** remains available with its
+  existing all-or-nothing company-SKU requirement.
+- **Catalog → Archived** lists only Archived products. The reason column, filter
+  and editor show **მომწოდებლის სიიდან გამქრალი** when `supplier_missing=True`,
+  otherwise **ხელით დაარქივებული**. No historical archive reason is inferred or
+  backfilled; the distinction uses the existing supplier-missing marker.
+- Manual archiving is available as **პროდუქტების ხელით დაარქივება**. Moving an
+  archived product to Draft or publishing it clears the automatic-return marker.
+  Unrelated saves keep the existing reason. Automatic supplier-return behavior
+  remains the same as above.
+- Normal Save returns to the product's current section. Save and continue keeps
+  the shared editor open. Existing Product edit/history/image-tool URLs remain
+  valid, and related-product queries still include all statuses.
+- All three sections reuse existing Product view/add/change/delete permissions;
+  the new section models introduce no additional permission grants. Bulk actions,
+  select-all, search, filter choices and totals are scoped to the section.
+
+Deploy backend code/templates and apply `catalog.0031_product_admin_sections` via
+the normal migration step. This is a proxy-model metadata migration: it adds no
+product table/column, copies no products and changes no product values/statuses.
+It registers two content types without new default permissions. No frontend change
+is needed. Local verification used a disposable SQLite database, rendered admin
+responses and mocked supplier feeds; no local business DB or remote changes,
+live supplier request, server/browser start, push or deployment was performed.
 
 ## Deploy and verify before enabling a schedule
 

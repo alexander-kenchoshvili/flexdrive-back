@@ -1,5 +1,28 @@
 # Project Instructions
 
+## Separate Product Admin Sections - 2026-10-15
+
+- User authorized Drafts / Products / Archived as separate admin sections. Status-
+  scoped lists include existing rows automatically; Products lists Published only.
+  Two proxy models share the existing concrete Product editor, image endpoints,
+  history, signals and Product permissions. Related-product queries stay unfiltered.
+- Archived list/editor show Georgian reason: supplier_missing=True means
+  "მომწოდებლის სიიდან გამქრალი", otherwise "ხელით დაარქივებული"; reason filter
+  available. No historical inference/backfill or supplier publication-rule changes.
+  Manual archive action clears supplier_missing, as do existing status changes;
+  unrelated saves retain it. New products continue entering Draft via both CM paths.
+- Publish button saves/validates the entire existing form/inlines with SKU allocation;
+  normal Save returns to the current status section. Existing bulk publication and
+  protections retained. List counts/search/filters/select-all actions are scoped;
+  view-only Product permission cannot invoke editing actions.
+- catalog.0031 is proxy metadata only, with no new table/column/product-data changes
+  or default permission grants. Apply during backend rollout; not applied to local
+  business DB or remote DB here. No frontend change needed. User handles push/deploy.
+- 158 focused section/OEM/sync/report/pricing/SKU/search tests completed successfully
+  on disposable SQLite (one PostgreSQL concurrency test skipped). Migration drift
+  check passed. No live supplier/provider calls, real DB writes, server/browser start,
+  environment changes, push or deploy. See docs/SUPPLIER_SYNC_APP_PLATFORM.md.
+
 ## Whitespace-Tolerant OEM Search - 2026-10-14
 
 - User requested that 17A 853 651 find the same OEM as 17A853651. Shared bounded,

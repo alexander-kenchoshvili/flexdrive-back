@@ -812,6 +812,22 @@ class Product(TimeStampedModel):
         return self.name
 
 
+class DraftProduct(Product):
+    class Meta:
+        proxy = True
+        verbose_name = "Draft product"
+        verbose_name_plural = "Drafts"
+        default_permissions = ()
+
+
+class ArchivedProduct(Product):
+    class Meta:
+        proxy = True
+        verbose_name = "Archived product"
+        verbose_name_plural = "Archived"
+        default_permissions = ()
+
+
 class ProductFitment(TimeStampedModel):
     product = models.ForeignKey(
         Product,

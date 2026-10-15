@@ -19,13 +19,16 @@ from datetime import timedelta
 from common.cache_utils import CACHE_GROUP_CATALOG_CATEGORIES, invalidate_groups
 
 from .background_removal import remove_background_to_white
+from .admin_product_sections import PRODUCT_SECTIONS, ProductSectionChangeList
 from .internal_skus import assign_admin_sku, category_sequence
 from .oem import is_oem_key, oem_search_patterns, sync_oem_specs
 
 from .models import (
     CUSTOMER_STOCK_RESERVE_QTY,
     Brand,
+    ArchivedProduct,
     Category,
+    DraftProduct,
     Product,
     ProductFitment,
     ProductImage,
@@ -596,9 +599,93 @@ class ProductAdminForm(forms.ModelForm):
         return data
 
 
+class ArchiveReasonFilter(admin.SimpleListFilter):
+    title = "დაარქივების მიზეზი"
+    parameter_name = "archive_reason"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("supplier", "მომწოდებლის სიიდან გამქრალი"),
+            ("manual", "ხელით დაარქივებული"),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() in {"supplier", "manual"}:
+            return queryset.filter(supplier_missing=self.value() == "supplier")
+        return queryset
+
+
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     form = ProductAdminForm
+    section_status = ProductStatus.PUBLISHED
+    change_form_template = "admin/catalog/product/change_form.html"
+    change_list_template = "admin/catalog/product/change_list.html"
+
+    def get_changelist(self, request, **kwargs):
+        return ProductSectionChangeList
+
+    def get_list_filter(self, request):
+        return tuple(item for item in super().get_list_filter(request) if item != "status")
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if not self.has_change_permission(request):
+            return {key: value for key, value in actions.items() if key == "delete_selected"}
+        return actions
+
+    def section_url(self, status, action="changelist", args=None):
+        model_name, _ = PRODUCT_SECTIONS[status]
+        return reverse(f"admin:catalog_{model_name}_{action}", args=args,
+                       current_app=self.admin_site.name)
+
+    def section_context(self, status):
+        return {
+            "product_section_label": PRODUCT_SECTIONS[status][1],
+            "product_section_url": self.section_url(status),
+            "product_sections": [
+                {"label": label, "url": self.section_url(value), "active": value == status}
+                for value, (_, label) in PRODUCT_SECTIONS.items()
+            ],
+        }
+
+    def changelist_view(self, request, extra_context=None):
+        return super().changelist_view(request, {
+            **(extra_context or {}), **self.section_context(self.section_status),
+        })
+
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        if request.method == "POST" and "_publish" in request.POST:
+            # Publication uses the ordinary form/inline validation, SKU allocation
+            # and transaction, including every edit made on this page.
+            request.POST = request.POST.copy()
+            request.POST["status"] = ProductStatus.PUBLISHED
+        return super().changeform_view(request, object_id, form_url, extra_context)
+
+    def render_change_form(self, request, context, add=False, change=False, form_url="", obj=None):
+        status = context["adminform"].form.initial.get("status", ProductStatus.DRAFT)
+        context.update(self.section_context(status))
+        if status == ProductStatus.ARCHIVED:
+            context["archive_reason_text"] = (
+                "მომწოდებლის სიიდან გამქრალი" if obj.supplier_missing else "ხელით დაარქივებული"
+            )
+        context["show_publish"] = (
+            status != ProductStatus.PUBLISHED
+            and (self.has_change_permission(request, obj) if change else self.has_add_permission(request))
+        )
+        return super().render_change_form(request, context, add, change, form_url, obj)
+
+    def response_post_save_add(self, request, obj):
+        return HttpResponseRedirect(self.section_url(obj.status))
+
+    def response_post_save_change(self, request, obj):
+        return HttpResponseRedirect(self.section_url(obj.status))
+
+    @admin.display(description="დაარქივების მიზეზი", ordering="supplier_missing")
+    def archive_reason(self, obj):
+        if obj.status != ProductStatus.ARCHIVED:
+            return "—"
+        return "მომწოდებლის სიიდან გამქრალი" if obj.supplier_missing else "ხელით დაარქივებული"
 
     def get_search_results(self, request, queryset, search_term):
         results, may_have_duplicates = super().get_search_results(request, queryset, search_term)
@@ -696,6 +783,7 @@ class ProductAdmin(admin.ModelAdmin):
         "preserve_manual_oem",
         "effective_seo_title",
         "supplier_missing",
+        "archive_reason",
         "effective_markup_percent_readonly",
         "calculated_customer_price_readonly",
         "on_sale_readonly",
@@ -712,6 +800,7 @@ class ProductAdmin(admin.ModelAdmin):
     actions = (
         "action_publish",
         "action_unpublish",
+        "action_archive",
         "action_mark_featured",
         "action_block_supplier_products",
         "action_allow_supplier_products",
@@ -763,7 +852,7 @@ class ProductAdmin(admin.ModelAdmin):
                     "brand",
                     "category",
                     "status",
-                    "supplier_missing",
+                    "archive_reason",
                 )
             },
         ),
@@ -1258,6 +1347,13 @@ class ProductAdmin(admin.ModelAdmin):
             lambda: invalidate_groups(CACHE_GROUP_CATALOG_CATEGORIES)
         )
 
+    @admin.action(description="პროდუქტების ხელით დაარქივება", permissions=["change"])
+    def action_archive(self, request, queryset):
+        queryset.update(status=ProductStatus.ARCHIVED, supplier_missing=False)
+        transaction.on_commit(
+            lambda: invalidate_groups(CACHE_GROUP_CATALOG_CATEGORIES)
+        )
+
     @admin.action(description="Mark selected products as featured")
     def action_mark_featured(self, request, queryset):
         queryset.update(is_featured=True)
@@ -1325,6 +1421,69 @@ class ProductAdmin(admin.ModelAdmin):
             f"Allowed {deleted_count} Cross Motors product(s) to be imported again.",
             level=messages.SUCCESS,
         )
+
+
+class ProductSectionAdmin(ProductAdmin):
+    """Menu/list aliases; all edits use the original concrete Product admin."""
+
+    @property
+    def product_admin(self):
+        return self.admin_site.get_model_admin(Product)
+
+    def get_queryset(self, request):
+        # Concrete instances preserve Product signals, deletion and image tools.
+        return self.product_admin.get_queryset(request)
+
+    def has_view_permission(self, request, obj=None):
+        return self.product_admin.has_view_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        return self.product_admin.has_change_permission(request, obj)
+
+    def has_add_permission(self, request):
+        return self.product_admin.has_add_permission(request)
+
+    def has_delete_permission(self, request, obj=None):
+        return self.product_admin.has_delete_permission(request, obj)
+
+    def get_urls(self):
+        # Image endpoints stay registered once, on the shared editor.
+        return admin.ModelAdmin.get_urls(self)
+
+    def editor_redirect(self, request, action, object_id=None):
+        args = [object_id] if object_id is not None else None
+        url = reverse(f"admin:catalog_product_{action}", args=args,
+                      current_app=self.admin_site.name)
+        if request.GET:
+            url += "?" + request.GET.urlencode()
+        return HttpResponseRedirect(url)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if request.method == "POST":
+            return self.product_admin.change_view(request, object_id, form_url, extra_context)
+        return self.editor_redirect(request, "change", object_id)
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if request.method == "POST":
+            return self.product_admin.add_view(request, form_url, extra_context)
+        return self.editor_redirect(request, "add")
+
+    def history_view(self, request, object_id, extra_context=None):
+        return self.editor_redirect(request, "history", object_id)
+
+
+@admin.register(DraftProduct)
+class DraftProductAdmin(ProductSectionAdmin):
+    section_status = ProductStatus.DRAFT
+
+
+@admin.register(ArchivedProduct)
+class ArchivedProductAdmin(ProductSectionAdmin):
+    section_status = ProductStatus.ARCHIVED
+    list_display = ("name", "archive_reason", *ProductAdmin.list_display[1:])
+    list_filter = (ArchiveReasonFilter, *(
+        item for item in ProductAdmin.list_filter if item not in {"status", "supplier_missing"}
+    ))
 
 
 @admin.register(SupplierSyncReport)

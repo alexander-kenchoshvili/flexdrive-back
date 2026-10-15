@@ -1,0 +1,8 @@
+<nav aria-label="პროდუქტების სექციები">
+  <p>
+    {% for section in product_sections %}
+      {% if not forloop.first %} &middot; {% endif %}
+      {% if section.active %}<strong aria-current="page">{{ section.label }}</strong>{% else %}<a href="{{ section.url }}">{{ section.label }}</a>{% endif %}
+    {% endfor %}
+  </p>
+</nav>
