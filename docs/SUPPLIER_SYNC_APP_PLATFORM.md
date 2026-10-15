@@ -57,6 +57,17 @@ is needed. Local verification used a disposable SQLite database, rendered admin
 responses and mocked supplier feeds; no local business DB or remote changes,
 live supplier request, server/browser start, push or deployment was performed.
 
+Production rollout on 2026-10-15: after the user confirmed pushing code and authorized
+the supplied production database, the read-only all-app plan contained exactly
+`catalog.0031_product_admin_sections`. Applied it and registered only the two new
+content types in one guarded transaction, without broad post-migrate hooks or new
+permission grants. Full-row fingerprints of all 17 catalog/permission/grant tables
+were unchanged within a repeatable-read snapshot; 2,185 products retained. A fresh
+read-only connection confirmed an empty all-app migration plan, both content types
+and zero permissions for the new proxy models. No product edits, provider requests,
+restart, push or deployment were initiated. Deployed admin/browser verification
+remains separate.
+
 ## Deploy and verify before enabling a schedule
 
 1. Deploy this backend revision. Apply migrations through `catalog.0021_supplier_sync_report`
@@ -197,7 +208,7 @@ is rejected without saving the product.
 Unedited OEMs keep following the supplier, including filling an empty OEM.
 Cross Motors normal/bulk paths keep both fields aligned. Supplier price and stock
 still refresh. OEM synchronization uses its own automatic protection, independently
-of the older manual fitment/content switch; that switch still protects other specs,
+of the fitment/content protection flag; that flag still protects other specs,
 fitments and descriptions. The Sheets importer has no OEM input and leaves both
 the product OEM and its protection state unchanged.
 
@@ -214,3 +225,54 @@ grant fingerprints remained identical, with 2185 products retained. A fresh
 read-only connection verified boolean NOT NULL DEFAULT false and an empty
 all-app migration plan. No production test OEM edits or supplier API calls were
 made, and credentials were not stored in files or output.
+
+## Automatic protection and content updates for fitment edits — 2026-10-15
+
+In the shared Product editor, correct **Year from / Year to** in the Product
+fitments inline and Save (or **გამოქვეყნება** for a draft). A real fitment change
+automatically enables the existing `preserve_manual_fitment_content` protection;
+it is now read-only in admin, with no checkbox to remember. Additions/deletions
+and model/engine changes also count; unchanged rows and blank extra forms do not.
+Unrelated/stale saves retain the current protection state rather than clearing it.
+
+On that same validated save:
+
+- Known previous year tokens in the product name are corrected. Complete four-
+  and two-digit ranges, Unicode dashes and single/open-ended labels are handled;
+  embedded identifier fragments and numeric model names are kept literal. Product
+  IDs, private/company SKUs and stored slugs remain unchanged.
+- Fitment generation notes retain other text (e.g. chassis/engine details) while
+  their year labels follow the explicit edited range. The **თაობა** and **მანქანა**
+  specifications are rebuilt from the remaining fitments; OEM and other specs
+  stay independent. Removing all fitments removes those generated specifications.
+- Short/full/SEO descriptions are regenerated automatically. All remaining
+  model/range/engine combinations are represented separately, without merging
+  disconnected ranges or keeping only the first fitment. This is the user's
+  selected automatic-description workflow, not a custom free-text editing mode.
+- Automatic SEO titles continue deriving from current active fitments. Existing
+  explicit manual SEO titles still survive until cleared, as before.
+- If one old range now differs across models, the ambiguous range is removed
+  from the name; descriptions/specs show each actual model's range. There is no
+  inferred combined range or change to the other model's fitment row.
+
+Name/content protection survives both normal and bulk Cross Motors refreshes;
+supplier price, per-product markup calculation and stock still refresh. Existing
+archive/publication rules remain unchanged. Search, suggestions, year options and
+explicit vehicle/year/engine filters use the corrected saved fitment records.
+Invalid ranges, duplicate fitments and overlong generated names/notes/spec values
+are rejected before saving; the existing admin transaction also covers all inlines.
+
+No new model field, migration, frontend change or retrospective data update is
+needed. Existing `18-` supplier parsing still produces a single known year until
+the operator explicitly supplies the correct end year. Google Sheets is excluded
+by the user's instruction; this protection guarantee applies to Cross Motors.
+
+Verification: the 219-test focused section/fitment/Cross Motors/SEO/OEM/search/
+pricing/report/SKU suite passed on disposable SQLite with one PostgreSQL-only
+concurrency test skipped; the final expanded 27 fitment tests also passed. Tests
+cover actual admin POSTs, draft correction+SKU allocation+publication, archived
+edits, both mocked import paths, public search/filters/year options, multiple
+models/ranges/engines, removals, validation rollback and unrelated-save behavior.
+Migration drift, Python compilation and whitespace checks passed. No real supplier
+or provider call, business DB edit, production connection, server/browser start,
+environment edit, push or deployment was performed for this change.

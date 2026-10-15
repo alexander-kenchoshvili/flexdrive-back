@@ -25,3 +25,8 @@ media/
 
 # Local SEO reports, audit scripts and verification logs
 /local-docs/seo-2026-10-13/
+
+# Local dependency links and generated measurement workbook artifacts
+node_modules/
+/tmp/measurements-20261015/
+/outputs/measurement-types-20261015-2015/

@@ -21,6 +21,7 @@ from common.cache_utils import CACHE_GROUP_CATALOG_CATEGORIES, invalidate_groups
 from .background_removal import remove_background_to_white
 from .admin_product_sections import PRODUCT_SECTIONS, ProductSectionChangeList
 from .internal_skus import assign_admin_sku, category_sequence
+from .fitment_content import corrected_notes, fitment_spec_values, replace_years, year_replacements
 from .oem import is_oem_key, oem_search_patterns, sync_oem_specs
 
 from .models import (
@@ -213,8 +214,67 @@ class ProductSpecInline(admin.TabularInline):
     ordering = ("sort_order", "id")
 
 
+class ProductFitmentInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+        before = {
+            fitment.pk: fitment for fitment in self.instance.fitments.select_related("vehicle_model__make", "engine")
+        } if self.instance.pk else {}
+        after = dict(before)
+        edited = False
+        for index, form in enumerate(self.forms):
+            data = form.cleaned_data
+            if not data or (not form.instance.pk and not form.has_changed()):
+                continue
+            old = before.get(form.instance.pk)
+            if data.get("DELETE"):
+                if old:
+                    after.pop(old.pk)
+                    edited = True
+                continue
+            fitment = form.instance
+            fields = ("vehicle_model_id", "engine_id", "year_from", "year_to")
+            changed = old is None or any(getattr(old, field) != getattr(fitment, field) for field in fields)
+            if changed:
+                edited = True
+                fitment.notes = corrected_notes(data.get("notes", ""), old, fitment)
+                if len(fitment.notes) > ProductFitment._meta.get_field("notes").max_length:
+                    raise forms.ValidationError("განახლებული თავსებადობის შენიშვნა 255 სიმბოლოს აღემატება; შეამოკლეთ ტექსტი.")
+                form.cleaned_data["notes"] = fitment.notes
+            after[fitment.pk if old else f"new-{index}"] = fitment
+        if not edited:
+            return
+        replacements = year_replacements(before, after)
+        numeric_models = {
+            fitment.vehicle_model.name for fitment in [*before.values(), *after.values()]
+            if fitment.vehicle_model.name.isdigit()
+        }
+        name = replace_years(self.instance.name, replacements, numeric_models)
+        if not name or len(name) > Product._meta.get_field("name").max_length:
+            raise forms.ValidationError("წლების განახლების შემდეგ დასახელება უნდა შეიცავდეს 1–255 სიმბოლოს; შეასწორეთ დასახელება.")
+        if any(len(value) > ProductSpec._meta.get_field("value").max_length
+               for value in fitment_spec_values(after.values()).values()):
+            raise forms.ValidationError("თავსებადობის საერთო მახასიათებელი 500 სიმბოლოს აღემატება; შეამოკლეთ შენიშვნები.")
+        self.instance._admin_fitments_edited = True
+        self.instance._admin_fitment_year_replacements = replacements
+        self.instance._admin_fitment_numeric_models = numeric_models
+
+
+class ProductFitmentAdminForm(forms.ModelForm):
+    class Meta:
+        model = ProductFitment
+        fields = "__all__"
+        help_texts = {
+            "year_to": "წლების შეცვლა ავტომატურად განაახლებს შესაბამის ტექსტებს და დაიცავს თავსებადობას მომწოდებლისგან გადაწერისგან.",
+        }
+
+
 class ProductFitmentInline(admin.TabularInline):
     model = ProductFitment
+    form = ProductFitmentAdminForm
+    formset = ProductFitmentInlineFormSet
     extra = 1
     fields = ("vehicle_model", "engine", "year_from", "year_to", "notes")
     autocomplete_fields = ("vehicle_model", "engine")
@@ -227,9 +287,9 @@ class ProductFitmentInline(admin.TabularInline):
     )
 
 
-def _regenerate_manual_fitment_descriptions(product):
-    fitment = (
-        product.fitments.select_related("vehicle_model__make")
+def _regenerate_manual_fitment_descriptions(product, *, sync_specs=False):
+    fitments = list(
+        product.fitments.select_related("vehicle_model__make", "engine")
         .order_by(
             "vehicle_model__make__name",
             "vehicle_model__name",
@@ -237,20 +297,28 @@ def _regenerate_manual_fitment_descriptions(product):
             "year_to",
             "engine__name",
         )
-        .first()
     )
-    if not fitment:
+    if not fitments and not sync_specs:
         return
-
-    vehicle = _fitment_vehicle_label(fitment)
-    years = _fitment_year_label(fitment)
     placement = PLACEMENT_LABELS_KA.get(product.placement, "")
     side = SIDE_LABELS_KA.get(product.side, "")
 
-    short_parts = [product.name, vehicle, years]
+    labels = list(dict.fromkeys(
+        f"{_fitment_vehicle_label(fitment)} - {_fitment_year_label(fitment)}"
+        + (f" ({fitment.engine.name})" if fitment.engine_id else "")
+        for fitment in fitments
+    ))
+    compatibility = "; ".join(labels)
+    short_parts = [product.name, compatibility]
     short_description = " - ".join(part for part in short_parts if part)[:300]
 
-    detail_parts = [part for part in (vehicle, years, placement, side) if part]
+    if len(fitments) == 1:
+        detail_parts = [_fitment_vehicle_label(fitments[0]), _fitment_year_label(fitments[0])]
+        if fitments[0].engine_id:
+            detail_parts.append(fitments[0].engine.name)
+    else:
+        detail_parts = [compatibility] if compatibility else []
+    detail_parts.extend(part for part in (placement, side) if part)
     description = (
         f"{product.name} - {', '.join(detail_parts)}."
         if detail_parts
@@ -268,6 +336,14 @@ def _regenerate_manual_fitment_descriptions(product):
             "updated_at",
         ]
     )
+    if sync_specs:
+        for order, (key, value) in enumerate(fitment_spec_values(fitments).items(), 3):
+            if value:
+                ProductSpec.objects.update_or_create(
+                    product=product, key=key, defaults={"value": value, "sort_order": order},
+                )
+            else:
+                product.specs.filter(key=key).delete()
 
 
 def _fitment_vehicle_label(fitment):
@@ -781,6 +857,7 @@ class ProductAdmin(admin.ModelAdmin):
     readonly_fields = (
         "preserve_manual_name",
         "preserve_manual_oem",
+        "preserve_manual_fitment_content",
         "effective_seo_title",
         "supplier_missing",
         "archive_reason",
@@ -1076,6 +1153,7 @@ class ProductAdmin(admin.ModelAdmin):
         if "status" in form.changed_data:
             obj.supplier_missing = False
         with transaction.atomic():
+            fitments_edited = getattr(obj, "_admin_fitments_edited", False)
             oem_changed = "manufacturer_part_number" in form.changed_data or hasattr(obj, "_admin_spec_oem")
             if hasattr(obj, "_admin_spec_oem"):
                 obj.manufacturer_part_number = obj._admin_spec_oem
@@ -1085,7 +1163,9 @@ class ProductAdmin(admin.ModelAdmin):
                 current = Product.objects.select_for_update().values(
                     "name", "preserve_manual_name", "seo_title",
                     "manufacturer_part_number", "preserve_manual_oem",
+                    "preserve_manual_fitment_content",
                 ).get(pk=obj.pk)
+                obj.preserve_manual_fitment_content = current["preserve_manual_fitment_content"]
                 if not oem_changed:
                     obj.manufacturer_part_number = current["manufacturer_part_number"]
                     obj.preserve_manual_oem = current["preserve_manual_oem"]
@@ -1096,6 +1176,12 @@ class ProductAdmin(admin.ModelAdmin):
                     obj.preserve_manual_name = current["preserve_manual_name"]
                 if "seo_title" not in form.changed_data:
                     obj.seo_title = current["seo_title"]
+            if fitments_edited:
+                obj.preserve_manual_fitment_content = True
+                obj.name = replace_years(
+                    obj.name, obj._admin_fitment_year_replacements, obj._admin_fitment_numeric_models,
+                )
+                obj.preserve_manual_name = True
             assign_admin_sku(obj)
             super().save_model(request, obj, form, change)
 
@@ -1110,7 +1196,9 @@ class ProductAdmin(admin.ModelAdmin):
             super().save_related(request, form, formsets, change)
             sync_oem_specs([product])
             if product.preserve_manual_fitment_content:
-                _regenerate_manual_fitment_descriptions(product)
+                _regenerate_manual_fitment_descriptions(
+                    product, sync_specs=getattr(form.instance, "_admin_fitments_edited", False),
+                )
 
     def ai_background_preview_view(self, request):
         if request.method != "POST":

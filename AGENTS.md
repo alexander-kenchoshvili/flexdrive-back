@@ -1,5 +1,50 @@
 # Project Instructions
 
+## Automatic Fitment Year Corrections - 2026-10-15
+
+- User authorized changing years only in the Product fitments Year from/Year to
+  fields, with automatic text updates/protection and no custom-description mode.
+  A validated real fitment edit/add/delete (also model/engine changes) now enables
+  existing preserve_manual_fitment_content automatically; its admin field is read-
+  only. Unchanged/empty inline forms do not enable it; stale saves retain the flag.
+- Same transaction corrects bounded old year tokens in name, normalizes generation
+  notes, rebuilds თაობა/მანქანა specs, short/full/SEO descriptions from ALL remaining
+  model/range/engine rows. Gaps are never merged. Ambiguous shared old ranges are
+  removed from name instead of assigning another model's new range. Identifier
+  fragments/numeric model names, SKUs, stored slugs and unrelated products stay.
+- Name protection is also enabled for real fitment edits, preventing supplier
+  names from reintroducing obsolete years. Both CM import paths already honor
+  these existing flags; price/stock/individual markup still refresh. No importer
+  rule changes or schema migration. Explicit manual SEO titles remain overrides.
+- User does NOT use Google Sheets and explicitly excludes it. Do not claim its
+  importer honors this protection. Open-ended supplier labels still retain their
+  existing single-known-year parsing until the operator supplies an explicit end.
+- 219 focused fitment/CM/SEO/OEM/search/section/pricing/report/SKU tests completed
+  successfully (one PostgreSQL-only concurrency test skipped); final expanded 27
+  fitment tests pass, including real POSTs, publication/allocation, archive marker,
+  multiple ranges/engines, validation rollback and mocked normal/bulk imports.
+  Migration drift/compile/whitespace checks pass. No real DB edits, remote/provider
+  calls, server/browser start, env changes, migration, push or deployment. Backend
+  push/deploy remains user-owned. See docs/SUPPLIER_SYNC_APP_PLATFORM.md.
+
+## Production Product Admin Sections Migration - 2026-10-15
+
+- User supplied the production PostgreSQL connection, confirmed code pushed and
+  authorized the necessary migration. Read-only all-app plan contained exactly
+  catalog.0031_product_admin_sections; both new section content types were absent.
+- Applied that exact proxy metadata migration and registered only the DraftProduct
+  and ArchivedProduct content types in one guarded transaction. No broad post-migrate
+  hooks or permission creation. All 17 catalog/permission/group-grant tables stayed
+  identical by full-row fingerprints in a repeatable-read transaction; 2185 products
+  retained. Existing content types and migration records preserved.
+- Fresh, separate read-only connection verified all-app plan empty, both content
+  types present, no permissions for the new proxy types and product count 2185.
+  Password entered through hidden input only, with no credential file, persistent
+  env change or secret output. Temporary credential-free helper removed afterward.
+- No supplier/provider calls, product edits, server restart, deployment or push.
+  Deployed admin/browser verification remains unperformed. This supersedes the
+  remote-migration-pending note in the implementation section below.
+
 ## Separate Product Admin Sections - 2026-10-15
 
 - User authorized Drafts / Products / Archived as separate admin sections. Status-
