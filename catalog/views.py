@@ -971,6 +971,37 @@ class CatalogPagination(PageNumberPagination):
         )
 
 
+def _filter_product_categories(queryset, params):
+    # Keep the existing single-category contract. The plural parameter is an OR
+    # selection within it, and all other search/vehicle filters still intersect.
+    category = params.get("category")
+    if category:
+        queryset = queryset.filter(
+            **({"category_id": int(category)} if str(category).isdigit()
+               else {"category__slug": category})
+        )
+
+    raw_values = params.getlist("categories")
+    if not raw_values:
+        return queryset
+    values = [value.strip() for raw in raw_values for value in raw.split(",")]
+    if len(values) > 100 or any(not value or len(value) > 255 for value in values):
+        raise ValidationError({"categories": "Expected 1 to 100 category IDs or slugs."})
+    ids = {int(value) for value in values if value.isascii() and value.isdigit()}
+    if any(value < 1 or value > 9223372036854775807 for value in ids):
+        raise ValidationError({"categories": "Invalid category ID."})
+    slugs = set(values) - {value for value in values if value.isascii() and value.isdigit()}
+    # Reject invalid selections instead of silently broadening the result set.
+    matches = list(Category.objects.filter(is_active=True).filter(
+        Q(pk__in=ids) | Q(slug__in=slugs)
+    ).values_list("id", "slug"))
+    known = {str(pk) for pk, _slug in matches} | {slug for _pk, slug in matches}
+    if any((str(int(value)) if value.isascii() and value.isdigit() else value) not in known
+           for value in values):
+        raise ValidationError({"categories": "Unknown or inactive category."})
+    return queryset.filter(category_id__in=[pk for pk, _slug in matches])
+
+
 class ProductListAPIView(generics.ListAPIView):
     serializer_class = ProductListSerializer
     pagination_class = CatalogPagination
@@ -1035,13 +1066,9 @@ class ProductListAPIView(generics.ListAPIView):
                 )
             )
 
-        category_param = params.get("category")
-        if category_param:
-            if str(category_param).isdigit():
-                queryset = queryset.filter(category_id=int(category_param))
-            else:
-                queryset = queryset.filter(category__slug=category_param)
+        queryset = _filter_product_categories(queryset, params)
 
+        refinement_filters = {}
         brand_param = params.get("brand")
         if brand_param:
             brand = _get_by_slug_or_id(
@@ -1049,15 +1076,15 @@ class ProductListAPIView(generics.ListAPIView):
                 brand_param,
                 "brand",
             )
-            queryset = queryset.filter(brand=brand)
+            refinement_filters["brand"] = brand
 
         placement = _validate_choice(params.get("placement"), ProductPlacement.choices, "placement")
         if placement:
-            queryset = queryset.filter(placement=placement)
+            refinement_filters["placement"] = placement
 
         side = _validate_choice(params.get("side"), ProductSide.choices, "side")
         if side:
-            queryset = queryset.filter(side=side)
+            refinement_filters["side"] = side
 
         search_context = _build_search_context(_validated_search_query(params.get("q")))
         queryset = _apply_catalog_search(
@@ -1065,6 +1092,10 @@ class ProductListAPIView(generics.ListAPIView):
             search_context,
             include_descriptions=True,
         )
+
+        # Keep the available refinement vocabulary scoped to the searched
+        # products/vehicle/categories, even when price or quick filters match none.
+        self.refinement_choices_queryset = queryset
 
         min_price = _parse_decimal(params.get("min_price"), "min_price")
         if min_price is not None:
@@ -1116,6 +1147,12 @@ class ProductListAPIView(generics.ListAPIView):
             image_product_ids = ProductImage.objects.filter(image_row_filter).values("product_id")
             queryset = queryset.exclude(id__in=image_product_ids)
 
+        # Choice lists retain alternatives within the other selected filters.
+        # Results still apply all three refinements, including the chosen value.
+        self.refinement_queryset = queryset
+        self.refinement_filters = refinement_filters
+        queryset = queryset.filter(**refinement_filters)
+
         ordering_param = params.get("ordering")
         if search_context and not ordering_param:
             return queryset.annotate(
@@ -1157,6 +1194,11 @@ class ProductListAPIView(generics.ListAPIView):
         serializer = self.get_serializer(queryset, many=True)
         return Response({"results": serializer.data, "facets": facets})
 
+    def _refinement_facet_queryset(self, field):
+        return self.refinement_queryset.filter(**{
+            key: value for key, value in self.refinement_filters.items() if key != field
+        })
+
     def _build_facets(self, queryset):
         category_rows = (
             queryset.values("category_id", "category__name", "category__slug")
@@ -1175,9 +1217,11 @@ class ProductListAPIView(generics.ListAPIView):
         ]
 
         brand_rows = (
-            queryset.exclude(brand__isnull=True)
+            self.refinement_choices_queryset.exclude(brand__isnull=True)
             .values("brand_id", "brand__name", "brand__slug")
-            .annotate(count=Count("id", distinct=True))
+            .annotate(count=Count("id", distinct=True, filter=Q(
+                id__in=self._refinement_facet_queryset("brand").order_by().values("pk"),
+            )))
             .order_by("brand__name")
         )
         brand_facets = [
@@ -1191,9 +1235,11 @@ class ProductListAPIView(generics.ListAPIView):
         ]
 
         placement_rows = (
-            queryset.exclude(placement="")
+            self.refinement_choices_queryset.exclude(placement="")
             .values("placement")
-            .annotate(count=Count("id", distinct=True))
+            .annotate(count=Count("id", distinct=True, filter=Q(
+                id__in=self._refinement_facet_queryset("placement").order_by().values("pk"),
+            )))
             .order_by("placement")
         )
         placement_facets = [
@@ -1206,9 +1252,11 @@ class ProductListAPIView(generics.ListAPIView):
         ]
 
         side_rows = (
-            queryset.exclude(side="")
+            self.refinement_choices_queryset.exclude(side="")
             .values("side")
-            .annotate(count=Count("id", distinct=True))
+            .annotate(count=Count("id", distinct=True, filter=Q(
+                id__in=self._refinement_facet_queryset("side").order_by().values("pk"),
+            )))
             .order_by("side")
         )
         side_facets = [
@@ -1219,6 +1267,24 @@ class ProductListAPIView(generics.ListAPIView):
             }
             for row in side_rows
         ]
+
+        # Keep the applied choices identifiable and removable even when the
+        # remaining constraints leave no matching products for those choices.
+        selected_brand = self.refinement_filters.get("brand")
+        if selected_brand and not any(row["id"] == selected_brand.pk for row in brand_facets):
+            brand_facets.append({
+                "id": selected_brand.pk,
+                "name": selected_brand.name,
+                "slug": selected_brand.slug,
+                "count": 0,
+            })
+        for field, choices, labels in (
+            ("placement", placement_facets, PLACEMENT_LABELS_KA),
+            ("side", side_facets, SIDE_LABELS_KA),
+        ):
+            selected = self.refinement_filters.get(field)
+            if selected and not any(row["value"] == selected for row in choices):
+                choices.append({"value": selected, "label": labels.get(selected, selected), "count": 0})
 
         price_stats = queryset.aggregate(min_price=Min("price"), max_price=Max("price"))
         return {
@@ -1270,6 +1336,14 @@ class ProductSuggestionAPIView(generics.ListAPIView):
                 ),
             )
         )
+        params = self.request.query_params
+        queryset = _filter_product_categories(queryset, params)
+        vehicle_filter = _resolve_vehicle_filter(params)
+        if vehicle_filter:
+            matching_fitments = ProductFitment.objects.filter(_matching_fitment_filter(vehicle_filter))
+            queryset = queryset.filter(
+                Q(is_universal_fitment=True) | Q(fitments__in=matching_fitments)
+            ).distinct()
         search_context = _build_search_context(search_query)
         queryset = (
             _apply_catalog_search(queryset, search_context)
@@ -1506,7 +1580,8 @@ class CategoryListAPIView(generics.ListAPIView):
     pagination_class = None
 
     def get_queryset(self):
-        return (
+        include_empty = _parse_bool(self.request.query_params.get("include_empty"), "include_empty")
+        queryset = (
             Category.objects.filter(is_active=True)
             .annotate(
                 product_count=Count(
@@ -1514,9 +1589,9 @@ class CategoryListAPIView(generics.ListAPIView):
                     filter=Q(products__status=ProductStatus.PUBLISHED),
                 )
             )
-            .filter(product_count__gt=0)
             .order_by("sort_order", "name")
         )
+        return queryset if include_empty else queryset.filter(product_count__gt=0)
 
     @cache_api_response(CACHE_GROUP_CATALOG_CATEGORIES, "CACHE_TTL_CATALOG_CATEGORIES")
     def list(self, request, *args, **kwargs):

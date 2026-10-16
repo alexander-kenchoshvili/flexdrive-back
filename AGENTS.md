@@ -1,5 +1,92 @@
 # Project Instructions
 
+## Catalog Refinement Choices - 2026-10-17
+
+- Fixed brand/placement/side dropdowns losing alternative choices after selection.
+  Product results still apply all filters. Each refinement facet excludes only its
+  own explicit selection while respecting the other refinements, public visibility,
+  category/text/vehicle/year/price/stock/sale constraints. Category/price facets,
+  pagination, relevance ordering, validation and response shape are unchanged.
+- Nine new regressions cover each field, combinations, direct switching, zero-result
+  recovery, IDs/slugs, context, duplicate fitments and pagination. All78 focused
+  refinement/header/search/performance tests pass on disposable in-memory SQLite;
+  changed Python parses and whitespace checks pass. No model/migration/frontend code.
+- Existing localhost Uvicorn had no reload. Verified its exact port8000 process,
+  restarted it using unchanged start.ps1 in a hidden window, and verified12 Gordon
+  products with11 brand alternatives. Chrome also verifies all6 placements after
+  Front selection, both sides after Left, and mobile375x812 side alternatives.
+  Removed only test filters; original /catalog route, dark theme and viewport restored.
+- No business DB/env/provider edits, push or deploy. Backend deployment user-owned.
+  Runtime logs/earlier backups live under ignored local-docs/search/. Screenshot:
+  artifacts/search/catalog-refinement-side-fixed.jpg.
+
+## Header Search Filter Form - 2026-10-16
+
+- Latest follow-up supersedes earlier include-empty requirement: paired header
+  and catalog now use default nonempty category lists; zero published-product
+  categories are hidden. Category detail routes/stored rows and optional backend
+  include_empty support remain unchanged. Removed photo-only catalog filter from
+  desktop/mobile UI, state/chips, route parsing/building, frontend request params,
+  types and analytics keys. Legacy has_image listing URLs no longer affect products
+  and new pagination links omit it. Backend has_image compatibility unchanged.
+ 52 frontend tests/typecheck/scoped lint/whitespace pass; existing Chrome verifies
+  eight nonempty header/catalog categories and no photo-only quick filter on desktop
+  or375x812 mobile. Original viewport/dark restored; no filter/search submission,
+  business-data/env/provider write, server start, backend code edit or push/deploy.
+- Follow-up opening bug fixed in paired HeaderSearch: parent Header uses md768px
+  while Dialog previously used sm640px, hiding it at640-767px. Search media query
+  now uses767px, desktop input md:block and mobile trigger/Dialog md:hidden.
+  Chrome verifies click opening at640/767px, desktop search at768px and resize
+  cleanup;27 focused tests/typecheck/scoped lint/whitespace pass. Temporary viewport
+  override reset. No catalog search, server start, backend/data/env/provider/deploy edit.
+- Current trial supersedes always-reserved space: desktop search starts compact;
+  header-only :has([aria-expanded=true]) CSS expands menu space while a list is open.
+  A120ms collapse delay preserves space during select handoff;180ms padding animation
+  and overflow:clip keep opening/closing contained. Shared BaseSelect unchanged.
+  Chrome localhost verifies195px compact/459px open/195px closed,459px category/make
+  switching; desktop dark/light and375x812 mobile checked.27 focused tests/scoped
+  lint/whitespace pass. Original viewport/theme restored; no search submitted,
+  server start, business-data/env/provider edits or push/deploy. Previous component
+  backed up in local-docs/search/header-search-reserved-space-20261016.vue for easy local rollback.
+- Prior rollback: user reverted the overlay trial. Restored only its four saved
+  files and removed trial-only helper, keeping all earlier search work. Categories
+  now share the vehicle grid:4columns desktop,2tablet,1mobile. All four selects use
+  prior inline expanding behavior, without internal search inputs; multi-select
+  remains. Chrome localhost verifies four equal-top desktop controls, same expanded
+  height on category/make switch, two columns at900px and one at375px without
+  horizontal overflow.27 focused tests/lint pass. The overlay trial notes below
+  are historical, not the current behavior.
+- Prior trial: four header selects opt into fixed overlay lists, avoiding form
+  expansion/jumping; existing BaseSelect defaults and other instances unchanged.
+  User review pending, reversible backup in temporary flexdrive-header-overlay-20261016.
+  Existing Chrome localhost checked desktop dark/light,375x812 dark/light,375x667 dark;
+  category-to-make panel geometry unchanged, multi-select/Escape work. Desktop size,
+  original dark theme and BMW/5 Series/2021 draft restored.31 focused tests/typecheck
+  pass. No search submitted, server start, business-data/provider/env edit or deploy.
+  This supersedes the earlier browser-unperformed note for the checked UI flows only.
+
+- User authorized replacing header quick-search explanations/history/popular cards
+  with make/model/year and all-category selection. No engine control. Paired frontend
+  uses existing BaseSelect/BaseButton/design tokens, shared responsive filter form,
+  multiple categories and Headless UI mobile Dialog. Category dropdowns have no extra
+  search input per user follow-up, including header make/model/year dropdowns.
+  Keep reusable BaseSelect search capability for other uses. Changes/clearing are
+  drafts; Search/Enter applies text and filters together. No recent-search storage.
+- Additive categories CSV/repeated IDs/slugs (maximum100) on products/suggestions:
+  selected categories OR together and intersect with existing text/vehicle filters.
+  Invalid/inactive plural values400; old single-category behavior retained. Suggestion
+  limit/public visibility/ranking retained. include_empty=true lists all active
+  categories; default category-list behavior unchanged. No migration/data changes.
+- Paired catalog retains plural choices through sort/pagination/mobile filter apply;
+  stale suggestion/vehicle responses cannot replace newer choices. Existing OEM/SKU
+  search semantics retained. All78 backend focused tests and40 frontend focused tests
+  passed. Expanded frontend57/59: two unrelated old product SEO harness failures lack
+  gallery-preload mocks; reproduced against committed HEAD. Production build/typecheck/scoped lint,
+  migration drift/compile/whitespace checks passed. Browser/responsive/theme visual
+  verification remains unperformed under the explicit-request-only project rule.
+- No real DB/provider/env edits, server/browser start, push or deploy. User deploys
+  backend before/with frontend; no migration needed. docs/HEADER_SEARCH_FILTERS.md.
+
 ## Automatic Fitment Year Corrections - 2026-10-15
 
 - User authorized changing years only in the Product fitments Year from/Year to

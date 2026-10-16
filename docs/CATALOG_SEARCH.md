@@ -5,6 +5,42 @@ Earlier search flows were browser-verified on the user-started localhost site.
 The new OEM whitespace patch still needs backend deployment and PostgreSQL runtime verification.
 No schema or catalog data change is needed.
 
+## Refinement dropdown correction - 2026-10-17
+
+Latest follow-up: the brand/placement/side vocabulary is retained from public
+products matching the current text, vehicle and category context, before price
+and quick filters. Each count still applies price/stock/sale and the other two
+refinements, excluding its own selection. Valid unavailable options remain visible
+with count0, including when nothing is selected. Category/price facets and results
+still use the fully filtered queryset. Conditional distinct counts keep the same
+three refinement aggregation queries. Four new regressions cover zero results,
+recovery, price, scoped visibility and duplicate fitments;111 focused tests pass.
+This follow-up needs backend deployment only; existing frontend controls consume
+the unchanged payload. No migration. Prior selected-option-only behavior follows.
+
+Follow-up: validated selected brand/placement/side choices remain in their facets
+with count0 if other conditions exclude them. This retains their real labels on
+fresh zero-result URLs and lets the paired desktop/mobile controls show the selected
+choice plus All. No unselected unavailable choices are invented; matching product
+results and other facet counts are unchanged. Two new regressions cover completely
+empty contexts, brand IDs/slugs and absence of selections.107 focused backend tests
+and64 frontend tests pass. Paired header synchronization/mobile indicator fixes
+also require frontend rollout; deploy backend first or together. No migration.
+
+Brand, placement and side choices now exclude their own explicit filter when
+counting alternatives. Each still respects every other active constraint; product
+results apply all selections. Category/price facets and result ordering/pagination
+are unchanged. No response field, dependency, model or migration change.
+
+Nine new regressions reproduce the disappearing choices and verify combinations,
+zero-result recovery, context/visibility, distinct counts and pagination.78 focused
+backend tests pass on disposable SQLite. Existing local backend restarted through
+unchanged start.ps1 after guarded process identification; live Chrome verifies
+Gordon12 products with11 brands, all6 placements after Front, both sides after Left,
+and mobile alternatives. Test-only selections removed and original viewport/theme
+restored. No business data/provider/env edits or push/deploy; backend rollout remains
+user-owned. SQLite tests do not claim PostgreSQL runtime verification.
+
 ## Behavior
 
 - Every meaningful product word is required, in any order. Whitespace, surrounding
