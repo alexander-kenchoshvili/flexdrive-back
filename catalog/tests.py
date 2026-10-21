@@ -13,7 +13,7 @@ from django.core.management import call_command
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Q
 from django.forms.models import inlineformset_factory
-from django.test import TestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from PIL import Image
@@ -76,18 +76,12 @@ class ProductShippingMeasurementsTests(TestCase):
             price=Decimal("100.00"),
         )
 
-    def test_product_uses_category_shipping_defaults(self):
-        self.assertEqual(
-            self.product.effective_shipping_weight_kg,
-            Decimal("8.500"),
-        )
-        self.assertEqual(
-            self.product.effective_shipping_length_cm,
-            Decimal("90.00"),
-        )
-        self.assertTrue(self.product.has_complete_shipping_measurements)
+    def test_empty_product_measurements_ignore_complete_category_defaults(self):
+        for field in ("weight_kg", "length_cm", "width_cm", "height_cm"):
+            self.assertIsNone(getattr(self.product, f"effective_shipping_{field}"))
+        self.assertFalse(self.product.has_complete_shipping_measurements)
 
-    def test_product_override_replaces_only_matching_category_default(self):
+    def test_partial_product_measurements_are_not_completed_from_category(self):
         self.product.shipping_weight_kg = Decimal("12.250")
         self.product.shipping_length_cm = Decimal("110.00")
         self.product.save(
@@ -102,14 +96,34 @@ class ProductShippingMeasurementsTests(TestCase):
             self.product.effective_shipping_length_cm,
             Decimal("110.00"),
         )
-        self.assertEqual(
-            self.product.effective_shipping_width_cm,
-            Decimal("45.00"),
+        self.assertIsNone(self.product.effective_shipping_width_cm)
+        self.assertIsNone(self.product.effective_shipping_height_cm)
+        self.assertFalse(self.product.has_complete_shipping_measurements)
+
+    def test_complete_product_measurements_survive_category_reassignment(self):
+        values = dict(weight_kg="0.200", length_cm="30.00", width_cm="20.00", height_cm="15.00")
+        for field, value in values.items():
+            setattr(self.product, f"shipping_{field}", Decimal(value))
+        self.product.category = Category.objects.create(name="Other", slug="other")
+        self.product.save()
+        self.product.refresh_from_db()
+        for field, value in values.items():
+            self.assertEqual(getattr(self.product, f"effective_shipping_{field}"), Decimal(value))
+        self.assertTrue(self.product.has_complete_shipping_measurements)
+
+    def test_admin_hides_unused_category_defaults_and_explains_product_units(self):
+        user = get_user_model().objects.create_superuser(
+            username="shipping-admin", email="shipping@example.com", password="test"
         )
-        self.assertEqual(
-            self.product.effective_shipping_height_cm,
-            Decimal("25.00"),
-        )
+        request = RequestFactory().get("/admin/")
+        request.user = user
+        category_form = site._registry[Category].get_form(request, self.category)
+        product_form = site._registry[Product].get_form(request, self.product)
+        for field in ("weight_kg", "length_cm", "width_cm", "height_cm"):
+            self.assertNotIn(f"default_shipping_{field}", category_form.base_fields)
+            help_text = product_form.base_fields[f"shipping_{field}"].help_text
+            self.assertNotIn("category default", help_text)
+            self.assertIn("კილოგრამებში" if field == "weight_kg" else "სანტიმეტრებში", help_text)
 
 
 def _generate_whitespace_test_image(filename="part.jpg", size=(800, 600)):

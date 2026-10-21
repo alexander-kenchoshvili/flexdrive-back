@@ -746,43 +746,21 @@ class Product(TimeStampedModel):
 
         return Decimal("0.00")
 
-    def _effective_shipping_value(self, product_field, category_field):
-        value = getattr(self, product_field)
-        if value is not None:
-            return value
-
-        category = getattr(self, "category", None)
-        if category is None:
-            return None
-        return getattr(category, category_field)
-
     @property
     def effective_shipping_weight_kg(self):
-        return self._effective_shipping_value(
-            "shipping_weight_kg",
-            "default_shipping_weight_kg",
-        )
+        return self.shipping_weight_kg
 
     @property
     def effective_shipping_length_cm(self):
-        return self._effective_shipping_value(
-            "shipping_length_cm",
-            "default_shipping_length_cm",
-        )
+        return self.shipping_length_cm
 
     @property
     def effective_shipping_width_cm(self):
-        return self._effective_shipping_value(
-            "shipping_width_cm",
-            "default_shipping_width_cm",
-        )
+        return self.shipping_width_cm
 
     @property
     def effective_shipping_height_cm(self):
-        return self._effective_shipping_value(
-            "shipping_height_cm",
-            "default_shipping_height_cm",
-        )
+        return self.shipping_height_cm
 
     @property
     def has_complete_shipping_measurements(self):

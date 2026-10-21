@@ -1,5 +1,31 @@
 # Project Instructions
 
+## Product Shipping Measurements - 2026-10-21
+
+- User-filled desktop workbook was imported into production only: 2183 products
+  from 267 complete groups. Hoods are individual rows. Front fenders use two
+  groups: a current name containing ალუმინ means aluminum; all others mean steel.
+  Final counts are 24 aluminum and 116 steel, including current-name correction
+  for product 1638. Workbook and local business database were not modified.
+- User authorized filling the remaining two products in their normal shipping
+  fields, without extra annotations: 2107 / CM-004157 / KB7W-52-150 uses packaged
+  30 x 20 x 15 cm and 0.700 kg; 1940 / FD-03-0648 / 1081674-99-H uses packaged
+  150 x 112 x 33 cm and 5.300 kg. Independent read-only production verification
+  confirms all 2185 products have four positive measurements. Only these four
+  shipping fields changed; other fields and untargeted rows stayed identical.
+- Category measurement fallback is disabled in code; only each product's own
+  measurements feed quotes. Category defaults remain stored for compatibility
+  but are hidden in admin. Missing product measurements reject both internal
+  and regional quotes. New supplier products need operator-filled measurements.
+  Admin explains kilograms/centimeters and no longer offers category fallback.
+- 87 focused product/admin/location/quote/shipment/payment callback tests pass
+  on disposable SQLite with network disabled; migration drift and whitespace
+  checks pass. No migration needed. Backend push/deploy remains user-owned;
+  the fallback removal takes effect after deployment. No live courier/order,
+  supplier request, environment edit, server/browser start, push or deploy.
+- Credential-free import backups and verification records are local-only under
+  existing ignored tmp/measurements-20261015/production-shipping-import-20261021/.
+
 ## Catalog Refinement Choices - 2026-10-17
 
 - Fixed brand/placement/side dropdowns losing alternative choices after selection.

@@ -434,7 +434,6 @@ class CategoryAdmin(admin.ModelAdmin):
         "slug",
         "parent",
         "sort_order",
-        "has_shipping_defaults",
         "is_active",
         "has_image",
         "updated_at",
@@ -457,21 +456,6 @@ class CategoryAdmin(admin.ModelAdmin):
                     "is_active",
                     "sku_sequence",
                 )
-            },
-        ),
-        (
-            "Delivery defaults",
-            {
-                "fields": (
-                    "default_shipping_weight_kg",
-                    "default_shipping_length_cm",
-                    "default_shipping_width_cm",
-                    "default_shipping_height_cm",
-                ),
-                "description": (
-                    "Packaged weight and dimensions used when a product does not "
-                    "have its own EasyWay override."
-                ),
             },
         ),
         (
@@ -504,17 +488,6 @@ class CategoryAdmin(admin.ModelAdmin):
     def has_image(self, obj):
         return bool(obj.desktop_image or obj.tablet_image or obj.mobile_image)
 
-    @admin.display(boolean=True, description="shipping defaults")
-    def has_shipping_defaults(self, obj):
-        return all(
-            value is not None
-            for value in (
-                obj.default_shipping_weight_kg,
-                obj.default_shipping_length_cm,
-                obj.default_shipping_width_cm,
-                obj.default_shipping_height_cm,
-            )
-        )
 
 @admin.register(Brand)
 class BrandAdmin(admin.ModelAdmin):
@@ -790,6 +763,17 @@ class ProductAdmin(admin.ModelAdmin):
                 "OEM-ის შეცვლა ავტომატურად განაახლებს OEM სპეციფიკაციას და დაიცავს ორივეს მომწოდებლისგან გადაწერისგან. "
                 "დაცვა ვრცელდება ხელით წაშლაზეც; დამატებით მონიშვნა არ არის საჭირო."
             )
+        for field_name, label in (
+            ("shipping_weight_kg", "წონა კილოგრამებში"),
+            ("shipping_length_cm", "სიგრძე სანტიმეტრებში"),
+            ("shipping_width_cm", "სიგანე სანტიმეტრებში"),
+            ("shipping_height_cm", "სიმაღლე სანტიმეტრებში"),
+        ):
+            if field_name in form.base_fields:
+                form.base_fields[field_name].help_text = (
+                    f"შეფუთული პროდუქტის {label}. "
+                    "ცარიელი ველით მიწოდების ფასი ვერ გამოითვლება."
+                )
         return form
 
     list_display = (
@@ -972,8 +956,8 @@ class ProductAdmin(admin.ModelAdmin):
                     "effective_shipping_measurements_readonly",
                 ),
                 "description": (
-                    "Optional packaged weight and dimension overrides. Leave fields "
-                    "empty to use the category defaults."
+                    "შეავსეთ შეფუთული პროდუქტის წონა და სამივე ზომა. "
+                    "მიწოდების ფასი ამ პროდუქტის მონაცემებით გამოითვლება."
                 ),
             },
         ),
@@ -1130,7 +1114,7 @@ class ProductAdmin(admin.ModelAdmin):
     @admin.display(description="Applied delivery measurements")
     def effective_shipping_measurements_readonly(self, obj):
         if not obj or not obj.has_complete_shipping_measurements:
-            return "Incomplete - add product overrides or category defaults"
+            return "შესავსებია პროდუქტის წონა და სამივე ზომა"
         return (
             f"{obj.effective_shipping_weight_kg} kg; "
             f"{obj.effective_shipping_length_cm} x "

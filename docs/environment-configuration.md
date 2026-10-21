@@ -140,8 +140,11 @@ location. Tbilisi/internal delivery does not call EasyWay. Its customer fee is
   `sum(length_cm * width_cm * height_cm * quantity)`.
 
 Exactly at a limit, the order remains 10 GEL unless another limit is exceeded.
-Product shipping fields take precedence over the existing category defaults.
-Missing measurements still prevent quoting when neither source supplies them.
+Only the product's own packaged shipping measurements are used. Legacy category
+defaults are retained in the database but are no longer used or shown in admin.
+Any missing product measurement prevents both internal and EasyWay quotes until
+the product's weight and all three dimensions are filled in. New supplier products
+remain without measurements until an operator supplies them.
 The fee applies once to the whole cart or buy-now order. For internal quotes,
 carrier cost and margin remain zero placeholders; they do not record actual
 self-delivery expenses. Regional EasyWay pricing and its configured margin are

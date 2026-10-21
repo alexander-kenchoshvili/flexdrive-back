@@ -201,6 +201,10 @@ class EasywayDeliveryQuoteApiTests(APITestCase):
             price=Decimal("100.00"),
             stock_qty=5,
             status=ProductStatus.PUBLISHED,
+            shipping_weight_kg=Decimal("2.000"),
+            shipping_length_cm=Decimal("20.00"),
+            shipping_width_cm=Decimal("30.00"),
+            shipping_height_cm=Decimal("10.00"),
         )
         cart = Cart.objects.create(user=self.user)
         CartItem.objects.create(
@@ -354,11 +358,15 @@ class EasywayDeliveryQuoteApiTests(APITestCase):
         self.assertEqual(response.data["customer_delivery_price"], "10.00")
 
     @patch("commerce.delivery_quotes.EasywayClient.from_settings")
-    def test_missing_product_and_category_measurements_rejects_quote(self, from_settings):
-        Category.objects.filter(slug="parts").update(default_shipping_height_cm=None)
-        response = self.quote(self.tbilisi, self.tbilisi_city)
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.data["code"], "shipping_measurements_missing")
+    def test_missing_product_measurement_rejects_both_routes_despite_category_defaults(self, from_settings):
+        for field in ("weight_kg", "length_cm", "width_cm", "height_cm"):
+            self.set_product_measurements(weight=2, length=20, width=30, height=10, quantity=2)
+            Product.objects.filter(slug="test-part").update(**{f"shipping_{field}": None})
+            for region, city in ((self.tbilisi, self.tbilisi_city), (self.regional, self.regional_city)):
+                with self.subTest(field=field, region=region.external_id):
+                    response = self.quote(region, city)
+                    self.assertEqual(response.status_code, 400)
+                    self.assertEqual(response.data["code"], "shipping_measurements_missing")
         from_settings.assert_not_called()
 
     @patch("commerce.delivery_quotes.EasywayClient.from_settings")
