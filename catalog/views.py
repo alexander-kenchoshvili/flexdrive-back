@@ -4,7 +4,7 @@ import re
 import unicodedata
 from django.http import Http404
 
-from django.db.models import Case, Count, F, IntegerField, Max, Min, Prefetch, Q, When
+from django.db.models import Case, Count, Exists, F, IntegerField, Max, Min, OuterRef, Prefetch, Q, When
 from django.db.models.functions import Length
 from rest_framework import generics
 from rest_framework.exceptions import ValidationError
@@ -1463,18 +1463,21 @@ class VehicleMakeListAPIView(generics.ListAPIView):
     pagination_class = None
 
     def get_queryset(self):
+        # These are deliberately independent checks, matching the previous two
+        # filter() calls without multiplying every fitment by other fitments.
+        published_fitments = ProductFitment.objects.filter(
+            vehicle_model__make_id=OuterRef("pk"),
+            vehicle_model__is_active=True,
+            product__status=ProductStatus.PUBLISHED,
+            product__category__is_active=True,
+        )
+        engine_choices = VehicleModel.objects.filter(make_id=OuterRef("pk")).filter(
+            Q(product_fitments__engine__isnull=True)
+            | Q(product_fitments__engine__is_active=True)
+        )
         return (
-            VehicleMake.objects.filter(
-                is_active=True,
-                models__is_active=True,
-                models__product_fitments__product__status=ProductStatus.PUBLISHED,
-                models__product_fitments__product__category__is_active=True,
-            )
-            .filter(
-                Q(models__product_fitments__engine__isnull=True)
-                | Q(models__product_fitments__engine__is_active=True)
-            )
-            .distinct()
+            VehicleMake.objects.filter(is_active=True)
+            .filter(Exists(published_fitments), Exists(engine_choices))
             .order_by("sort_order", "name")
         )
 
