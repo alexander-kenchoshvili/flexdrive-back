@@ -454,3 +454,46 @@ class CatalogSearchRegressionTests(APITestCase):
     def test_company_sku_works_with_optional_separators(self):
         for query in (self.left.internal_sku.replace("-", ""), self.left.internal_sku.replace("-", " ")):
             self.assert_search_ids(query.lower(), [self.left])
+
+    def test_company_sku_works_without_prefix_or_separators(self):
+        target = self.product("Company code target", "compact-code-target", internal_sku="FD-03-0647")
+        for query in ("fd030647", "fd-03-0647", "03-0647", "030647", " 030647 "):
+            self.assert_search_ids(query, [target])
+
+    def test_compact_numeric_company_sku_preserves_category_and_leading_zeroes(self):
+        target = self.product("Company code target", "compact-code-target", internal_sku="FD-03-0647")
+        other_category_code = self.product("Other code", "other-company-category", internal_sku="FD-04-0647")
+        longer_code = self.product("Longer code", "longer-company-code", internal_sku="FD-03-12345")
+        self.assert_search_ids("030647", [target])
+        self.assert_search_ids("040647", [other_category_code])
+        self.assert_search_ids("0312345", [longer_code])
+        for query in ("30647", "03064", "0306", "x030647"):
+            self.assert_search_ids(query, [])
+
+    def test_compact_numeric_company_sku_preserves_oem_name_and_supplier_privacy(self):
+        target = self.product("Company code target", "compact-code-target", internal_sku="FD-03-0647")
+        oem = self.product("OEM part", "compact-code-oem", manufacturer_part_number="030647")
+        named = self.product("Part 030647", "compact-code-name")
+        self.product("Private supplier part", "compact-code-private", sku="CM-030647")
+        self.assert_search_ids("030647", [target, oem, named])
+
+    def test_compact_numeric_company_sku_respects_public_visibility_and_category(self):
+        target = self.product("Company code target", "compact-code-target", internal_sku="FD-03-0647")
+        self.product("Draft code", "compact-code-draft", internal_sku="FD-03-06471", status=ProductStatus.DRAFT)
+        self.product("Archived code", "compact-code-archived", internal_sku="FD-03-06472", status=ProductStatus.ARCHIVED)
+        hidden = Category.objects.create(name="Inactive", slug="compact-code-inactive", is_active=False)
+        self.product("Inactive code", "compact-code-inactive", internal_sku="FD-03-06473", category=hidden)
+        other = Category.objects.create(name="Other", slug="compact-code-other")
+        self.assert_search_ids("030647", [target], category=self.category.slug)
+        self.assert_search_ids("030647", [], category=other.slug)
+
+    def test_compact_numeric_company_sku_retains_exact_ranking_and_suggestion_limit(self):
+        target = self.product("Company code target", "compact-code-target", internal_sku="FD-03-0647", stock_qty=0)
+        for index in range(6):
+            self.product(f"Other part 030647 {index}", f"compact-code-ranked-{index}")
+        for endpoint in ("catalog-product-list", "catalog-product-suggestions"):
+            response = self.client.get(reverse(endpoint), {"q": "030647"})
+            self.assertEqual(response.status_code, 200)
+            rows = response.data["results"] if endpoint == "catalog-product-list" else response.data
+            self.assertEqual(rows[0]["id"], target.pk)
+            self.assertEqual(len(rows), 7 if endpoint == "catalog-product-list" else 5)

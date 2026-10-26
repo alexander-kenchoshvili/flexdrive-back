@@ -1,5 +1,190 @@
 # Project Instructions
 
+## Seven Zero Markup Products Archived In Production - 2026-10-26
+
+- User explicitly archived all seven original-workbook equal-cost/selling-price
+  products: IDs60/61/75/80/83/84/381, company SKUs FD-04-0021, FD-04-0022,
+  FD-04-0029, FD-04-0030, FD-04-0031, FD-04-0032, FD-08-0009. Fresh production
+  reads confirm all seven have supplier stock0; cost/price/markup were preserved.
+- One guarded production transaction set only status=archived and
+  supplier_missing=false (manual archive). Independent read-only verification at
+  16:34:38 Tbilisi confirms all seven, all other product fields unchanged, 2178
+  untargeted products unchanged and 31 other catalog/commerce tables unchanged.
+  Totals now2185: Published1981, Archived49, Draft155. Published prices completed
+  now1887; deferred94 Tesla remain Published. The ignored7 absent products are a
+  separate group from these seven newly archived products.
+- This production-only follow-up did not archive these seven locally. Local
+  pricing stays deferred; source workbooks unchanged. Credential-free backup and
+  archive-seven-* verification records are ignored/local-only in
+  tmp/measurements-20261015/remaining-prices-1801-20261026/.
+- Price/archive database changes already exist in production and require no code
+  deployment or migration. The compact company-SKU search patch separately needs
+  backend push/deployment only, with no migration. No push/deploy, provider call,
+  server/browser start, schema/env edit or live HTTP verification performed here.
+
+## Remaining Original Workbook Prices Imported - 2026-10-26
+
+- User authorized the remaining 1801 Published products from the original Desktop
+  FlexDrive_Prices_Paired_dc6dfa1d-cc6f-4415-b2a5-1163839e0057.xlsx. J is supplier
+  cost; P is final selling price including VAT. Workbook SHA256 remains
+  ce8e981f0387754d5db6b6fb15c143ae662894531def9b7fdf9db56b981425a6.
+- Fresh preflight confirmed all 1801 dual-code identities, Published status and
+  supplier costs equal J. Imported exact P prices and individual markup
+  (P/J-1)*100 at 10-decimal precision, with exact cents roundtrip. 1794 products
+  changed; 7 already had the intended selling price and explicit 0% markup, so
+  were verified without rewriting. No skipped products; markup range 0–525%.
+- Guarded production transaction changed only price/markup_percent_override.
+  Independent read-only verification at 16:27:30 Tbilisi confirms all 1801 prices
+  and markups, all supplier costs/other product fields unchanged, 384 untargeted
+  products unchanged and all 31 other catalog/commerce tables unchanged.
+  Production totals remain 2185: Published1988, Archived42, Draft155.
+- This completes 1894 Published product prices (1801+87+5+BMW). Prior 93 prices,
+  42 archives and 155 Drafts were preserved. The 94 zero-stock Tesla products
+  absent from the original workbook remain deferred; the 6 Tesla products present
+  in the authorized 1801 were included. The 7 absent production products remain
+  ignored. Local prices and both source workbooks were not changed.
+- Credential-free plan, pre-change backup, fingerprints and commit/verification
+  records are ignored/local-only under
+  tmp/measurements-20261015/remaining-prices-1801-20261026/. No app/schema/env edits,
+  supplier requests, server/browser start, live HTTP check, push or deployment.
+
+## Compact Company SKU Search Without FD - 2026-10-26
+
+- User authorized only adding bare compact numeric company-code search:
+  030647 must find FD-03-0647 alongside fd030647/fd-03-0647/03-0647.
+  Shared _company_search_code gains four lines; only full ASCII numeric queries
+  with a two-digit group and at least four product digits get the extra canonical
+  code. Leading zeroes and longer sequences retained; short numbers unchanged.
+- Five new regressions exercise both listing and suggestions, original formats,
+  category/leading-zero isolation, long sequences, raw OEM/name coexistence,
+  supplier SKU privacy, explicit category/public visibility, exact ranking and
+  suggestion limit. Reproduced the user's missing form before the patch. All 98
+  search/internal-SKU/performance/header-filter/refinement tests pass on disposable
+  in-memory SQLite, network disabled; Python parse and whitespace checks pass.
+- No frontend/model/migration, business DB/price/env/provider changes, server or
+  browser start, push or deployment. User owns backend deployment; this patch is
+  not live until deployed. See docs/CATALOG_SEARCH.md. Test helper is ignored in
+  local-docs/search/run_compact_sku_tests_20261026.py.
+
+## BMW Priced And 94 Tesla Prices Deferred - 2026-10-26
+
+- User deferred all 94 zero-stock Tesla products from the 95-row workbook. Do not
+  price, archive or otherwise change them without further instructions.
+- Explicitly priced the one BMW: production ID1912 / FD-03-0647 / CM-004063,
+  supplier cost850 unchanged, selling price1050 GEL, markup23.5294117647%.
+  One guarded transaction changed only price/markup_percent_override; independent
+  read-only verification at 16:04:51 Tbilisi confirms 2184 untargeted products and
+  all 31 other catalog/commerce tables unchanged. Stock/status unchanged.
+- Production pricing completed now 93 products (87+5+BMW). Remaining original-file
+  Published prices:1801; the 94 Tesla prices and155 Drafts are deferred. Local
+  prices remain deferred. Desktop95 workbook is the earlier blank-entry snapshot;
+  do not reapply blank BMW entry. Credential-free bmw-pricing-* records are in
+  ignored tmp/measurements-20261015/user-price-review-20261026/.
+
+## 95 Published Products Pricing Workbook Prepared - 2026-10-26
+
+- User requested a Desktop workbook for the 95 Published production products
+  absent from the original full workbook, with current supplier cost/stock,
+  identities, names, vehicle fitments, years, brand, category and OEM. A fresh
+  read-only production snapshot at 15:50:50 Tbilisi confirms exactly these 95:
+  94 Tesla Model 3 and one BMW X7 (FD-03-0647). Tesla stock is all 0; BMW stock is
+  5. Existing 5-unit reserve makes customer-available quantity 0 for all 95.
+- Final file: Desktop/FlexDrive_95_Products_Prices_2026-10-26.xlsx. D contains
+  verified supplier costs; yellow E is intentionally blank for all 95 user selling
+  prices including VAT; F calculates individual markup only after numeric E entry.
+  A is company SKU, M supplier SKU, R product ID. One row per product, all fitments
+  present. Saved file verified against every ID/code/cost/stock/fitment and reviewed
+  visually; its project XLSX copy was moved to Desktop, not retained in the repo.
+- No product/price/stock/status or source workbook changes, supplier requests,
+  local DB changes, app code/schema/env edits, server/browser start or deployment.
+  Export data/helper records are local-only under ignored
+  tmp/measurements-20261015/unpriced-95-20261026/. User price entry/import is pending.
+
+## Five Mechanical Pricing Corrections In Production - 2026-10-26
+
+- User explicitly replaced the five original-workbook selling-price errors with:
+  FD-04-0049=20 GEL (100%), FD-03-0326=35 (75%), FD-08-0058=25
+  (66.6666666667%), FD-04-0473=70 (100%), FD-03-0258=50 (117.3913043478%).
+  These verbal approvals supersede the original Excel P values 140/350/345/600/550.
+  Do not overwrite these five when importing the remaining workbook products.
+- Committed only price/markup_percent_override in one guarded production
+  transaction. Independent read-only verification at 15:46:19 Tbilisi confirms
+  exact five prices/rates, unchanged supplier costs and other fields, 2180 other
+  products (including the prior 87) and 31 other catalog/commerce tables unchanged.
+- Total production pricing completed: 92 products (87+5). Remaining original-file
+  Published prices: 1801; the 95 Published no-workbook products need a later Desktop
+  workbook with a blank selling-price column. User explicitly ignores the 7 absent
+  production products, defers 155 Drafts and defers all local price updates.
+- Source workbooks unchanged; no app code/schema/env/provider/deployment changes.
+  Credential-free five-pricing-* snapshots/rollback/verification files are local
+  only in ignored tmp/measurements-20261015/user-price-review-20261026/.
+
+## Approved 87 Product Prices Imported To Production - 2026-10-26
+
+- User authorized production pricing for exactly 87 Published products. Latest
+  edited Desktop/FlexDrive_87_Price_Review_2026-10-26.xlsx is authoritative:
+  G is the supplier cost; J now contains the user's FINAL selling amounts.
+  This supersedes the earlier original-workbook-markup/proposed-price approach.
+  Workbook SHA256: 7c498f5552c131133ea6e1ccada54cac4195473702a428807f9f2c17dfb16414.
+- All 87 dual-code identities, Published status and supplier costs verified first.
+  Saved exact J amounts in price and derived (J/G-1)*100 individual markup with
+  10-decimal ROUND_HALF_UP precision. Same model calculation reproduces every
+  amount exactly to cents. No zero/negative rates; range 16.6666666667–191.6666666667%.
+- One guarded production transaction changed ONLY price/markup_percent_override.
+  Separate read-only verification at 15:29:39 Tbilisi confirms all 87 values,
+  unchanged supplier costs and every other product field, 2098 untargeted products
+  and all 31 other catalog/commerce tables unchanged. Total remains 2185:
+  Published 1988, Archived 42, Draft 155. The remaining 1901 Published prices are
+  not part of this import; Drafts and the 95 no-workbook products remain deferred.
+- Final corrections included FD-04-0054 cost165/sale210; FD-03-0591 cost850/sale1050;
+  Audi FD-03-0411 cost690/sale930. Earlier 0%/negative review flags are historical.
+- Local product PRICES were not changed (the earlier 42 local archives remain).
+  Source workbook unchanged. No app code, migration, provider request, server or
+  browser start, environment edit, push or deployment. No live HTTP/browser check.
+- Credential-free plan, exact pre-change product backup, table fingerprints and
+  commit/verification records are local-only under ignored
+  tmp/measurements-20261015/user-price-review-20261026/.
+
+## Zero-Sale-Price Products Archived In Production - 2026-10-26
+
+- User authorized archiving exactly the products whose P selling-price column is
+  zero in FlexDrive_Prices_Paired_dc6dfa1d-cc6f-4415-b2a5-1163839e0057.xlsx.
+  Matched both supplier/FlexDrive codes: 42 products (41 Subaru, 1 Audi).
+- Production update committed in one guarded transaction: status=archived and
+  supplier_missing=False, following manual archiving. Supplier sync must preserve
+  these manual archives. No supplier block/deletion or price changes requested.
+- Independent read-only verification confirms all 42 manually archived; all other
+  product fields and 2143 untargeted rows unchanged. Total 2185: published 1988,
+  archived 42, draft 155. Source workbook unchanged. No local business DB change,
+  supplier request, server/browser start, push or deployment.
+- Prior read-only pricing audit (14:09 Tbilisi) found 1942 workbook rows, 1935 exact
+  dual-code matches, 1848 equal supplier prices, 87 differences (80 lower in DB,
+  7 higher), 7 missing workbook products, 250 DB products absent from workbook
+  (95 published/155 draft). All production markups were 0%; no selling prices have
+  been imported. Remaining price decisions are explicitly deferred step by step.
+- Credential-free snapshots, exact archive rollback data and verification are
+  local-only under ignored tmp/measurements-20261015/pricing-audit-20261026/.
+  Earlier output workbook is an unchanged pre-archive audit snapshot, not a live
+  status report. No live HTTP/browser visibility check was performed.
+- User then authorized the same local archives. Matched by both codes (local IDs
+  differ) and committed all 42 to repository db.sqlite3 with supplier_missing=0.
+  Separate read-only verification: 2037 total, 1995 published, 42 archived; all
+  other product fields, 1995 untargeted rows and 59 other tables unchanged. Full
+  local DB backup and exact verification records are in the same ignored folder.
+  Workbook and production unchanged by this local-only follow-up; no server start.
+- Pricing follow-up excludes Drafts and defers the 95 Published products absent
+  from the workbook. Fresh read-only Published-only audit: 1988 total, 1893 workbook
+  matches, 1806 equal supplier costs, 87 differences (80 lower/7 higher).
+- Earlier review-only direction for these 87 was to preserve original workbook markup
+  from P/J, then recalculate selling price using the current production supplier
+  cost. This supersedes the earlier proposal to preserve P as a fixed selling
+  amount when J is stale. This was superseded by the final J-column import above.
+  All 87 production markups were 0% at that earlier review. User moved the review out
+  of the project: it is now Desktop/FlexDrive_87_Price_Review_2026-10-26.xlsx;
+  the project XLSX copy was removed. Audi FD-03-0411 (CM-003028) has J=750/P=100,
+  negative markup -86.6666666667%; its arithmetic 92 GEL at current cost 690 is
+  flagged during that earlier review; the user later corrected it to 930 GEL.
+
 ## Product Shipping Measurements - 2026-10-21
 
 - User-filled desktop workbook was imported into production only: 2183 products

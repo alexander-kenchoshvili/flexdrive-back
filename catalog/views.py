@@ -402,6 +402,10 @@ def _build_search_context(raw_query):
 def _company_search_code(raw_query):
     match = re.fullmatch(r"fd[\s._-]*(\d{2})(?:[\s._-]*(\d+))?", str(raw_query).strip(), re.IGNORECASE)
     if not match:
+        # A compact code without FD needs the two-digit group plus at least
+        # four product digits; shorter numeric searches keep their meaning.
+        match = re.fullmatch(r"([0-9]{2})([0-9]{4,})", str(raw_query).strip())
+    if not match:
         return None
     return f"FD-{match[1]}" + (f"-{match[2]}" if match[2] else "-")
 

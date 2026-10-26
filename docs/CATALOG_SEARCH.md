@@ -5,6 +5,23 @@ Earlier search flows were browser-verified on the user-started localhost site.
 The new OEM whitespace patch still needs backend deployment and PostgreSQL runtime verification.
 No schema or catalog data change is needed.
 
+## Compact company code without FD - 2026-10-26
+
+`030647` now finds `FD-03-0647` in both catalog results and header suggestions,
+alongside the existing `fd030647`, `fd-03-0647` and `03-0647` forms. Only complete
+numeric queries with a two-digit group and at least four product digits receive
+this additional company-code interpretation; leading zeroes are preserved and
+longer product sequences work. Short numeric queries keep their existing meaning.
+Raw OEM/name matching, private supplier SKU exclusion, explicit filters,
+visibility, ranking and the five-suggestion limit remain in place.
+
+Five new regressions cover these forms, category/leading-zero isolation, longer
+sequences, OEM/name coexistence, supplier privacy, public visibility, filtering
+and ranking/limits. All 98 focused search/internal-SKU/performance/header-filter/
+refinement tests pass on disposable SQLite with network disabled. The shared
+normalizer gains four lines; no frontend or schema change. Backend deployment
+is required; no deployment, server/browser start or business-data write was done.
+
 ## Refinement dropdown correction - 2026-10-17
 
 Latest follow-up: the brand/placement/side vocabulary is retained from public
@@ -67,7 +84,7 @@ user-owned. SQLite tests do not claim PostgreSQL runtime verification.
   Latin model name. Product word matching is not broadened by that model rule.
 - Company SKU and manufacturer part numbers remain searchable even when they
   coincide with a vehicle/attribute term. Standard `FD-03-0001` codes also work as
-  `fd030001` or `fd 03 0001`. Supplier SKUs remain private.
+  `fd030001`, `fd 03 0001` or `030001`. Supplier SKUs remain private.
 - OEM searches ignore whitespace on both sides: `17A853651`, `17A 853 651` and
   `17a  853   651` match the same code, including when the saved MPN has spaces.
   Partial codes, tabs/newlines, Unicode copied spaces and zero-width characters
