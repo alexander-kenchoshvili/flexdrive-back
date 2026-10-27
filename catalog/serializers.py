@@ -12,6 +12,7 @@ from .models import (
     VehicleMake,
     VehicleModel,
 )
+from .seo import product_fitment_labels
 
 
 PLACEMENT_LABELS_KA = {
@@ -349,17 +350,9 @@ class ProductSuggestionSerializer(ProductListSerializer):
         )
 
     def get_fitment_summary(self, obj):
-        fitments = list(obj.fitments.all())
-        if fitments:
-            fitment = fitments[0]
-            make = fitment.vehicle_model.make.name
-            model = fitment.vehicle_model.name
-            years = (
-                str(fitment.year_from)
-                if fitment.year_from == fitment.year_to
-                else f"{fitment.year_from}-{fitment.year_to}"
-            )
-            return f"{make} {model} · {years}"
+        labels = product_fitment_labels(obj, separator=" · ", year_separator="-")
+        if labels:
+            return " / ".join(labels)
 
         if obj.is_universal_fitment:
             return "უნივერსალური შესაბამისობა"

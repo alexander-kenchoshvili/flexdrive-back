@@ -239,6 +239,29 @@ class AdminFitmentEditTests(TestCase):
         self.assertEqual(response.data["fitments"][0]["year_to"], 2020)
         self.assertNotIn("2023", response.data["description"])
 
+    def test_added_second_model_updates_both_public_labels_and_survives_supplier_sync(self):
+        forester = VehicleModel.objects.create(make=self.make, name="Forester", slug="forester")
+        self.save({1: {"vehicle_model": forester.pk, "year_from": 2014, "year_to": 2017}})
+        before = list(self.product.fitments.order_by("pk").values_list("pk", "vehicle_model_id", "year_from", "year_to", "notes"))
+        self.assertEqual(len(before), 2)
+        self.assertEqual(self.product.fitments.get(vehicle_model=forester).notes, "Forester - 2014-2017")
+        for importer in (None, import_crossmotors_report, import_crossmotors_report_bulk):
+            if importer:
+                importer(build_crossmotors_report([feed_item()]))
+                self.product.refresh_from_db()
+            self.assertTrue(self.product.preserve_manual_fitment_content)
+            self.assertEqual(list(self.product.fitments.order_by("pk").values_list("pk", "vehicle_model_id", "year_from", "year_to", "notes")), before)
+            detail = self.client.get(reverse("catalog-product-detail", args=[self.product.public_slug]))
+            self.assertEqual(detail.status_code, 200)
+            for label in ("Forester 2014–2017", "XV 2017–2023"):
+                self.assertIn(label, detail.data["seo"]["title"])
+            for query in ("Forester 2015 Lamp", "XV 2020 Lamp"):
+                suggestions = self.client.get(reverse("catalog-product-suggestions"), {"q": query})
+                self.assertEqual(suggestions.status_code, 200)
+                self.assertEqual([row["id"] for row in suggestions.data], [self.product.pk])
+                self.assertIn("Subaru Forester · 2014-2017", suggestions.data[0]["fitment_summary"])
+                self.assertIn("Subaru XV · 2017-2023", suggestions.data[0]["fitment_summary"])
+
     def test_all_ranges_and_models_are_rendered_without_filling_year_gaps(self):
         second = ProductFitment.objects.create(product=self.product, vehicle_model=self.model,
                                               year_from=2022, year_to=2024, notes="XV 22-24")

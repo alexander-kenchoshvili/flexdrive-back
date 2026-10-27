@@ -1,9 +1,36 @@
 # Catalog search audit and regression checks
 
-Updated 2026-10-14. The OEM whitespace change is verified by offline backend tests.
+Updated 2026-10-28. The OEM whitespace change is verified by offline backend tests.
 Earlier search flows were browser-verified on the user-started localhost site.
 The new OEM whitespace patch still needs backend deployment and PostgreSQL runtime verification.
 No schema or catalog data change is needed.
+
+## All fitments in automatic SEO titles and suggestions - 2026-10-28
+
+Automatic product SEO titles include every active make/model and its actual year
+ranges. Different models remain separate (` / `); disconnected ranges for one
+model are listed separately (`, `), never widened into a combined range. Duplicate
+engine variants of the same model/range share one label. There is no two- or
+four-model cap. Ordering is deterministic, preferring models already in the part
+name. Single-model/single-range title formatting, manual title overrides, side
+labels, manufacturer handling and public URLs are retained.
+
+Header suggestions use the same active fitment grouping. Their existing
+`fitment_summary` string now contains every model, for example
+`Subaru Crosstrek · 2018-2023 / Subaru Forester · 2014-2017`. The complete summary
+is returned even when a query or explicit vehicle filter matches just one of
+those models. Universal/missing-fitment labels remain available. Both desktop
+and mobile header templates already wrap this string in scrollable result panels;
+no frontend change is needed. Search matching, relevance, visibility, the five-item
+limit and the API field shape are unchanged. Existing prefetches prevent extra
+per-product queries.
+
+Adding/editing fitments through the Product admin updates the current data used
+by these labels automatically. Existing normal/bulk Cross Motors protection is
+unchanged. This code needs backend deployment only, with no migration or product
+data update. Offline tests cover up to four models, multiple makes, engine
+duplicates, year gaps, either-model searches, inactive records, manual SEO,
+query counts and real admin additions followed by both mocked importer paths.
 
 ## Compact company code without FD - 2026-10-26
 

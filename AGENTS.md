@@ -1,5 +1,157 @@
 # Project Instructions
 
+## Multiple Fitments In Automatic SEO And Search Suggestions - 2026-10-28
+
+- User authorized SEO first, then header search suggestions, to display all saved
+  model/year compatibilities on one product. Automatic SEO now lists every active
+  model and its exact ranges; suggestions return all labels in the existing
+  fitment_summary string, including when the query matches only one model.
+- Shared grouping de-duplicates engine variants of the same model/range, preserves
+  gaps and separate model ranges, orders deterministically and has no 2/4-model
+  limit. Existing single-range title/summary formats, manual SEO title overrides,
+  manufacturer/side handling, URLs, SKU privacy and suggestion ranking/limit stay.
+- Nine new regressions plus updated multi-fitment expectations cover four models,
+  multiple makes, gaps/engines, active visibility, either-model queries, zero extra
+  prefetch queries and real admin additions surviving both mocked CM import paths.
+  Final 155 focused SEO/fitment/search/header/refinement/performance/internal-SKU
+  tests pass on disposable in-memory SQLite with network disabled. Python parse
+  and whitespace checks pass.
+- Backend deployment is required; no migration or product data rewrite. Paired
+  desktop/mobile HeaderSearch already wraps the summary in scrollable result
+  panels; frontend code unchanged. No business DB/provider/env edit, server or
+  browser start, push/deploy or live HTTP verification. docs/CATALOG_SEARCH.md.
+
+## Final 13 Published Fitment Year Ranges Completed - 2026-10-28
+
+- User authorized all 13 filled E/F ranges from Desktop/
+  FlexDrive_13_Products_Years_2026-10-27 (1).xlsx, SHA256
+  2003ae4912bb6003fc82392f9d75e0b59a4725e1c5d9da2df9e0d66685bc60b9.
+  All 13 original IDs, supplier/company codes, active make/model/category,
+  Published status and prior single years rechecked on fresh production data.
+  Every supplied start/end is valid and different; user-entered ranges are exact.
+- Same existing fitment/admin functions previewed on isolated SQLite, then one
+  guarded production transaction updated 13 fitment ranges/notes, short/full/SEO
+  descriptions, 26 generated specs and both name/fitment protection flags.
+  Names did not change. Normal updated_at values changed on affected rows.
+- Independent READ ONLY verification at 01:04:13 Tbilisi on 2026-10-28 confirms
+  all 13; exactly ZERO Published single-year products remain. All categories
+  were active. 2178 untargeted products, all other target fields (including
+  prices/markup, stock, status, codes, OEM, slugs), untargeted fitments/specs and
+  29 other catalog/commerce tables unchanged. Current total products: 2191.
+  Fresh-data automatic SEO titles and all related content/protection match preview.
+- Efficient target-only reads/backups were used (13 products, 13 fitments,
+  66 existing specs; about 100 KB preflight). Untargeted data was fingerprinted
+  inside PostgreSQL with one batched query; no full catalog download. This is the
+  preferred method for future small imports, following the user's speed feedback.
+- No source workbook, local business DB, application/schema/env, supplier/provider,
+  migration, server/browser, push or deployment change. No deployed HTTP check.
+  Removed 13 temporary helpers/data files after success. Credential-free targeted
+  before/after backups, approved inputs/plan and verification remain in ignored
+  tmp/measurements-20261015/production-years-13-20261028/
+  year-transfer-13-backup-and-verification.zip, with completion.json beside it.
+  The Desktop 13- and 52-product pending workbooks are now historical snapshots.
+
+## Another 39 Production Fitment Year Ranges Completed - 2026-10-27
+
+- User authorized exactly 39 valid ranges from Desktop/ფლექს.xlsx, SHA256
+  accc7b3ae77a7278a2de90fc7ac4da810e3963919d065ec8800151f41f4a0b47,
+  from the previously reviewed 52 Published single-year products. Fresh preflight
+  reconfirmed both codes, publication, active vehicle/category and existing years.
+- Same existing fitment/admin text functions ran on a disposable SQLite clone
+  before one guarded production transaction. Updated 39 fitment ranges/notes,
+  short/full/SEO descriptions, 78 generated specs and both name/fitment protection
+  flags; names did not change. Normal updated_at values changed on affected rows.
+- Independent READ ONLY verification at 18:43:52 Tbilisi confirms all 39, 2146
+  untargeted products (including the prior 1226), all other product fields and
+  29 other catalog/commerce tables unchanged. Exact target full values plus
+  database full-row hashes verified; current-data automatic SEO titles and related
+  content also match the preview. No deployed HTTP/browser check. Totals unchanged:
+  2185 products, 1981 Published; exactly 13 Published single-year products remain.
+- Remaining 13: 9 malformed/reversed ranges (including Mercedes FD-03-0503 with
+  2016-20219), 3 equal endpoints and absent BMW X7 FD-03-0647. New Desktop file
+  FlexDrive_13_Products_Years_2026-10-27.xlsx contains these exact 13, with blank
+  yellow E/F start/end input cells. All 12 columns, 13 identities, 26 blanks and
+  visual layout verified. The earlier Desktop 52-product file is historical.
+- Source workbooks and local business DB preserved; no application/schema/env
+  change, supplier/provider call, migration, server/browser start, push or deploy.
+  Removed 23 temporary helper/preview files after success. Credential-free exact
+  before/after backups, approved plan, source review and workbook verification
+  remain in ignored tmp/measurements-20261015/production-years-39-20261027/
+  year-transfer-39-backup-and-verification.zip, with completion.json beside it.
+
+## Production Fitment Years Completed From Workbook - 2026-10-27
+
+- User authorized the 1226 Published single-year products with valid full ranges
+  in the supplied updated Desktop price workbook (SHA256
+  fd0b45b0fdd979190ac2801218a17bba1b138eb1b2da4cdeef42d949d6edfdb7).
+  Both supplier/company codes, active make/model/category and existing years
+  rechecked on fresh production data. Already-ranged products, Drafts/Archived
+  and the reviewed 52 exceptions were excluded.
+- Existing corrected_notes/year_replacements/replace_years and admin description/
+  spec regeneration ran first on a disposable in-memory catalog clone. One guarded
+  production transaction then applied those exact values: 1226 fitment ranges and
+  notes, short/full/SEO descriptions, 2452 generation/vehicle specs and both manual
+  name/fitment protection flags. Only 2 names contained old short year tokens and
+  changed. Normal updated_at values changed on these affected rows.
+- Separate READ ONLY verification at 17:52:30 Tbilisi confirms all 1226, all other
+  fields (prices/markups, stock, status, SKUs, OEM, slugs), 959 untargeted products
+  and 29 other catalog/commerce tables unchanged. Total 2185; Published 1981.
+  Fresh rows rechecked with existing SEO code: all 1226 automatic titles and related
+  text/spec/protection values match the preview. No deployed HTTP/browser check.
+- Exactly 52 Published single-year products remain: Excel has 40 single years,
+  3 equal endpoints, 8 malformed/reversed ranges and 1 absent BMW X7 FD-03-0647.
+  Desktop/FlexDrive_52_Products_Years_2026-10-27.xlsx contains these 52; yellow
+  E/F are blank start/end entry fields. Do not import them without new user values.
+  The extra malformed Subaru!H846 (FD-03-0134, 2017–20222) was already ranged in
+  production and was not changed by this operation.
+- No application/schema/migration/deployment, local business DB or source workbook
+  change, supplier/provider request, server/browser start or push. Existing 48
+  fitment/SEO tests passed on disposable SQLite with network disabled. Protection
+  applies to both Cross Motors import paths; manual SEO title overrides remain.
+- User authorized cleanup after success. Temporary audit/import helpers, renders
+  and duplicate CSV/reports were removed; Desktop workbooks preserved. Exact
+  credential-free before/after backups, approved plan and verification are retained
+  in ignored tmp/measurements-20261015/production-years-import-20261027/
+  year-transfer-backup-and-verification.zip, with completion.json beside it.
+
+## Screen Support Parts Moved To Body Parts - 2026-10-26
+
+- User authorized moving the51 reviewed Published ეკრანი/support-related products
+  from Electrical(category11) to existing active Body Parts(category8), production
+  only. Guarded transaction changed only category_id; original SKU/internal SKU,
+  prices/markups, status, stock, content and all other fields were preserved.
+- Independent read-only verification at18:13:15 Tbilisi confirms all51 moved,
+  2134 untargeted products and31 other catalog/commerce tables unchanged, total2185.
+  Electrical has no ეკრან-named products remaining:4 Published (2 fuse boxes,
+  LH/RH fender cameras) and1 Archived steering clock spring.26 screen-named products
+  already outside Electrical were not part of this operation.
+- Both Cross Motors import paths preserve an existing product's category in the
+  inspected code. No code/schema/migration/deployment, local DB or provider change.
+  No live HTTP/browser check; category count cache may retain its prior TTL.
+  Credential-free pre-change backups and verification records are local-only in
+  ignored tmp/measurements-20261015/screen-category-audit-20261026/.
+
+## Subaru Competitor Price Research - 2026-10-26
+
+- User requested prices only; no stock quantities in the report. Read production
+  Published/active-category Subaru with customer_available_qty>0 as the population.
+  Compared 139 products through 183 verified public offers from Autopia, CarParts
+  and Parts Corner. No production/local DB writes, app/env changes or deployment.
+- Final workbook is Desktop/FlexDrive_Subaru_Competitor_Prices_2026-10-26.xlsx;
+  Summary, Comparison and Offers are Georgian sheets. Product prices, percentage
+  differences, company summaries, blank unmatched cells, numeric dates and all359
+  native hyperlink targets verified. The project XLSX deliverable was moved out.
+- Matches are catalog-compatible analogues, not a universal identical-OEM/quality
+  claim. Only23 offers explicitly name the same maker. Same maker takes priority,
+  then price. Ambiguous side/material/trim/restyling matches excluded; source stock
+  unavailable/in-transit notes retained. Repeated bogus OEMs and photo-confirmed
+  mislabeled tow cover were not used as identity proof.
+- Selected offers: Autopia108 products (28 cheaper here/80 dearer), CarParts18
+  (4/14), Parts Corner47 (4 cheaper/2 equal/41 dearer). Across139, our price is
+  below the selected competitor minimum on30 and above on109. Research evidence,
+  public HTML snapshots, builders and audits are ignored/local-only under
+  tmp/measurements-20261015/subaru-competition-20261026/.
+
 ## Seven Zero Markup Products Archived In Production - 2026-10-26
 
 - User explicitly archived all seven original-workbook equal-cost/selling-price

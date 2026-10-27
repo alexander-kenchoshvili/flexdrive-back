@@ -73,6 +73,38 @@ def _fitments(product):
     )]
 
 
+def _fitment_groups(fitments, *, preferred_text=""):
+    """Keep each model's actual ranges; engine variants share the same label."""
+    groups = {}
+    for fitment in sorted(fitments, key=lambda item: (
+        not _contains_label(preferred_text, item.vehicle_model.name),
+        item.vehicle_model.make.name.casefold(), item.vehicle_model.name.casefold(),
+        item.year_from, item.year_to, item.pk or 0,
+    )):
+        group = groups.setdefault(fitment.vehicle_model_id, {"fitment": fitment, "ranges": {}})
+        years = (fitment.year_from, fitment.year_to)
+        group["ranges"][years] = None
+    return list(groups.values())
+
+
+def _group_label(group, *, separator=" ", year_separator="–"):
+    model = group["fitment"].vehicle_model
+    years = ", ".join(
+        str(start) if start == end else f"{start}{year_separator}{end}"
+        for start, end in group["ranges"]
+    )
+    return f"{_text(model.make.name)} {_text(model.name)}{separator}{years}"
+
+
+def product_fitment_labels(product, *, separator=" ", year_separator="–"):
+    """All active model/range labels, without widening ranges or repeated engines."""
+    if product.is_universal_fitment:
+        return []
+    return [_group_label(group, separator=separator, year_separator=year_separator) for group in _fitment_groups(
+        _fitments(product), preferred_text=_text(product.name),
+    )]
+
+
 def automatic_product_seo_title(product):
     name = _SIDE_MARKER.sub(
         lambda match: "მარცხენა" if match[1].upper() == "LH" else "მარჯვენა",
@@ -94,13 +126,15 @@ def automatic_product_seo_title(product):
     if not fitments or product.is_universal_fitment:
         return _with_manufacturer(name, product)
 
-    # A title uses one real range; never merge disconnected ranges into a claim
-    # that the part fits the intervening years. Prefer a model already in the name.
-    fitment = min(fitments, key=lambda item: (
-        not _contains_label(name, item.vehicle_model.name),
-        item.vehicle_model.make.name.casefold(), item.vehicle_model.name.casefold(),
-        item.year_from, item.year_to, item.pk or 0,
-    ))
+    groups = _fitment_groups(fitments, preferred_text=name)
+    if len(groups) > 1 or len(groups[0]["ranges"]) > 1:
+        labels = [_group_label(group) for group in groups]
+        missing = [label for label in labels if not _contains_label(name, label)]
+        title = f"{' / '.join(missing)} — {name}" if missing else name
+        return _with_manufacturer(title, product)
+
+    # Preserve existing single-model/single-range titles and name de-duplication.
+    fitment = groups[0]["fitment"]
     prefix = []
     for label in (fitment.vehicle_model.make.name, fitment.vehicle_model.name):
         if not _contains_label(name, label):

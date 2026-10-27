@@ -8,14 +8,17 @@ from unittest.mock import patch
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connection
+from django.db.models import Prefetch
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from rest_framework.test import APITestCase
+from rest_framework.test import APIRequestFactory
 
 from catalog.models import (
     CUSTOMER_STOCK_RESERVE_QTY, Brand, Category, Product, ProductFitment, ProductPlacement, ProductSide,
     ProductStatus, VehicleEngine, VehicleMake, VehicleModel,
 )
+from catalog.serializers import ProductSuggestionSerializer
 
 
 class CatalogSearchRegressionTests(APITestCase):
@@ -283,6 +286,67 @@ class CatalogSearchRegressionTests(APITestCase):
             response = self.client.get(reverse(endpoint), {"q": "Toyota სარკის ქვედა ხუფი LH"})
             rows = response.data["results"] if endpoint == "catalog-product-list" else response.data
             self.assertEqual([row["id"] for row in rows], [self.left.pk])
+
+    def test_suggestions_show_both_model_ranges_for_either_vehicle_search(self):
+        make = VehicleMake.objects.create(name="Subaru", slug="subaru")
+        crosstrek = VehicleModel.objects.create(make=make, name="Crosstrek", slug="crosstrek")
+        forester = VehicleModel.objects.create(make=make, name="Forester", slug="forester")
+        ProductFitment.objects.create(product=self.left, vehicle_model=crosstrek, year_from=2018, year_to=2023)
+        ProductFitment.objects.create(product=self.left, vehicle_model=forester, year_from=2014, year_to=2017)
+        expected = "Subaru Crosstrek · 2018-2023 / Subaru Forester · 2014-2017"
+        for model, year, found in (("crosstrek", 2020, True), ("forester", 2015, True), ("forester", 2018, False)):
+            for params in ({"q": f"{model} {year} სარკის ქვედა ხუფი LH"},
+                           {"q": self.left.internal_sku, "make": make.slug, "model": model, "year": year}):
+                with self.subTest(params=params):
+                    response = self.client.get(reverse("catalog-product-suggestions"), params)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual([row["id"] for row in response.data], [self.left.pk] if found else [])
+                    if found:
+                        self.assertEqual(response.data[0]["fitment_summary"], expected)
+
+    def test_suggestion_summaries_keep_four_models_gaps_and_deduplicate_engines(self):
+        make = VehicleMake.objects.create(name="Subaru", slug="subaru")
+        forester = VehicleModel.objects.create(make=make, name="Forester", slug="forester")
+        ProductFitment.objects.create(product=self.left, vehicle_model=forester, year_from=2014, year_to=2017)
+        ProductFitment.objects.create(product=self.left, vehicle_model=forester, year_from=2020, year_to=2023)
+        engine = VehicleEngine.objects.create(model=forester, name="2.0", slug="2-0")
+        ProductFitment.objects.create(product=self.left, vehicle_model=forester, engine=engine, year_from=2014, year_to=2017)
+        for name in ("Crosstrek", "Outback", "XV"):
+            model = VehicleModel.objects.create(make=make, name=name, slug=name.lower())
+            ProductFitment.objects.create(product=self.left, vehicle_model=model, year_from=2018, year_to=2023)
+        response = self.client.get(reverse("catalog-product-suggestions"), {"q": self.left.internal_sku})
+        self.assertEqual([row["id"] for row in response.data], [self.left.pk])
+        summary = response.data[0]["fitment_summary"]
+        self.assertEqual(summary,
+            "Subaru Crosstrek · 2018-2023 / Subaru Forester · 2014-2017, 2020-2023 / Subaru Outback · 2018-2023 / Subaru XV · 2018-2023")
+        self.assertEqual(summary.count("2014-2017"), 1)
+        self.assertNotIn("2014-2023", summary)
+
+    def test_suggestion_labels_ignore_inactive_fitments_and_keep_fallbacks(self):
+        make = VehicleMake.objects.create(name="Subaru", slug="subaru")
+        model = VehicleModel.objects.create(make=make, name="Forester", slug="forester")
+        inactive = VehicleModel.objects.create(make=make, name="Inactive model", slug="inactive-model", is_active=False)
+        ProductFitment.objects.create(product=self.left, vehicle_model=model, year_from=2014, year_to=2017)
+        ProductFitment.objects.create(product=self.left, vehicle_model=inactive, year_from=2020, year_to=2023)
+        serializer = ProductSuggestionSerializer(context={"request": APIRequestFactory().get("/")})
+        self.assertEqual(serializer.get_fitment_summary(self.left), "Subaru Forester · 2014-2017")
+        self.left.is_universal_fitment = True
+        self.assertEqual(serializer.get_fitment_summary(self.left), "უნივერსალური შესაბამისობა")
+        self.assertEqual(serializer.get_fitment_summary(self.right), "შესაბამისობა დასაზუსტებელია")
+
+    def test_serializing_all_prefetched_suggestion_labels_uses_no_extra_queries(self):
+        make = VehicleMake.objects.create(name="Subaru", slug="subaru")
+        models = [VehicleModel.objects.create(make=make, name=name, slug=name.lower()) for name in ("Crosstrek", "Forester")]
+        for product in (self.left, self.right):
+            for model in models:
+                ProductFitment.objects.create(product=product, vehicle_model=model, year_from=2018, year_to=2023)
+        products = list(Product.objects.filter(pk__in=[self.left.pk, self.right.pk]).select_related("category", "brand").prefetch_related(
+            "images", Prefetch("fitments", queryset=ProductFitment.objects.select_related("vehicle_model__make", "engine")),
+        ))
+        with self.assertNumQueries(0):
+            data = ProductSuggestionSerializer(products, many=True, context={"request": APIRequestFactory().get("/")}).data
+        self.assertEqual(len(data), 2)
+        self.assertTrue(all("Crosstrek" in row["fitment_summary"] and "Forester" in row["fitment_summary"] for row in data))
 
     def test_literal_name_fallback_does_not_bypass_explicit_vehicle_filter(self):
         make = VehicleMake.objects.create(name="Kia", slug="kia")

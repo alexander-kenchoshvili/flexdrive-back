@@ -14,7 +14,7 @@ from .admin import ProductAdmin
 from .crossmotors_import import (
     build_crossmotors_report, import_crossmotors_report, import_crossmotors_report_bulk,
 )
-from .models import Brand, Category, Product, ProductFitment, ProductSide, ProductStatus, ProductSupplierSource, VehicleMake, VehicleModel
+from .models import Brand, Category, Product, ProductFitment, ProductSide, ProductStatus, ProductSupplierSource, VehicleEngine, VehicleMake, VehicleModel
 from .seo import active_seo_fitment_queryset, is_legacy_imported_title
 from .serializers import ProductListSerializer
 
@@ -90,11 +90,62 @@ class ProductSeoTests(ProductSeoFixture):
         other = VehicleModel.objects.create(make=self.make, name="XV", slug="xv")
         ProductFitment.objects.create(product=self.product, vehicle_model=other, year_from=2015, year_to=2019)
         title = self.product.effective_seo_title
-        self.assertIn("Forester 2012–2018", title)
+        self.assertIn("Subaru Forester 2012–2018, 2021–2024", title)
+        self.assertIn("Subaru XV 2015–2019", title)
         self.assertNotIn("2012–2024", title)
-        self.assertNotIn("XV", title)
         self.product.name = "Subaru XV მარჯვენა სარკე"
-        self.assertEqual(self.product.effective_seo_title, "2015–2019 — Subaru XV მარჯვენა სარკე")
+        self.assertEqual(self.product.effective_seo_title,
+            "Subaru XV 2015–2019 / Subaru Forester 2012–2018, 2021–2024 — Subaru XV მარჯვენა სარკე")
+
+    def test_four_models_multiple_makes_and_engine_duplicates_keep_exact_labels(self):
+        for name, start, end in (("XV", 2012, 2016), ("Crosstrek", 2018, 2023)):
+            model = VehicleModel.objects.create(make=self.make, name=name, slug=name.lower())
+            ProductFitment.objects.create(product=self.product, vehicle_model=model, year_from=start, year_to=end)
+        toyota = VehicleMake.objects.create(name="Toyota", slug="toyota")
+        rav4 = VehicleModel.objects.create(make=toyota, name="RAV4", slug="rav4")
+        ProductFitment.objects.create(product=self.product, vehicle_model=rav4, year_from=2013, year_to=2017)
+        for name in ("2.0", "2.5"):
+            engine = VehicleEngine.objects.create(model=self.model, name=name, slug=name.replace(".", "-"))
+            ProductFitment.objects.create(product=self.product, vehicle_model=self.model, engine=engine, year_from=2012, year_to=2018)
+        self.product.brand = Brand.objects.create(name="TYG", slug="multi-tyg")
+        title = self.product.effective_seo_title
+        self.assertEqual(title,
+            "Subaru Crosstrek 2018–2023 / Subaru Forester 2012–2018 / Subaru XV 2012–2016 / Toyota RAV4 2013–2017"
+            " — სარკის ქვედა ხუფი მარჯვენა — TYG")
+        self.assertEqual(title.count("Forester 2012–2018"), 1)
+        self.assertNotIn("CM-000015", title)
+        self.assertNotIn("FD-02-0001", title)
+
+    def test_crosstrek_forester_hub_title_lists_both_ranges_automatically(self):
+        self.fitment.year_from = 2014
+        self.fitment.year_to = 2017
+        self.fitment.save()
+        crosstrek = VehicleModel.objects.create(make=self.make, name="Crosstrek", slug="crosstrek")
+        ProductFitment.objects.create(product=self.product, vehicle_model=crosstrek, year_from=2018, year_to=2023)
+        self.product.name = "წინა ცაბკა"
+        self.product.side = ""
+        self.product.brand = Brand.objects.create(name="TYG", slug="hub-tyg")
+        self.assertEqual(self.product.effective_seo_title,
+            "Subaru Crosstrek 2018–2023 / Subaru Forester 2014–2017 — წინა ცაბკა — TYG")
+
+    def test_complete_model_range_already_in_name_is_not_prefixed_again(self):
+        other = VehicleModel.objects.create(make=self.make, name="XV", slug="xv")
+        ProductFitment.objects.create(product=self.product, vehicle_model=other, year_from=2015, year_to=2019)
+        self.product.name = "Subaru Forester 2012-2018 მარჯვენა სარკე"
+        title = self.product.effective_seo_title
+        self.assertEqual(title, "Subaru XV 2015–2019 — Subaru Forester 2012-2018 მარჯვენა სარკე")
+        self.assertEqual(title.count("Forester"), 1)
+
+    def test_multi_model_titles_ignore_inactive_models_makes_and_engines(self):
+        for name, active_make, active_model, active_engine in (
+            ("Inactive model", True, False, True), ("Inactive make", False, True, True),
+            ("Inactive engine", True, True, False),
+        ):
+            make = VehicleMake.objects.create(name=name, slug=name.replace(" ", "-"), is_active=active_make)
+            model = VehicleModel.objects.create(make=make, name=name, slug="model", is_active=active_model)
+            engine = VehicleEngine.objects.create(model=model, name="2.0", slug="2-0", is_active=active_engine)
+            ProductFitment.objects.create(product=self.product, vehicle_model=model, engine=engine, year_from=2020, year_to=2024)
+        self.assertEqual(self.product.effective_seo_title, "Subaru Forester 2012–2018 — სარკის ქვედა ხუფი მარჯვენა")
 
     def test_name_change_leaves_all_product_urls_and_codes_unchanged(self):
         original = (self.product.slug, self.product.public_slug, self.product.public_canonical_url, self.product.internal_sku)
@@ -117,12 +168,16 @@ class ProductSeoTests(ProductSeoFixture):
             self.assertTrue(self.product.effective_seo_title.endswith(expected))
 
     def test_public_detail_and_list_return_automatic_title_with_stable_contract(self):
+        other = VehicleModel.objects.create(make=self.make, name="XV", slug="xv")
+        ProductFitment.objects.create(product=self.product, vehicle_model=other, year_from=2020, year_to=2023)
         self.product.status = ProductStatus.PUBLISHED
         self.product.save(update_fields=["status"])
         client = APIClient()
         detail = client.get(reverse("catalog-product-detail", args=[self.product.public_slug]))
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.data["seo"]["title"], self.product.effective_seo_title)
+        self.assertIn("Forester 2012–2018", detail.data["seo"]["title"])
+        self.assertIn("XV 2020–2023", detail.data["seo"]["title"])
         self.assertEqual(detail.data["seo"]["canonical"], self.product.public_canonical_url)
         self.assertFalse(detail.data["seo"]["noindex"])
         listing = client.get(reverse("catalog-product-list"))
@@ -139,6 +194,9 @@ class ProductSeoTests(ProductSeoFixture):
                 slug=f"seo-{number}", price=10,
             )
             ProductFitment.objects.create(product=product, vehicle_model=self.model, year_from=2012, year_to=2018)
+        other = VehicleModel.objects.create(make=self.make, name="XV", slug="xv")
+        for product in Product.objects.all():
+            ProductFitment.objects.create(product=product, vehicle_model=other, year_from=2020, year_to=2023)
         from django.db.models import Prefetch
         products = list(Product.objects.select_related("category", "brand").prefetch_related(
             "images", Prefetch("fitments", queryset=active_seo_fitment_queryset()),
@@ -146,6 +204,7 @@ class ProductSeoTests(ProductSeoFixture):
         with self.assertNumQueries(0):
             data = ProductListSerializer(products, many=True, context={"request": APIRequestFactory().get("/")}).data
         self.assertEqual(len(data), 7)
+        self.assertTrue(all("Forester 2012–2018" in row["seo"]["title"] and "XV 2020–2023" in row["seo"]["title"] for row in data))
 
 
 class ProductSeoAdminImportTests(ProductSeoFixture):
