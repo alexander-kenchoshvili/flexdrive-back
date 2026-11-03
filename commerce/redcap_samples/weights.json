@@ -1,0 +1,214 @@
+{
+  "success": true,
+  "category": "მე-2 კატეგორია (ასლი)",
+  "weights": [
+    {
+      "from": 0,
+      "to": 5,
+      "prices": {
+        "same_day": 10,
+        "next_day": 8,
+        "3hour": 0,
+        "RegionCity": 12,
+        "sofeli": 13,
+        "Magalmtiani": 15,
+        "Dgesshemog": 12,
+        "KHVshemog": 10,
+        "adgilidan_gatana": 0,
+        "Timeslot1": 0,
+        "Timeslot2": 0
+      }
+    },
+    {
+      "from": 5,
+      "to": 10,
+      "prices": {
+        "same_day": 12,
+        "next_day": 10,
+        "3hour": 0,
+        "RegionCity": 14,
+        "sofeli": 16,
+        "Magalmtiani": 18,
+        "Dgesshemog": 14,
+        "KHVshemog": 12,
+        "adgilidan_gatana": 0,
+        "Timeslot1": 0,
+        "Timeslot2": 0
+      }
+    },
+    {
+      "from": 10,
+      "to": 15,
+      "prices": {
+        "same_day": 16,
+        "next_day": 14.5,
+        "3hour": 0,
+        "RegionCity": 20,
+        "sofeli": 24,
+        "Magalmtiani": 24,
+        "Dgesshemog": 18,
+        "KHVshemog": 16,
+        "adgilidan_gatana": 0,
+        "Timeslot1": 0,
+        "Timeslot2": 0
+      }
+    },
+    {
+      "from": 15,
+      "to": 20,
+      "prices": {
+        "same_day": 20,
+        "next_day": 18.5,
+        "3hour": 0,
+        "RegionCity": 24,
+        "sofeli": 31,
+        "Magalmtiani": 31,
+        "Dgesshemog": 22,
+        "KHVshemog": 20,
+        "adgilidan_gatana": 0,
+        "Timeslot1": 0,
+        "Timeslot2": 0
+      }
+    },
+    {
+      "from": 20,
+      "to": 30,
+      "prices": {
+        "same_day": 30,
+        "next_day": 28,
+        "3hour": 0,
+        "RegionCity": 35,
+        "sofeli": 45,
+        "Magalmtiani": 45,
+        "Dgesshemog": 30,
+        "KHVshemog": 28
+      }
+    },
+    {
+      "from": 30,
+      "to": 50,
+      "prices": {
+        "same_day": 50,
+        "next_day": 45,
+        "3hour": 0,
+        "RegionCity": 60,
+        "sofeli": 65,
+        "Magalmtiani": 65,
+        "Dgesshemog": 50,
+        "KHVshemog": 45
+      }
+    },
+    {
+      "from": 50,
+      "to": 100,
+      "prices": {
+        "same_day": 70,
+        "next_day": 60,
+        "3hour": 0,
+        "RegionCity": 90,
+        "sofeli": 100,
+        "Magalmtiani": 120,
+        "Dgesshemog": 70,
+        "KHVshemog": 60
+      }
+    },
+    {
+      "from": 100,
+      "to": 150,
+      "prices": {
+        "same_day": 100,
+        "next_day": 80,
+        "3hour": 0,
+        "RegionCity": 145,
+        "sofeli": 160,
+        "Magalmtiani": 160,
+        "Dgesshemog": 100,
+        "KHVshemog": 80
+      }
+    },
+    {
+      "from": 150,
+      "to": 200,
+      "prices": {
+        "same_day": 120,
+        "next_day": 100,
+        "3hour": 0,
+        "RegionCity": 170,
+        "sofeli": 180,
+        "Magalmtiani": 180,
+        "Dgesshemog": 120,
+        "KHVshemog": 100
+      }
+    },
+    {
+      "from": 200,
+      "to": 250,
+      "prices": {
+        "same_day": 140,
+        "next_day": 120,
+        "3hour": 0,
+        "RegionCity": 200,
+        "sofeli": 240,
+        "Magalmtiani": 240,
+        "Dgesshemog": 140,
+        "KHVshemog": 120
+      }
+    },
+    {
+      "from": 250,
+      "to": 300,
+      "prices": {
+        "same_day": 160,
+        "next_day": 140,
+        "3hour": 0,
+        "RegionCity": 250,
+        "sofeli": 280,
+        "Magalmtiani": 280,
+        "Dgesshemog": 160,
+        "KHVshemog": 140
+      }
+    },
+    {
+      "from": 300,
+      "to": 500,
+      "prices": {
+        "same_day": 240,
+        "next_day": 210,
+        "3hour": 0,
+        "RegionCity": 320,
+        "sofeli": 380,
+        "Magalmtiani": 380,
+        "Dgesshemog": 240,
+        "KHVshemog": 210
+      }
+    },
+    {
+      "from": 500,
+      "to": 750,
+      "prices": {
+        "same_day": 300,
+        "next_day": 280,
+        "3hour": 0,
+        "RegionCity": 450,
+        "sofeli": 500,
+        "Magalmtiani": 500,
+        "Dgesshemog": 300,
+        "KHVshemog": 280
+      }
+    },
+    {
+      "from": 750,
+      "to": 1000,
+      "prices": {
+        "same_day": 380,
+        "next_day": 360,
+        "3hour": 0,
+        "RegionCity": 700,
+        "sofeli": 750,
+        "Magalmtiani": 750,
+        "Dgesshemog": 380,
+        "KHVshemog": 360
+      }
+    }
+  ]
+}

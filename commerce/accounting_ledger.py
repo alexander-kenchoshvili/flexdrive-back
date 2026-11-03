@@ -45,7 +45,7 @@ def build_ledger(period, status, sku=""):
             purchase = a.purchase
             first = index == 0 and not sku
             internal = order["delivery_provider"] == "internal"
-            regional = order["delivery_provider"] == "easyway"
+            regional = order["delivery_provider"] in {"easyway", "redcap"}
             rows.append([
                 occurred.astimezone(TBILISI).strftime("%d.%m.%Y %H:%M"), order["order_number"],
                 line["name"], line["internal_sku"], line["quantity"] * sign,

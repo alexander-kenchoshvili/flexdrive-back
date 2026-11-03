@@ -690,7 +690,7 @@ def _build_checkout_snapshot(
             "last_name": validated_data["last_name"],
             "email": validated_data.get("email", ""),
             "phone": validated_data["phone"],
-            "city": delivery_fields["delivery_city_name"],
+            "city": validated_data["city"],
             "address_line": validated_data["address_line"],
             "note": validated_data.get("note", ""),
         },

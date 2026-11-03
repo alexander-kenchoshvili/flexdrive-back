@@ -13,7 +13,7 @@ from rest_framework.test import APIClient
 
 from catalog.models import Category, Product, SupplierSyncReport
 from commerce.models import (
-    EasywaySyncReport, Order, OrderItem, OrderItemInventory, OrderReturn, OrderReturnLine,
+    RedcapSyncReport, Order, OrderItem, OrderItemInventory, OrderReturn, OrderReturnLine,
     OwnedStockAllocation, OwnedStockLot, PaymentTransaction, StockReservation,
 )
 from .operations import build_operations_report
@@ -157,7 +157,7 @@ class OperationsTests(TestCase):
     def test_sync_last_failed_and_prior_success_are_distinct_and_payload_is_sanitized(self):
         SupplierSyncReport.objects.create(started_at=NOW - timedelta(days=2), finished_at=NOW - timedelta(days=2), status="success", summary="PRIVATE-TOKEN", changes={"new": {"count": 2, "items": [{"sku": "PRIVATE-SUPPLIER"}]}})
         SupplierSyncReport.objects.create(started_at=NOW - timedelta(days=1), finished_at=NOW - timedelta(days=1), status="failed", summary="PRIVATE-TOKEN", changes={"new": {"count": "unknown"}, "archived": {"count": True}})
-        EasywaySyncReport.objects.create(started_at=NOW, finished_at=NOW, status="review", source="scheduled", summary="PRIVATE-TOKEN", details={"counts": {"checked": 4, "changed": 1, "review": 1, "failed": 0, "skipped": 2}, "run_error": "PRIVATE-TOKEN"})
+        RedcapSyncReport.objects.create(started_at=NOW, finished_at=NOW, status="review", source="scheduled", summary="PRIVATE-TOKEN", details={"counts": {"checked": 4, "changed": 1, "review": 1, "failed": 0, "skipped": 2}, "run_error": "PRIVATE-TOKEN"})
         report = self.report()
         supplier, carrier = report["syncs"]
         self.assertEqual(supplier["latest"]["status"], "failed")

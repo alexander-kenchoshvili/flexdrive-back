@@ -2,6 +2,22 @@
 
 {% block submit_buttons_bottom %}
 {{ block.super }}
+{% if show_redcap_submit or show_redcap_recover or show_redcap_tracking or show_redcap_cancel or show_redcap_label %}
+<div class="submit-row">
+  {% if show_redcap_submit %}<a class="button" href="{{ redcap_submit_url }}">RedCap-ში გზავნილის შექმნა</a>{% endif %}
+  {% if show_redcap_recover %}<a class="button" href="{{ redcap_recover_url }}">გაგზავნის შედეგის გადამოწმება</a>{% endif %}
+  {% if show_redcap_tracking %}<a class="button" href="{{ redcap_tracking_url }}">RedCap სტატუსის განახლება</a>{% endif %}
+  {% if show_redcap_cancel %}<a class="button" href="{{ redcap_cancel_url }}">RedCap გზავნილის გაუქმება</a>{% endif %}
+</div>
+{% endif %}
+{% if show_redcap_label %}
+<div class="submit-row">
+  <a class="button" href="{{ redcap_label_url }}?size=a4" target="_blank" rel="noopener">სტიკერის გახსნა / ბეჭდვა — A4</a>
+  <a class="button" href="{{ redcap_label_url }}?size=a5" target="_blank" rel="noopener">A5</a>
+  <a class="button" href="{{ redcap_label_url }}?size=zebra" target="_blank" rel="noopener">ეტიკეტი 100×50 მმ</a>
+  <a class="button" href="{{ redcap_label_url }}?size=a4&amp;download=1">PDF ჩამოტვირთვა</a>
+</div>
+{% endif %}
 {% if return_case_url %}<p><a href="{{ return_case_url }}">დაბრუნების ჩანაწერის ნახვა</a></p>{% endif %}
 {% if return_flow_status %}<div class="module" style="padding:12px"><strong>{{ return_flow_status }}</strong>{% if return_flow_note %}<p>{{ return_flow_note }}</p>{% endif %}</div>{% endif %}
 {% if show_return_start or show_return_receive %}
@@ -27,21 +43,6 @@
   {% if show_bog_reconciliation %}
   <a class="button" href="{{ bog_reconcile_url }}">ბანკის მდგომარეობის შემოწმება</a>
   {% endif %}
-</div>
-{% endif %}
-{% if show_easyway_submit %}
-<div class="submit-row">
-  <a class="button" href="{{ easyway_submit_url }}">Send to EasyWay</a>
-</div>
-{% endif %}
-{% if show_easyway_cancel %}
-<div class="submit-row">
-  <a class="button" href="{{ easyway_cancel_url }}">Cancel EasyWay shipment</a>
-</div>
-{% endif %}
-{% if show_easyway_tracking %}
-<div class="submit-row">
-  <a class="button" href="{{ easyway_tracking_url }}">Refresh EasyWay tracking</a>
 </div>
 {% endif %}
 {% endblock %}

@@ -40,8 +40,6 @@ from .models import (
     Cart,
     CartItem,
     CheckoutAttempt,
-    EasywayCity,
-    EasywayRegion,
     Order,
     OrderCheckoutSource,
     OrderPaymentMethod,
@@ -116,16 +114,12 @@ class BogCallbackFlowTests(APITransactionTestCase):
             slug="callback-brakes",
             sort_order=1,
         )
-        self.delivery_region = EasywayRegion.objects.create(
-            external_id=1,
-            name="თბილისი",
-            is_internal_delivery=True,
-        )
-        self.delivery_city = EasywayCity.objects.create(
-            region=self.delivery_region,
-            external_id=10,
-            name="თბილისი",
-        )
+        from .test_redcap import reference_client
+        from .redcap_references import refresh_redcap_references
+        from .delivery_quotes import resolve_delivery_location
+        refresh_redcap_references(client=reference_client())
+        self.delivery_region = resolve_delivery_location(1, 1)
+        self.delivery_city = self.delivery_region
         self.product = Product.objects.create(
             category=self.category,
             name="Callback brake disc",
@@ -181,7 +175,7 @@ class BogCallbackFlowTests(APITransactionTestCase):
             "last_name": "Beridze",
             "email": "nino@example.com",
             "phone": "555123456",
-            "city": "Tbilisi",
+            "city": getattr(self, "actual_destination", "Tbilisi"),
             "delivery_region_id": self.delivery_region.external_id,
             "delivery_city_id": self.delivery_city.external_id,
             "delivery_quote_token": quote["quote_token"],
@@ -421,6 +415,25 @@ class BogCallbackFlowTests(APITransactionTestCase):
     def test_company_vat_no_survives_payment_callback(self):
         self._assert_company_vat_payment(False)
 
+    def _assert_regional_destination_survives_payment(self, source):
+        from .delivery_quotes import resolve_delivery_location
+        self.delivery_region = self.delivery_city = resolve_delivery_location(4, 4)
+        self.actual_destination = "ბათუმი"
+        start = self._start_cart_payment if source == "cart" else self._start_buy_now_payment
+        _, response, payment = start()
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(payment.checkout_snapshot["buyer"]["city"], "ბათუმი")
+        self.assertEqual(self._signed_callback_request(self._callback_payload(payment)).status_code, 200)
+        order = Order.objects.get()
+        self.assertEqual((order.city, order.delivery_city_name), ("ბათუმი", "რეგიონი (ქალაქები)"))
+        self.assertEqual((order.delivery_provider, order.delivery_service_slug), ("redcap", "RegionCity"))
+
+    def test_cart_regional_destination_survives_bank_snapshot(self):
+        self._assert_regional_destination_survives_payment("cart")
+
+    def test_buy_now_regional_destination_survives_bank_snapshot(self):
+        self._assert_regional_destination_survives_payment("buy_now")
+
     def test_valid_completed_callback_creates_paid_order_once(self):
         self.product.internal_sku = "FD-03-0001"
         self.product.save(update_fields=["internal_sku"])
@@ -471,36 +484,29 @@ class BogCallbackFlowTests(APITransactionTestCase):
             str(payment.provider_reference),
         )
 
-    def test_large_buy_now_delivery_survives_payment_snapshot_and_callback(self):
-        self.product.shipping_length_cm = Decimal("140.00")
-        self.product.shipping_width_cm = Decimal("120.00")
-        self.product.shipping_height_cm = Decimal("15.00")
-        self.product.save(update_fields=[
-            "shipping_length_cm", "shipping_width_cm", "shipping_height_cm",
-        ])
+    def test_weight_based_delivery_survives_payment_snapshot_and_tariff_change(self):
+        self.product.shipping_weight_kg = Decimal("11.000")
+        self.product.save(update_fields=["shipping_weight_kg"])
         _, start_response, payment = self._start_buy_now_payment()
         self.assertEqual(start_response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(payment.amount, Decimal("110.00"))
-        self.assertEqual(payment.checkout_snapshot["totals"]["delivery"], "20.00")
-        self.assertEqual(
-            self.provider_client.create_order.call_args.kwargs["delivery_amount"],
-            "20.00",
-        )
-
-        # Finalization must retain the paid quote even if dimensions change later.
-        self.product.shipping_length_cm = Decimal("20.00")
-        self.product.shipping_width_cm = Decimal("15.00")
-        self.product.shipping_height_cm = Decimal("10.00")
-        self.product.save(update_fields=[
-            "shipping_length_cm", "shipping_width_cm", "shipping_height_cm",
-        ])
+        self.assertEqual(payment.amount, Decimal("106.00"))
+        self.assertEqual(payment.checkout_snapshot["totals"]["delivery"], "16.00")
+        self.assertEqual(self.provider_client.create_order.call_args.kwargs["delivery_amount"], "16.00")
+        self.product.shipping_weight_kg = Decimal("1.000")
+        self.product.save(update_fields=["shipping_weight_kg"])
+        from .test_redcap import reference_client
+        from .redcap_references import refresh_redcap_references
+        changed = reference_client()
+        changed.get_weight_options.return_value["weights"][2]["prices"]["same_day"] = 18
+        refresh_redcap_references(client=changed)
         response = self._signed_callback_request(self._callback_payload(payment))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         payment.refresh_from_db()
-        self.assertEqual(payment.order.delivery_provider, "internal")
-        self.assertEqual(payment.order.delivery_price, Decimal("20.00"))
-        self.assertEqual(payment.order.shipping_length_cm, Decimal("140.00"))
-        self.assertEqual(payment.order.total, Decimal("110.00"))
+        self.assertEqual(payment.order.delivery_provider, "redcap")
+        self.assertEqual(payment.order.delivery_price, Decimal("16.00"))
+        self.assertEqual(payment.order.shipping_weight_kg, Decimal("11.00"))
+        self.assertEqual(payment.order.delivery_service_slug, "same_day")
+        self.assertEqual(payment.order.total, Decimal("106.00"))
 
     def _seed_owned_unit(self):
         from .models import OrderItem, ReturnDisposition

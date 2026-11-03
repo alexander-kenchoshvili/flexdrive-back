@@ -44,7 +44,7 @@ class AccountingAccessTests(AccountingAdminTests):
             "admin:autocomplete")]
         urls += [reverse("admin:commerce_order_change", args=[self.order.pk]),
                  reverse("admin:commerce_order_bog_refund", args=[self.order.pk]),
-                 reverse("admin:commerce_order_easyway_submit", args=[self.order.pk])]
+                 reverse("admin:commerce_order_redcap_submit", args=[self.order.pk])]
         for url in urls:
             with self.subTest(url=url):
                 self.assertEqual(self.client.get(url).status_code, 403)

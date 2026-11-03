@@ -7,7 +7,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from catalog.models import SupplierSyncReport
-from commerce.models import EasywaySyncReport, OrderReturn, OrderReturnLine, OwnedStockAllocation, OwnedStockLot, PaymentTransaction
+from commerce.models import RedcapSyncReport, OrderReturn, OrderReturnLine, OwnedStockAllocation, OwnedStockLot, PaymentTransaction
 
 from .reports import TBILISI, _money
 
@@ -172,4 +172,4 @@ def build_operations_report(options=None):
     return {"generated_at": now.isoformat(), "timezone": "Asia/Tbilisi",
             "returns": _returns(options, now), "stock": _stock(options, now), "payments": _payments(options),
             "syncs": [_sync(SupplierSyncReport, "supplier", "Cross Motors", SUPPLIER_COUNTS),
-                      _sync(EasywaySyncReport, "carrier", "EasyWay", TRACKING_COUNTS)]}
+                      _sync(RedcapSyncReport, "carrier", "RedCap", TRACKING_COUNTS)]}

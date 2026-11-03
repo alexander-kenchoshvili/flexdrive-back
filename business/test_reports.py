@@ -41,6 +41,19 @@ class DashboardReportTests(TestCase):
                                                  amount=sale.amount if amount is None else D(amount), refunded_at=stamp(when),
                                                  provider_reference={"refund_request": {"sale_payment_id": sale.pk}})
 
+    def test_redcap_delivery_has_one_carrier_charge_and_zero_buffer(self):
+        from commerce.models import RedcapShipment
+        order, _, sale = self.sale()
+        Order.objects.filter(pk=order.pk).update(delivery_provider="redcap", delivery_price=D(12),
+                                                delivery_margin=D(0), total=order.subtotal + D(12))
+        PaymentTransaction.objects.filter(pk=sale.pk).update(amount=order.subtotal + D(12))
+        RedcapShipment.objects.create(order=order, tracking_number="000999", state="created", service_slug="same_day")
+        with self.assertNumQueries(6):
+            report = build_dashboard_report(self.september)
+        self.assertEqual(report["summary"]["courier_payable"], "12.00")
+        self.assertEqual(report["summary"]["buffer_received"], "0.00")
+        self.assertEqual(len(report["deliveries"]), 1)
+
     def test_exact_vat_product_profit_and_delivery_split_once_per_order(self):
         self.sale(quantity=2)
         with self.assertNumQueries(6):

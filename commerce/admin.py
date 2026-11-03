@@ -15,21 +15,10 @@ from .bog_refunds import (
     get_bog_sale_payment_for_order,
     request_bog_full_refund,
 )
-from .easyway_shipments import (
-    EasywayShipmentError,
-    can_cancel_easyway_shipment,
-    can_submit_easyway_shipment,
-    cancel_easyway_shipment,
-    submit_easyway_shipment,
-)
-from .easyway_tracking import TrackingError, sync_easyway_tracking
 from .models import (
     Cart,
     CartItem,
     CheckoutAttempt,
-    EasywayCity,
-    EasywayRegion,
-    EasywaySyncReport,
     Order,
     OrderItem,
     OrderReceipt,
@@ -55,51 +44,8 @@ admin.site.index_template = "admin/commerce/accounting/index.html"
 
 # Register the two read-only return/inventory sections alongside order actions.
 from . import inventory_admin  # noqa: F401, E402
-
-
-@admin.register(EasywaySyncReport)
-class EasywaySyncReportAdmin(admin.ModelAdmin):
-    list_display = ("started_at", "source", "status", "summary", "finished_at")
-    list_filter = ("status", "source", "started_at")
-    search_fields = ("summary",)
-    date_hierarchy = "started_at"
-    readonly_fields = ("started_at", "finished_at", "source", "status", "summary", "report_details")
-    fields = readonly_fields
-    actions = ("delete_selected",)
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    @admin.display(description="ცვლილებები და პრობლემები")
-    def report_details(self, obj):
-        from .easyway_reports import DETAIL_LIMIT
-
-        order_labels = {
-            "new": "ახალი", "confirmed": "დადასტურებულია", "processing": "მზადდება",
-            "shipped": "გზაშია", "delivered": "მიტანილია", "cancelled": "გაუქმებულია",
-        }
-        rows = format_html_join(
-            "", '<li><a href="{}">{}</a><br>შეკვეთა: {} → {}<br>'
-            'EasyWay: {} → {}<br>{}</li>',
-            (
-                (
-                    reverse("admin:commerce_order_change", args=[item["order_id"]]),
-                    item["order_number"],
-                    order_labels.get(item.get("order_before"), "—"),
-                    order_labels.get(item.get("order_after"), "—"),
-                    item.get("carrier_before") or "—", item.get("carrier_after") or "—",
-                    item.get("error", ""),
-                )
-                for item in obj.details.get("items", [])
-            ),
-        )
-        return format_html(
-            '<p>{}</p><ul>{}</ul><p>დეტალებში ნაჩვენებია მაქსიმუმ {} ჩანაწერი.</p>',
-            obj.details.get("run_error", ""), rows, DETAIL_LIMIT,
-        )
+from . import redcap_admin  # noqa: F401, E402
+from .redcap_order_admin import OrderRedcapAdminMixin
 
 
 def _bog_reconciliation_message_level(result):
@@ -123,71 +69,6 @@ class CartItemInline(admin.TabularInline):
     extra = 0
     fields = ("product", "quantity", "created_at")
     readonly_fields = ("created_at",)
-
-
-@admin.register(EasywayRegion)
-class EasywayRegionAdmin(admin.ModelAdmin):
-    list_display = (
-        "name",
-        "external_id",
-        "is_internal_delivery",
-        "is_active",
-        "last_synced_at",
-    )
-    list_filter = ("is_internal_delivery", "is_active")
-    search_fields = ("name", "external_id")
-    readonly_fields = (
-        "external_id",
-        "name",
-        "is_active",
-        "last_synced_at",
-        "created_at",
-        "updated_at",
-    )
-    fields = (
-        "external_id",
-        "name",
-        "is_internal_delivery",
-        "is_active",
-        "last_synced_at",
-        "created_at",
-        "updated_at",
-    )
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
-
-
-@admin.register(EasywayCity)
-class EasywayCityAdmin(admin.ModelAdmin):
-    list_display = (
-        "name",
-        "region",
-        "external_id",
-        "is_active",
-        "last_synced_at",
-    )
-    list_filter = ("is_active", "region")
-    search_fields = ("name", "external_id", "region__name")
-    list_select_related = ("region",)
-    readonly_fields = (
-        "region",
-        "external_id",
-        "name",
-        "is_active",
-        "last_synced_at",
-        "created_at",
-        "updated_at",
-    )
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
 
 
 @admin.register(Cart)
@@ -280,7 +161,7 @@ class OrderAdminForm(forms.ModelForm):
 
 
 @admin.register(Order)
-class OrderAdmin(admin.ModelAdmin):
+class OrderAdmin(OrderRedcapAdminMixin, admin.ModelAdmin):
     @admin.display(description="დღგ-ის გადამხდელი (მყიდველის მითითებით)", ordering="company_is_vat_registered")
     def company_vat_status(self, obj):
         if obj.buyer_type != "legal_entity":
@@ -324,6 +205,7 @@ class OrderAdmin(admin.ModelAdmin):
     )
     readonly_fields = (
         "company_vat_status",
+        "redcap_overview",
         "order_number",
         "public_token",
         "subtotal",
@@ -340,17 +222,6 @@ class OrderAdmin(admin.ModelAdmin):
         "shipping_width_cm",
         "shipping_height_cm",
         "delivery_package_id",
-        "easyway_shipment_state",
-        "easyway_order_id",
-        "easyway_last_error",
-        "easyway_last_attempt_at",
-        "easyway_submitted_at",
-        "easyway_tracking_status",
-        "easyway_tracking_at",
-        "easyway_tracking_history",
-        "easyway_tracking_checked_at",
-        "easyway_tracking_attempted_at",
-        "easyway_tracking_error",
         "total",
         "payment_method",
         "payment_status",
@@ -416,24 +287,7 @@ class OrderAdmin(admin.ModelAdmin):
             },
         ),
         ("Totals", {"fields": ("subtotal", "delivery_price", "total")}),
-        (
-            "EasyWay shipment",
-            {
-                "fields": (
-                    "easyway_shipment_state",
-                    "easyway_order_id",
-                    "easyway_last_error",
-                    "easyway_last_attempt_at",
-                    "easyway_submitted_at",
-                    "easyway_tracking_status",
-                    "easyway_tracking_at",
-                    "easyway_tracking_checked_at",
-                    "easyway_tracking_attempted_at",
-                    "easyway_tracking_error",
-                    "easyway_tracking_history",
-                )
-            },
-        ),
+        ("RedCap მიწოდება", {"fields": ("redcap_overview",)}),
         (
             "Legal acceptance",
             {
@@ -512,11 +366,6 @@ class OrderAdmin(admin.ModelAdmin):
             path("<path:object_id>/return-receive/", self.admin_site.admin_view(self.return_receive_view),
                  name="commerce_order_return_receive"),
             path(
-                "<path:object_id>/easyway-tracking/",
-                self.admin_site.admin_view(self.easyway_tracking_view),
-                name="commerce_order_easyway_tracking",
-            ),
-            path(
                 "<path:object_id>/bog-refund/",
                 self.admin_site.admin_view(self.bog_refund_view),
                 name="commerce_order_bog_refund",
@@ -525,16 +374,6 @@ class OrderAdmin(admin.ModelAdmin):
                 "<path:object_id>/bog-reconcile/",
                 self.admin_site.admin_view(self.bog_reconcile_view),
                 name="commerce_order_bog_reconcile",
-            ),
-            path(
-                "<path:object_id>/easyway-submit/",
-                self.admin_site.admin_view(self.easyway_submit_view),
-                name="commerce_order_easyway_submit",
-            ),
-            path(
-                "<path:object_id>/easyway-cancel/",
-                self.admin_site.admin_view(self.easyway_cancel_view),
-                name="commerce_order_easyway_cancel",
             ),
         ]
         return custom_urls + super().get_urls()
@@ -578,21 +417,9 @@ class OrderAdmin(admin.ModelAdmin):
             extra_context["show_bog_reconciliation"] = bool(
                 sale_payment and sale_payment.provider_order_id
             )
-            extra_context["show_easyway_submit"] = bool(
-                order and can_submit_easyway_shipment(order)
-            )
-            extra_context["show_easyway_cancel"] = bool(
-                order and can_cancel_easyway_shipment(order)
-            )
-            extra_context["show_easyway_tracking"] = bool(
-                order and order.delivery_provider == "easyway" and order.easyway_order_id
-            )
             if order:
                 extra_context["return_start_url"] = reverse("admin:commerce_order_return_start", args=[order.pk])
                 extra_context["return_receive_url"] = reverse("admin:commerce_order_return_receive", args=[order.pk])
-                extra_context["easyway_tracking_url"] = reverse(
-                    "admin:commerce_order_easyway_tracking", args=[order.pk]
-                )
                 extra_context["bog_refund_url"] = reverse(
                     "admin:commerce_order_bog_refund",
                     args=[order.pk],
@@ -601,20 +428,10 @@ class OrderAdmin(admin.ModelAdmin):
                     "admin:commerce_order_bog_reconcile",
                     args=[order.pk],
                 )
-                extra_context["easyway_submit_url"] = reverse(
-                    "admin:commerce_order_easyway_submit",
-                    args=[order.pk],
-                )
-                extra_context["easyway_cancel_url"] = reverse(
-                    "admin:commerce_order_easyway_cancel",
-                    args=[order.pk],
-                )
         else:
             extra_context["show_cancel_and_restore_stock"] = False
             extra_context["show_bog_full_refund"] = False
             extra_context["show_bog_reconciliation"] = False
-            extra_context["show_easyway_submit"] = False
-            extra_context["show_easyway_cancel"] = False
 
         return super().changeform_view(request, object_id, form_url, extra_context)
 
@@ -627,7 +444,7 @@ class OrderAdmin(admin.ModelAdmin):
         current_order = Order.objects.select_for_update().get(pk=obj.pk)
         requested_status = obj.status
 
-        # A form opened before a cron refresh must not overwrite tracking or its lease.
+        # Preserve passive legacy history when saving an old test order.
         for field in Order._meta.concrete_fields:
             if field.name.startswith("easyway_tracking_"):
                 setattr(obj, field.name, getattr(current_order, field.name))
@@ -665,127 +482,6 @@ class OrderAdmin(admin.ModelAdmin):
         from .return_admin import customer_return_view
         return customer_return_view(self, request, self._get_action_order(request, object_id), receiving=True)
 
-    def easyway_tracking_view(self, request, object_id):
-        order = self._get_action_order(request, object_id)
-        if request.method == "POST":
-            try:
-                result = sync_easyway_tracking(order.pk)
-            except TrackingError as error:
-                self.message_user(request, str(error), level=messages.ERROR)
-            else:
-                text = {
-                    "synced": "EasyWay tracking refreshed.",
-                    "review": "Tracking saved; review the tracking error field.",
-                    "skipped": "Tracking skipped: no shipment or another refresh is running.",
-                }[result]
-                self.message_user(
-                    request, text,
-                    level=messages.SUCCESS if result == "synced" else messages.WARNING,
-                )
-            return HttpResponseRedirect(reverse("admin:commerce_order_change", args=[order.pk]))
-        return self._confirmation_response(
-            request, original=order,
-            title=f"Refresh tracking for {order.order_number}",
-            action_label="Refresh tracking",
-            warning="Read EasyWay tracking and update local delivery progress. No shipment or refund is created.",
-            cancel_url=reverse("admin:commerce_order_change", args=[order.pk]),
-        )
-
-    def easyway_submit_view(self, request, object_id):
-        order = self._get_action_order(request, object_id)
-        if request.method == "POST":
-            try:
-                submitted_order = submit_easyway_shipment(order)
-            except DjangoValidationError as error:
-                self.message_user(
-                    request,
-                    error.messages[0],
-                    level=messages.ERROR,
-                )
-            except EasywayShipmentError as error:
-                self.message_user(
-                    request,
-                    error.detail,
-                    level=(
-                        messages.WARNING
-                        if error.outcome_unknown
-                        else messages.ERROR
-                    ),
-                )
-            else:
-                self.message_user(
-                    request,
-                    (
-                        "EasyWay shipment created successfully. "
-                        f"EasyWay order ID: {submitted_order.easyway_order_id}."
-                    ),
-                    level=messages.SUCCESS,
-                )
-            return HttpResponseRedirect(
-                reverse("admin:commerce_order_change", args=[order.pk])
-            )
-
-        return self._confirmation_response(
-            request,
-            original=order,
-            title=f"Send {order.order_number} to EasyWay",
-            action_label="Create EasyWay shipment",
-            warning=(
-                "This sends a real shipment request to EasyWay. Submit only a paid "
-                "regional order that is ready for courier pickup. The same request "
-                "must not be sent twice."
-            ),
-            cancel_url=reverse(
-                "admin:commerce_order_change",
-                args=[order.pk],
-            ),
-        )
-
-    def easyway_cancel_view(self, request, object_id):
-        order = self._get_action_order(request, object_id)
-        if request.method == "POST":
-            try:
-                cancel_easyway_shipment(order)
-            except DjangoValidationError as error:
-                self.message_user(
-                    request,
-                    error.messages[0],
-                    level=messages.ERROR,
-                )
-            except EasywayShipmentError as error:
-                self.message_user(
-                    request,
-                    error.detail,
-                    level=(
-                        messages.WARNING
-                        if error.outcome_unknown
-                        else messages.ERROR
-                    ),
-                )
-            else:
-                self.message_user(
-                    request,
-                    "EasyWay shipment cancelled successfully.",
-                    level=messages.SUCCESS,
-                )
-            return HttpResponseRedirect(
-                reverse("admin:commerce_order_change", args=[order.pk])
-            )
-
-        return self._confirmation_response(
-            request,
-            original=order,
-            title=f"Cancel EasyWay shipment for {order.order_number}",
-            action_label="Cancel EasyWay shipment",
-            warning=(
-                f"EasyWay shipment {order.easyway_order_id} will be cancelled. "
-                "This does not refund the card payment or cancel the FlexDrive order."
-            ),
-            cancel_url=reverse(
-                "admin:commerce_order_change",
-                args=[order.pk],
-            ),
-        )
 
     def bog_reconcile_view(self, request, object_id):
         order = self._get_action_order(request, object_id)

@@ -11,12 +11,11 @@ from .card_payments import (
     get_public_payment_result,
 )
 from .images import build_product_primary_image_snapshot, empty_image_asset, serialize_image_asset
+from .delivery_quotes import DeliveryQuoteError, resolve_delivery_location
 from .models import (
     BuyNowSession,
     Cart,
     CartItem,
-    EasywayCity,
-    EasywayRegion,
     Order,
     OrderBuyerType,
     OrderItem,
@@ -150,23 +149,16 @@ class CheckoutSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs):
-        region = EasywayRegion.objects.filter(
-            external_id=attrs["delivery_region_id"],
-            is_active=True,
-        ).first()
-        city = EasywayCity.objects.filter(
-            external_id=attrs["delivery_city_id"],
-            region=region,
-            is_active=True,
-        ).first()
-        location_errors = {}
-        if region is None:
-            location_errors["delivery_region_id"] = "არჩეული რეგიონი ვერ მოიძებნა."
-        if city is None:
-            location_errors["delivery_city_id"] = "არჩეული ქალაქი ვერ მოიძებნა."
-        if location_errors:
-            raise serializers.ValidationError(location_errors)
-        attrs["city"] = city.name
+        try:
+            location = resolve_delivery_location(attrs["delivery_region_id"], attrs["delivery_city_id"])
+        except DeliveryQuoteError as exc:
+            raise serializers.ValidationError({"delivery_region_id": exc.detail}) from exc
+        actual_city = str(attrs.get("city") or "").strip()
+        if not actual_city and location.zone_slug == "city":
+            actual_city = "თბილისი"
+        if not actual_city or (location.zone_slug != "city" and actual_city == location.name):
+            raise serializers.ValidationError({"city": "შეიყვანეთ ქალაქის ან დასახლების სახელი."})
+        attrs["city"] = actual_city
 
         buyer_type = attrs.get("buyer_type", OrderBuyerType.INDIVIDUAL)
 
@@ -213,24 +205,12 @@ class DeliveryQuoteRequestSerializer(serializers.Serializer):
     delivery_city_id = serializers.IntegerField(min_value=1)
 
     def validate(self, attrs):
-        region = EasywayRegion.objects.filter(
-            external_id=attrs["delivery_region_id"],
-            is_active=True,
-        ).first()
-        city = EasywayCity.objects.filter(
-            external_id=attrs["delivery_city_id"],
-            region=region,
-            is_active=True,
-        ).first()
-        errors = {}
-        if region is None:
-            errors["delivery_region_id"] = "არჩეული რეგიონი ვერ მოიძებნა."
-        if city is None:
-            errors["delivery_city_id"] = "არჩეული ქალაქი ვერ მოიძებნა."
-        if errors:
-            raise serializers.ValidationError(errors)
-        attrs["region"] = region
-        attrs["city"] = city
+        try:
+            location = resolve_delivery_location(attrs["delivery_region_id"], attrs["delivery_city_id"])
+        except DeliveryQuoteError as exc:
+            raise serializers.ValidationError({"delivery_region_id": exc.detail}) from exc
+        attrs["region"] = location
+        attrs["city"] = location
         return attrs
 
 

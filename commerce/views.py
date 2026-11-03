@@ -25,7 +25,7 @@ from .card_payments import (
     start_buy_now_card_payment,
     start_cart_card_payment,
 )
-from .delivery_quotes import DeliveryQuoteError, build_delivery_quote
+from .delivery_quotes import DeliveryQuoteError, build_delivery_quote, delivery_locations
 from .bog_callbacks import (
     BogCallbackError,
     apply_bog_callback,
@@ -33,8 +33,6 @@ from .bog_callbacks import (
     verify_bog_callback_signature,
 )
 from .models import (
-    EasywayCity,
-    EasywayRegion,
     Order,
     OrderCheckoutSource,
     OrderStatus,
@@ -148,53 +146,26 @@ class DeliveryRegionListAPIView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        regions = EasywayRegion.objects.filter(is_active=True).order_by(
-            "name",
-            "external_id",
-        )
-        return Response(
-            {
-                "results": [
-                    {
-                        "id": region.external_id,
-                        "name": region.name,
-                        "is_internal_delivery": region.is_internal_delivery,
-                    }
-                    for region in regions
-                ]
-            }
-        )
+        return Response({"results": [
+            {"id": row.external_id, "name": row.name, "is_internal_delivery": False}
+            for row in delivery_locations()
+        ]})
 
 
 class DeliveryCityListAPIView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, region_id):
-        region = get_object_or_404(
-            EasywayRegion,
-            external_id=region_id,
-            is_active=True,
-        )
-        cities = EasywayCity.objects.filter(
-            region=region,
-            is_active=True,
-        ).order_by("name", "external_id")
-        return Response(
-            {
-                "region": {
-                    "id": region.external_id,
-                    "name": region.name,
-                    "is_internal_delivery": region.is_internal_delivery,
-                },
-                "results": [
-                    {
-                        "id": city.external_id,
-                        "name": city.name,
-                    }
-                    for city in cities
-                ],
-            }
-        )
+        location = next((row for row in delivery_locations() if row.external_id == region_id), None)
+        if location is None:
+            from django.http import Http404
+            raise Http404
+        # Compatibility envelope for the existing checkout API. A RedCap zone
+        # is selected once; the actual settlement is a separate address field.
+        return Response({
+            "region": {"id": location.external_id, "name": location.name, "is_internal_delivery": False},
+            "results": [{"id": location.external_id, "name": location.name}],
+        })
 
 
 def _card_payment_error_response(request, error):

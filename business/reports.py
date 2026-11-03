@@ -88,7 +88,7 @@ def _collect(period):
     products, deliveries, losses, rows = {}, [], [], {}
     paid_ids, refund_ids, courier_ids, internal_ids = set(), set(), set(), set()
     daily_orders = {key: {"paid": set(), "refunded": set()} for key in daily}
-    events = _bounded(event_queryset(period).filter(currency="GEL").select_related("order__return_case"), MAX_REPORT_ROWS)
+    events = _bounded(event_queryset(period).filter(currency="GEL").select_related("order__return_case", "order__redcap_shipment"), MAX_REPORT_ROWS)
     for payment in events:
         refund = payment.action == "refund"
         occurred = payment.refunded_at if refund else payment.captured_at
@@ -128,10 +128,12 @@ def _collect(period):
         # A quote is counted once per paid regional order, never once per item.
         # A completed pre-dispatch cancellation incurs no outward carrier charge;
         # a dispatched return must not erase the original carrier quote.
-        if not refund and row["delivery_provider"] == "easyway" and payment.order_id not in courier_ids:
+        if not refund and row["delivery_provider"] in {"easyway", "redcap"} and payment.order_id not in courier_ids:
             order = payment.order
             case = getattr(order, "return_case", None)
-            dispatched = bool(order.easyway_submitted_at or order.easyway_order_id
+            shipment = getattr(order, "redcap_shipment", None)
+            dispatched = bool(shipment and shipment.tracking_number and shipment.state != "cancelled"
+                              or order.easyway_submitted_at or order.easyway_order_id
                               or order.status in ("shipped", "delivered")
                               or case and case.disposition == "from_customer")
             cancelled_before_dispatch = not dispatched and any(

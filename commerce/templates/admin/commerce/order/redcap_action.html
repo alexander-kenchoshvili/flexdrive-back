@@ -1,0 +1,17 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<p><strong>{{ original.order_number }}</strong></p>
+<p>მიმღები: {{ original.first_name }} {{ original.last_name }} · {{ original.phone }}<br>
+მისამართი: {{ original.city }}, {{ original.address_line }}<br>
+საერთო შეფუთული წონა: {{ original.shipping_weight_kg }} კგ<br>
+შეკვეთაზე შენახული მიწოდების თანხა: {{ original.delivery_price }} ₾</p>
+<p>ახალი გზავნილი მხოლოდ „შექმნა“-ს დადასტურებით იგზავნება.
+თბილისში კურიერისთვის 13:00-მდე გაგზავნილი მოთხოვნა იმავე დღეს სრულდება,
+13:00-დან — მომდევნო დღეს. ყუთების რაოდენობა პროდუქტების რაოდენობა არ არის.</p>
+<p>სტატუსის შემოწმება/გზავნილის გაუქმება თანხის დაბრუნებასა და მარაგის ცვლილებას არ იწვევს.</p>
+<form method="post">{% csrf_token %}
+{{ form.as_p }}
+<input type="submit" value="{{ action }}">
+<a href="{{ cancel_url }}">დაბრუნება შეკვეთაზე</a>
+</form>
+{% endblock %}

@@ -1,5 +1,18 @@
 # Project Instructions
 
+## Compact Product Compatibility UI In Paired Frontend - 2026-10-28
+
+- User authorized the paired frontend to replace separate large fitment cards
+  with a compact model/year table in Specifications, removing repeated generated
+  vehicle/generation rows there while retaining legacy fallback and useful notes.
+  Follow-up keeps labels/values side by side on mobile too; fixed responsive
+  first columns align both sections and keep years near model names, with text
+  wrapping. No backend/data/API/SEO logic change.
+- Nine actual component/page SSR tests, frontend typecheck, scoped ESLint and
+  whitespace checks pass. User explicitly will perform real viewport review:
+  no server or browser started. This UI needs frontend deployment; the separate
+  multiple-fitment SEO/suggestion change below still needs backend deployment.
+
 ## Multiple Fitments In Automatic SEO And Search Suggestions - 2026-10-28
 
 - User authorized SEO first, then header search suggestions, to display all saved

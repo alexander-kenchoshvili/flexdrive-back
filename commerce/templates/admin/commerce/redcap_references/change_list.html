@@ -1,0 +1,10 @@
+{% extends "admin/change_list.html" %}
+{% block object-tools-items %}
+{% if can_refresh %}<li><a href="{{ refresh_url }}">ტარიფების განახლება</a></li>{% endif %}
+{{ block.super }}
+{% endblock %}
+{% block content %}
+<p>ტარიფები ინახება ჩვენს ბაზაში. განაახლეთ RedCap-ისგან ფასების ცვლილების შეტყობინების მიღებისას.
+განახლება გზავნილს არ ქმნის. ყოველდღიური ავტომატური შემოწმება დამატებული არ არის.</p>
+{{ block.super }}
+{% endblock %}

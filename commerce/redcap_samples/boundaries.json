@@ -1,0 +1,119 @@
+[
+  {
+    "weight": 5.01,
+    "status": 200,
+    "body": {
+      "success": true,
+      "zone": "თბილისი",
+      "current_time": "17:24",
+      "options": [
+        {
+          "slug": "same_day",
+          "name": "ხვალ",
+          "description": "მიწოდება 22:00 საათამდე",
+          "price": 12,
+          "offset_days": 1,
+          "expected_date": "04/11/2026",
+          "pickup_time": null,
+          "delivery_window_from": null,
+          "delivery_window_to": null,
+          "is_after_cutoff": true,
+          "icon": "fa-bolt",
+          "color": "#e53935"
+        },
+        {
+          "slug": "next_day",
+          "name": "ზეგ",
+          "description": "მიწოდება 22:00 საათამდე",
+          "price": 10,
+          "offset_days": 2,
+          "expected_date": "05/11/2026",
+          "pickup_time": null,
+          "delivery_window_from": null,
+          "delivery_window_to": null,
+          "is_after_cutoff": true,
+          "icon": "fa-clock",
+          "color": "#f59e0b"
+        }
+      ]
+    }
+  },
+  {
+    "weight": 10,
+    "status": 200,
+    "body": {
+      "success": true,
+      "zone": "თბილისი",
+      "current_time": "17:24",
+      "options": [
+        {
+          "slug": "same_day",
+          "name": "ხვალ",
+          "description": "მიწოდება 22:00 საათამდე",
+          "price": 12,
+          "offset_days": 1,
+          "expected_date": "04/11/2026",
+          "pickup_time": null,
+          "delivery_window_from": null,
+          "delivery_window_to": null,
+          "is_after_cutoff": true,
+          "icon": "fa-bolt",
+          "color": "#e53935"
+        },
+        {
+          "slug": "next_day",
+          "name": "ზეგ",
+          "description": "მიწოდება 22:00 საათამდე",
+          "price": 10,
+          "offset_days": 2,
+          "expected_date": "05/11/2026",
+          "pickup_time": null,
+          "delivery_window_from": null,
+          "delivery_window_to": null,
+          "is_after_cutoff": true,
+          "icon": "fa-clock",
+          "color": "#f59e0b"
+        }
+      ]
+    }
+  },
+  {
+    "weight": 10.01,
+    "status": 200,
+    "body": {
+      "success": true,
+      "zone": "თბილისი",
+      "current_time": "17:24",
+      "options": [
+        {
+          "slug": "same_day",
+          "name": "ხვალ",
+          "description": "მიწოდება 22:00 საათამდე",
+          "price": 16,
+          "offset_days": 1,
+          "expected_date": "04/11/2026",
+          "pickup_time": null,
+          "delivery_window_from": null,
+          "delivery_window_to": null,
+          "is_after_cutoff": true,
+          "icon": "fa-bolt",
+          "color": "#e53935"
+        },
+        {
+          "slug": "next_day",
+          "name": "ზეგ",
+          "description": "მიწოდება 22:00 საათამდე",
+          "price": 14.5,
+          "offset_days": 2,
+          "expected_date": "05/11/2026",
+          "pickup_time": null,
+          "delivery_window_from": null,
+          "delivery_window_to": null,
+          "is_after_cutoff": true,
+          "icon": "fa-clock",
+          "color": "#f59e0b"
+        }
+      ]
+    }
+  }
+]

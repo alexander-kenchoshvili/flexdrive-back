@@ -12,6 +12,76 @@ from catalog.models import Product, TimeStampedModel
 from .accounting_snapshots import COST_FIELDS
 
 
+class RedcapReferenceData(models.Model):
+    """One atomically refreshed, private snapshot; no credentials or order PII."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    category = models.CharField("საფასო კატეგორია", max_length=200)
+    weights = models.JSONField(default=list, editable=False)
+    locations = models.JSONField(default=list, editable=False)
+    statuses = models.JSONField(default=list, editable=False)
+    payment_options = models.JSONField(default=dict, editable=False)
+    revision = models.CharField(max_length=64, editable=False)
+    synced_at = models.DateTimeField("ბოლო წარმატებული განახლება")
+
+    class Meta:
+        verbose_name = "RedCap ტარიფები"
+        verbose_name_plural = "RedCap ტარიფები"
+        constraints = [models.CheckConstraint(condition=Q(id=1), name="redcap_reference_singleton")]
+
+    def __str__(self):
+        return f"RedCap — {self.category}"
+
+
+class RedcapShipment(models.Model):
+    class State(models.TextChoices):
+        NOT_SENT = "not_sent", "არ არის გაგზავნილი"
+        SUBMITTING = "submitting", "იგზავნება — გადაამოწმეთ შედეგი"
+        CREATED = "created", "გზავნილი შექმნილია"
+        FAILED = "failed", "მოთხოვნა უარყოფილია"
+        UNKNOWN = "unknown", "შედეგი გაურკვეველია — გადაამოწმეთ"
+        CANCELLING = "cancelling", "უქმდება — გადაამოწმეთ შედეგი"
+        CANCELLED = "cancelled", "გზავნილი გაუქმებულია"
+        CANCEL_UNKNOWN = "cancel_unknown", "გაუქმების შედეგი გაურკვეველია"
+
+    order = models.OneToOneField("Order", on_delete=models.PROTECT, related_name="redcap_shipment")
+    state = models.CharField(max_length=24, choices=State.choices, default=State.NOT_SENT, db_index=True)
+    tracking_number = models.CharField(max_length=150, null=True, blank=True, unique=True)
+    service_slug = models.CharField(max_length=80)
+    parcel_count = models.PositiveSmallIntegerField(default=1)
+    booked_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    attempted_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True, default="")
+    operation_token = models.UUIDField(null=True, blank=True, editable=False)
+    carrier_status = models.CharField(max_length=80, blank=True, default="")
+    tracking_history = models.JSONField(default=list, blank=True)
+    tracking_checked_at = models.DateTimeField(null=True, blank=True)
+    tracking_attempted_at = models.DateTimeField(null=True, blank=True)
+    tracking_error = models.TextField(blank=True, default="")
+    tracking_token = models.UUIDField(null=True, blank=True, editable=False)
+    tracking_lock_until = models.DateTimeField(null=True, blank=True, editable=False)
+
+    class Meta:
+        verbose_name = "RedCap გზავნილი"
+        verbose_name_plural = "RedCap გზავნილები"
+        constraints = [models.CheckConstraint(condition=Q(parcel_count__gte=1), name="redcap_positive_parcels")]
+
+
+class RedcapSyncReport(models.Model):
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField()
+    source = models.CharField(max_length=16, choices=(("manual", "ხელით"), ("scheduled", "პერიოდული")))
+    status = models.CharField(max_length=16, choices=(("success", "წარმატებული"), ("review", "შესამოწმებელი"), ("failed", "შეცდომა")))
+    summary = models.TextField()
+    details = models.JSONField(default=dict)
+
+    class Meta:
+        ordering = ("-finished_at", "-pk")
+        verbose_name = "RedCap სინქრონიზაციის ანგარიში"
+        verbose_name_plural = "RedCap სინქრონიზაციის ანგარიშები"
+
+
 class EasywaySyncReport(models.Model):
     class Status(models.TextChoices):
         SUCCESS = "success", "წარმატებული"
@@ -518,6 +588,8 @@ class Order(TimeStampedModel):
         max_digits=10, decimal_places=2, null=True, blank=True
     )
     delivery_package_id = models.PositiveIntegerField(null=True, blank=True)
+    delivery_service_slug = models.CharField(max_length=80, blank=True, default="")
+    delivery_tariff_revision = models.CharField(max_length=64, blank=True, default="")
     easyway_shipment_state = models.CharField(
         max_length=20,
         choices=EasywayShipmentState.choices,

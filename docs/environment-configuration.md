@@ -106,50 +106,41 @@ The protection window can be tuned after measuring the real Cross Motors update
 delay. Do not reduce it below the observed worst-case delay without retaining an
 appropriate safety margin.
 
-## EasyWay delivery quotes
+## RedCap delivery
 
-Regional checkout pricing is returned by EasyWay's `/price` endpoint. The
-backend adds the configured customer margin and signs a short-lived quote so the
-frontend cannot alter delivery totals.
+RedCap replaces EasyWay and internal Tbilisi delivery for new checkouts.
+Customer fees are calculated from the locally stored tariff table using summed
+packaged product weight. Parcel count does not multiply the tariff; dimensions
+and volumetric weight do not affect pricing. There is no customer margin yet.
 
 ```env
-EASYWAY_API_USER=<EasyWay user ID>
-EASYWAY_API_KEY=<EasyWay API key>
-EASYWAY_API_BASE_URL=https://easyway.ge/api
-EASYWAY_SENDER_NAME=<company name>
-EASYWAY_SENDER_TAX_CODE=<company tax code>
-EASYWAY_SENDER_ADDRESS=<courier pickup address>
-EASYWAY_SENDER_PHONE=<courier pickup contact phone>
-EASYWAY_SENDER_REGION_ID=24
-EASYWAY_SENDER_CITY_ID=<EasyWay city ID for the real pickup location>
-EASYWAY_SENDER_LEGAL_FORM_ID=3
-EASYWAY_RECEIVER_TAX_CODE_PLACEHOLDER=11111111111
-EASYWAY_STANDARD_PACKAGE_ID=2
-EASYWAY_DELIVERY_MARGIN_GEL=2.00
-EASYWAY_QUOTE_MAX_AGE_SECONDS=900
+REDCAP_API_KEY=<backend-only secret>
+REDCAP_API_BASE_URL=https://redcap.ge/api/v1
+REDCAP_HTTP_CONNECT_TIMEOUT_SECONDS=5
+REDCAP_HTTP_READ_TIMEOUT_SECONDS=15
+REDCAP_SENDER_NAME=<company name>
+REDCAP_SENDER_PHONE=<pickup phone>
+REDCAP_SENDER_CITY=<exact RedCap location name>
+REDCAP_SENDER_ADDRESS=<actual pickup address>
+DELIVERY_QUOTE_MAX_AGE_SECONDS=900
 ```
 
-`EASYWAY_SENDER_CITY_ID` is mandatory for regional quotes and must not be
-guessed: it is the EasyWay city ID corresponding to FlexDrive's real pickup
-location. Tbilisi/internal delivery does not call EasyWay. Its customer fee is
-10 GEL per order, or 20 GEL if any of these strict limits is exceeded:
+Apply commerce migrations 0037/0038 and initially refresh references from admin
+or `python manage.py refresh_redcap_references`. Checkout never contacts RedCap
+for an address selection. Subsequent tariff refreshes are manual after notice;
+no daily tariff cron. A missing product weight or tariff blocks the quote.
+Existing category measurement defaults are not used.
 
-- Total packaged weight: 10 kg (including each item's quantity).
-- Longest side of any packaged item: 100 cm (sides are not added together).
-- Sum of packaged item volumes: 100,000 cm³, calculated as
-  `sum(length_cm * width_cm * height_cm * quantity)`.
+Only a staff operator creates a shipment after payment and packaging. Credentials
+remain on the backend. Configure receipt seller data explicitly through
+`ORDER_RECEIPT_SELLER_*`; there is no EasyWay sender fallback.
 
-Exactly at a limit, the order remains 10 GEL unless another limit is exceeded.
-Only the product's own packaged shipping measurements are used. Legacy category
-defaults are retained in the database but are no longer used or shown in admin.
-Any missing product measurement prevents both internal and EasyWay quotes until
-the product's weight and all three dimensions are filled in. New supplier products
-remain without measurements until an operator supplies them.
-The fee applies once to the whole cart or buy-now order. For internal quotes,
-carrier cost and margin remain zero placeholders; they do not record actual
-self-delivery expenses. Regional EasyWay pricing and its configured margin are
-unchanged. The legacy `EASYWAY_INTERNAL_DELIVERY_PRICE_GEL` environment variable
-is no longer used; no environment or database change is required for this tariff.
+Disable the old EasyWay job. RedCap tracking uses
+`python manage.py sync_redcap_tracking --limit 100 --min-age-minutes 10`
+in the existing appropriate scheduled execution environment. No infrastructure
+or runtime environment was changed by the source implementation.
+See [REDCAP_INTEGRATION.md](REDCAP_INTEGRATION.md) for coordinated frontend/backend
+activation, operator printing and remaining live verification.
 
 ## Meta Purchase delivery
 

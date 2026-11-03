@@ -1,0 +1,242 @@
+[
+  {
+    "path": "/locations",
+    "status": 200,
+    "body": {
+      "success": true,
+      "locations": [
+        {
+          "id": 1,
+          "name": "თბილისი",
+          "type": "city",
+          "zone": "თბილისი",
+          "zone_slug": "city"
+        },
+        {
+          "id": 6,
+          "name": "თბილისი (შემოგარენი)",
+          "type": "city",
+          "zone": "შემოგარენი",
+          "zone_slug": "suburban"
+        },
+        {
+          "id": 4,
+          "name": "რეგიონი (ქალაქები)",
+          "type": "region",
+          "zone": "რეგიონი (ქალაქები)",
+          "zone_slug": "region_city"
+        },
+        {
+          "id": 5,
+          "name": "რეგიონი (სოფლები)",
+          "type": "village",
+          "zone": "რეგიონი (სოფელი)",
+          "zone_slug": "region_village"
+        },
+        {
+          "id": 7,
+          "name": "რეგიონი (მაღალმთიანი)",
+          "type": "village",
+          "zone": "მაღალმთიანი",
+          "zone_slug": "region_mountain"
+        }
+      ]
+    }
+  },
+  {
+    "path": "/payment-options",
+    "status": 200,
+    "body": {
+      "success": true,
+      "payment_types": [
+        {
+          "key": "cash",
+          "name": "ნაღდი"
+        },
+        {
+          "key": "transfer",
+          "name": "ინვოისი / გადარიცხვა"
+        }
+      ],
+      "delivery_payers": [
+        {
+          "key": "sender",
+          "name": "შემკვეთი იხდის"
+        },
+        {
+          "key": "receiver",
+          "name": "მიმღები იხდის"
+        }
+      ],
+      "cod_enabled": true
+    }
+  },
+  {
+    "path": "/statuses",
+    "status": 200,
+    "body": {
+      "success": true,
+      "statuses": [
+        {
+          "key": "registered",
+          "name": "გაფორმებული",
+          "icon": "fa-file-alt",
+          "color": "#6b7280",
+          "is_final": false,
+          "can_cancel": true
+        },
+        {
+          "key": "pending_pickup",
+          "name": "გაგზავნილია მძღოლთან",
+          "icon": "fa-user-check",
+          "color": "#2563eb",
+          "is_final": false,
+          "can_cancel": false
+        },
+        {
+          "key": "picked_up",
+          "name": "აღებული",
+          "icon": "fa-truck",
+          "color": "#06b6d4",
+          "is_final": false,
+          "can_cancel": false
+        },
+        {
+          "key": "in_warehouse",
+          "name": "ცენტრალური",
+          "icon": "fa-warehouse",
+          "color": "#1a56db",
+          "is_final": false,
+          "can_cancel": false
+        },
+        {
+          "key": "mzadaa_gasatanad",
+          "name": "მზადაა გასატანად",
+          "icon": "fa-arrow-right",
+          "color": "#6172f5",
+          "is_final": false,
+          "can_cancel": false
+        },
+        {
+          "key": "sawyobidan_gatanilia",
+          "name": "საწყობიდან გატანილია",
+          "icon": "fa-car",
+          "color": "#709cf5",
+          "is_final": false,
+          "can_cancel": false
+        },
+        {
+          "key": "gagzavnilia_regionshi",
+          "name": "გაგზავნილია რეგიონში",
+          "icon": "fa-route",
+          "color": "#8050f2",
+          "is_final": false,
+          "can_cancel": false
+        },
+        {
+          "key": "out_for_delivery",
+          "name": "გზაშია",
+          "icon": "fa-truck",
+          "color": "#8f66f0",
+          "is_final": false,
+          "can_cancel": false
+        },
+        {
+          "key": "molodinis_rezhimshi",
+          "name": "მოლოდინში",
+          "icon": "fa-clock",
+          "color": "#778092",
+          "is_final": false,
+          "can_cancel": false
+        },
+        {
+          "key": "postponed",
+          "name": "გადადებული",
+          "icon": "fa-pause-circle",
+          "color": "#f59e0b",
+          "is_final": false,
+          "can_cancel": false
+        },
+        {
+          "key": "unreachable",
+          "name": "ვერ დავუკავშირდი",
+          "icon": "fa-phone-slash",
+          "color": "#dc2626",
+          "is_final": false,
+          "can_cancel": false
+        },
+        {
+          "key": "refused",
+          "name": "უარი თქვა ჩაბარებაზე",
+          "icon": "fa-times-circle",
+          "color": "#374151",
+          "is_final": true,
+          "can_cancel": false
+        },
+        {
+          "key": "ukan_dabrunebuli",
+          "name": "უკან დაბრუნებული",
+          "icon": "fa-circle",
+          "color": "#d81313",
+          "is_final": true,
+          "can_cancel": false
+        },
+        {
+          "key": "cancelled",
+          "name": "გაუქმებული",
+          "icon": "fa-ban",
+          "color": "#db0000",
+          "is_final": true,
+          "can_cancel": false
+        },
+        {
+          "key": "delivered",
+          "name": "ჩაბარებული",
+          "icon": "fa-check-circle",
+          "color": "#059669",
+          "is_final": true,
+          "can_cancel": false
+        }
+      ]
+    }
+  },
+  {
+    "path": "/delivery-options?receiver_city=%E1%83%97%E1%83%91%E1%83%98%E1%83%9A%E1%83%98%E1%83%A1%E1%83%98&weight=5",
+    "status": 200,
+    "body": {
+      "success": true,
+      "zone": "თბილისი",
+      "current_time": "17:21",
+      "options": [
+        {
+          "slug": "same_day",
+          "name": "ხვალ",
+          "description": "მიწოდება 22:00 საათამდე",
+          "price": 10,
+          "offset_days": 1,
+          "expected_date": "04/11/2026",
+          "pickup_time": null,
+          "delivery_window_from": null,
+          "delivery_window_to": null,
+          "is_after_cutoff": true,
+          "icon": "fa-bolt",
+          "color": "#e53935"
+        },
+        {
+          "slug": "next_day",
+          "name": "ზეგ",
+          "description": "მიწოდება 22:00 საათამდე",
+          "price": 8,
+          "offset_days": 2,
+          "expected_date": "05/11/2026",
+          "pickup_time": null,
+          "delivery_window_from": null,
+          "delivery_window_to": null,
+          "is_after_cutoff": true,
+          "icon": "fa-clock",
+          "color": "#f59e0b"
+        }
+      ]
+    }
+  }
+]
