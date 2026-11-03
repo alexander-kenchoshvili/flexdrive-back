@@ -919,6 +919,38 @@ class BogCallbackFlowTests(APITransactionTestCase):
         self.assertEqual(order.status, "cancelled")
         self.assertEqual(self.product.stock_qty, 3)
 
+    def test_signed_partial_refund_callback_completes_whole_return_without_double_receipt(self):
+        from .models import OwnedStockLot
+        from .returns import prepare_order_return, receive_order_return
+        from .refund_terms import build_settlement
+        _, _, payment = self._start_cart_payment(quantity=1)
+        self._signed_callback_request(self._callback_payload(payment))
+        payment.refresh_from_db()
+        order = payment.order
+        order.status = "delivered"
+        order.save(update_fields=["status"])
+        actor = get_user_model().objects.create_user(username="partial-return-staff", is_staff=True, is_active=True)
+        case = prepare_order_return(order=order, disposition="from_customer", actor=actor)
+        receive_order_return(return_case=case, actor=actor,
+            inspection={line.pk: {"saleable": 1, "unsaleable": 0} for line in case.lines.all()})
+        bank = Mock()
+        bank.refund_partial.return_value = BogRefundResult(key="request_received", message="received",
+            action_id="partial-callback-1", provider_reference={})
+        terms = build_settlement(total=order.total, cost=Decimal(10), payer="customer", agreed=True, reason="შეთანხმებულია")
+        refund = request_bog_full_refund(order=order, client=bank, requested_by=actor,
+            disposition="from_customer", settlement=terms)
+        payload = self._callback_payload(payment, callback_status="refunded_partially")
+        payload["body"]["purchase_units"]["refund_amount"] = f"{refund.amount:.2f}"
+        payload["body"]["actions"] = [{"action_id": "partial-callback-1", "action": "partial_refund",
+            "status": "completed", "code": "100", "amount": f"{refund.amount:.2f}"}]
+        first = self._signed_callback_request(payload)
+        second = self._signed_callback_request(payload)
+        self.assertEqual(first.data["result"], "refunded_and_cancelled")
+        self.assertEqual(second.data["result"], "already_refunded")
+        order.refresh_from_db()
+        self.assertEqual((order.status, order.payment_status, order.total), ("cancelled", "partially_refunded", payment.amount))
+        self.assertEqual(OwnedStockLot.objects.filter(return_line__return_case=case).get().quantity, 1)
+
     def test_callback_can_recover_provider_order_after_start_timeout(self):
         _, start_response, payment = self._start_cart_payment(
             provider_error=BogTransportError(

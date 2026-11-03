@@ -23,8 +23,8 @@ class DashboardReportTests(TestCase):
         self.september = ReportPeriod(date(2026, 9, 1), date(2026, 9, 30))
         self.october = ReportPeriod(date(2026, 10, 1), date(2026, 10, 31))
 
-    def sale(self, *, number="REPORT-1", provider="easyway", cost="59", when="2026-09-15T10:00", quantity=1, unit_price="118"):
-        delivery, carrier, buffer = (D(15), D(12), D(3)) if provider == "easyway" else (D(10), D(0), D(0))
+    def sale(self, *, number="REPORT-1", provider="redcap", cost="59", when="2026-09-15T10:00", quantity=1, unit_price="118"):
+        delivery, carrier, buffer = (D(15), D(12), D(3)) if provider in {"easyway", "redcap"} else (D(10), D(0), D(0))
         order = Order.objects.create(order_number=number, subtotal=D(unit_price) * quantity,
                                      total=D(unit_price) * quantity + delivery, delivery_provider=provider,
                                      delivery_price=delivery, carrier_delivery_cost=carrier, delivery_margin=buffer,
@@ -34,6 +34,10 @@ class DashboardReportTests(TestCase):
                                         line_total=D(unit_price) * quantity, purchase_unit_gross=None if cost is None else D(cost))
         payment = PaymentTransaction.objects.create(order=order, provider="bog", action="sale", status="paid",
                                                     amount=order.total, captured_at=stamp(when))
+        if provider == "redcap":
+            from commerce.models import RedcapShipment
+            RedcapShipment.objects.create(order=order, state="created", tracking_number=f"REPORT-{order.pk}",
+                service_slug="same_day", booked_price=carrier, submitted_at=stamp(when))
         return order, item, payment
 
     def refund(self, sale, when="2026-10-02T10:00", amount=None):
@@ -43,12 +47,12 @@ class DashboardReportTests(TestCase):
 
     def test_redcap_delivery_has_one_carrier_charge_and_zero_buffer(self):
         from commerce.models import RedcapShipment
-        order, _, sale = self.sale()
+        order, _, sale = self.sale(provider="easyway")
         Order.objects.filter(pk=order.pk).update(delivery_provider="redcap", delivery_price=D(12),
                                                 delivery_margin=D(0), total=order.subtotal + D(12))
         PaymentTransaction.objects.filter(pk=sale.pk).update(amount=order.subtotal + D(12))
-        RedcapShipment.objects.create(order=order, tracking_number="000999", state="created", service_slug="same_day")
-        with self.assertNumQueries(6):
+        RedcapShipment.objects.create(order=order, tracking_number="000999", state="created", service_slug="same_day", booked_price=D(12), submitted_at=sale.captured_at)
+        with self.assertNumQueries(10):
             report = build_dashboard_report(self.september)
         self.assertEqual(report["summary"]["courier_payable"], "12.00")
         self.assertEqual(report["summary"]["buffer_received"], "0.00")
@@ -56,7 +60,7 @@ class DashboardReportTests(TestCase):
 
     def test_exact_vat_product_profit_and_delivery_split_once_per_order(self):
         self.sale(quantity=2)
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(10):
             report = build_dashboard_report(self.september)
         summary = report["summary"]
         self.assertEqual(summary["received"], "251.00")
@@ -68,9 +72,9 @@ class DashboardReportTests(TestCase):
         self.assertEqual(summary["courier_payable"], "12.00")
         self.assertEqual(summary["buffer_received"], "3.00")
         self.assertEqual(summary["buffer_orders"], 1)
-        self.assertEqual(summary["regional_orders"], 1)
+        self.assertEqual(summary["courier_booked_orders"], 1)
         self.assertEqual(summary["sold_units"], 2)
-        self.assertEqual(report["deliveries"][0]["carrier"], "12.00")
+        self.assertEqual(report["deliveries"][0]["booked_price"], "12.00")
         self.assertNotIn("PRIVATE-SUPPLIER", str(report))
 
     def test_profit_bridge_reconciles_both_rounding_directions_and_refund(self):
@@ -121,7 +125,7 @@ class DashboardReportTests(TestCase):
                                  unit_price=D(236), quantity=1, line_total=D(236), purchase_unit_gross=D(118))
         Order.objects.filter(pk=order.pk).update(subtotal=D(472), total=D(487))
         PaymentTransaction.objects.filter(pk=sale.pk).update(amount=D(487))
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(10):
             report = build_dashboard_report(self.september)
         self.assertEqual(report["summary"]["product_profit_net"], "200.00")
         self.assertEqual(report["summary"]["sold_units"], 3)
@@ -138,7 +142,7 @@ class DashboardReportTests(TestCase):
         self.assertEqual(report["summary"]["received"], "266.00")
         self.assertEqual(report["summary"]["paid_orders"], 1)
         self.assertIsNone(report["summary"]["sold_units"])
-        self.assertIsNone(report["summary"]["courier_payable"])
+        self.assertEqual(report["summary"]["courier_payable"], "12.00")
         self.assertEqual(sum(day["paid_orders"] for day in report["daily"]), 1)
 
     def test_unknown_unsaleable_cost_is_missing_not_zero(self):
@@ -170,7 +174,7 @@ class DashboardReportTests(TestCase):
         self.assertEqual(october["net_buffer"], "-3.00")
 
     def test_completed_pre_dispatch_cancellation_not_in_outward_carrier_total(self):
-        _, _, sale = self.sale()
+        _, _, sale = self.sale(provider="easyway")
         self.refund(sale, when="2026-09-16T10:00")
         summary = build_dashboard_report(self.september)["summary"]
         self.assertEqual(summary["courier_payable"], "0.00")

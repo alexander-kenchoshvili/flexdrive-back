@@ -11,6 +11,8 @@ from commerce.accounting_reports import (
     MAX_REPORT_ROWS, ReportPeriod, TBILISI, _allocation, _bounded, event_queryset, order_row,
 )
 from commerce.models import OrderReturnLine, OwnedStockLot
+from commerce.return_costs import return_cost_report
+from commerce.courier_reporting import booking_report
 
 ZERO = Decimal("0.00")
 VAT = Decimal(18)
@@ -20,19 +22,21 @@ MONEY_KEYS = (
     "product_sales_net", "product_cost_net", "product_rounding_net", "product_profit_net",
     "courier_payable", "buffer_received",
     "buffer_refunded", "net_buffer", "internal_delivery_received", "internal_delivery_refunded",
-    "net_internal_delivery", "unsaleable_cost_net", "average_order",
+    "net_internal_delivery", "unsaleable_cost_net", "average_order", "retained_return_fee", "return_delivery_cost",
+    "courier_price_difference",
 )
 COUNT_KEYS = (
     "paid_orders", "refunded_orders", "sold_units", "returned_units", "net_units",
-    "regional_orders", "buffer_orders", "internal_orders", "unsaleable_units",
-    "unallocated_events", "unknown_cost_lines", "unknown_loss_lines",
+    "buffer_orders", "internal_orders", "unsaleable_units",
+    "unallocated_events", "unknown_cost_lines", "unknown_loss_lines", "unknown_return_cost_events",
+    "courier_booked_orders", "courier_unknown_price_orders", "courier_cancelled_orders", "courier_mismatch_orders",
 )
 ALLOCATED_KEYS = (
     "product_received", "product_refunded", "net_product_received", "delivery_received",
     "delivery_refunded", "net_delivery_received", "product_sales_net", "product_cost_net",
     "product_rounding_net", "product_profit_net",
     "buffer_received", "buffer_refunded", "net_buffer", "internal_delivery_received",
-    "internal_delivery_refunded", "net_internal_delivery", "sold_units", "returned_units", "net_units",
+    "internal_delivery_refunded", "net_internal_delivery", "sold_units", "returned_units", "net_units", "retained_return_fee",
 )
 
 
@@ -86,7 +90,7 @@ def _collect(period):
         daily[current.isoformat()] = _summary()
         current += timedelta(days=1)
     products, deliveries, losses, rows = {}, [], [], {}
-    paid_ids, refund_ids, courier_ids, internal_ids = set(), set(), set(), set()
+    paid_ids, refund_ids, internal_ids = set(), set(), set()
     daily_orders = {key: {"paid": set(), "refunded": set()} for key in daily}
     events = _bounded(event_queryset(period).filter(currency="GEL").select_related("order__return_case", "order__redcap_shipment"), MAX_REPORT_ROWS)
     for payment in events:
@@ -116,6 +120,8 @@ def _collect(period):
         sign = -1 if refund else 1
         suffix = "refunded" if refund else "received"
         for target in targets:
+            if refund:
+                target["retained_return_fee"] += allocation["retained_return_fee"]
             target[f"product_{suffix}"] += allocation["product_gross"]
             target[f"delivery_{suffix}"] += allocation["delivery_gross"]
             target[f"buffer_{suffix}"] += allocation["regional_buffer"]
@@ -125,29 +131,6 @@ def _collect(period):
                 target[f"internal_delivery_{suffix}"] += row["delivery_price"]
         if not refund and row["delivery_provider"] == "internal":
             internal_ids.add(payment.order_id)
-        # A quote is counted once per paid regional order, never once per item.
-        # A completed pre-dispatch cancellation incurs no outward carrier charge;
-        # a dispatched return must not erase the original carrier quote.
-        if not refund and row["delivery_provider"] in {"easyway", "redcap"} and payment.order_id not in courier_ids:
-            order = payment.order
-            case = getattr(order, "return_case", None)
-            shipment = getattr(order, "redcap_shipment", None)
-            dispatched = bool(shipment and shipment.tracking_number and shipment.state != "cancelled"
-                              or order.easyway_submitted_at or order.easyway_order_id
-                              or order.status in ("shipped", "delivered")
-                              or case and case.disposition == "from_customer")
-            cancelled_before_dispatch = not dispatched and any(
-                tx.action == "refund" and tx.status == "refunded" and tx.refunded_at
-                for tx in order.payment_transactions.all()
-            )
-            if not cancelled_before_dispatch:
-                courier_ids.add(payment.order_id)
-                for target in targets:
-                    target["courier_payable"] += allocation["carrier_quote"]
-                    target["regional_orders"] += 1
-                deliveries.append({"order_number": order.order_number, "date": occurred.astimezone(TBILISI).date().isoformat(),
-                                   "carrier": _money(allocation["carrier_quote"]), "buffer": _money(allocation["regional_buffer"]),
-                                   "delivery": _money(row["delivery_price"])})
         for line in allocation["product_lines"]:
             amount = line["amounts"]
             key = line["internal_sku"] or f"item:{line['item_id']}"
@@ -172,6 +155,24 @@ def _collect(period):
                 product["profit"] = None
             elif product["profit"] is not None:
                 product["profit"] += amount.net_markup * sign
+
+    bookings = booking_report(period)
+    summary["courier_booked_orders"] = len(bookings["rows"]) - bookings["cancelled"]
+    summary["courier_cancelled_orders"] = bookings["cancelled"]
+    summary["courier_unknown_price_orders"] = bookings["unknown"]
+    summary["courier_mismatch_orders"] = bookings["mismatches"]
+    summary["courier_price_difference"] = bookings["difference"]
+    summary["courier_payable"] = summary["courier_payable"] + bookings["total"] if bookings["total"] is not None else None
+    deliveries.extend(bookings["rows"])
+    return_costs = return_cost_report(period)
+    summary["return_delivery_cost"] = return_costs["total"]
+    summary["unknown_return_cost_events"] = return_costs["unknown"]
+    for row in return_costs["rows"]:
+        day = daily[row["recorded_at"].astimezone(TBILISI).date().isoformat()]
+        if row["cost"] is None:
+            day["unknown_return_cost_events"] += 1
+        else:
+            day["return_delivery_cost"] += row["cost"]
 
     lower, upper = period.bounds
     rejected = OrderReturnLine.objects.filter(
@@ -205,12 +206,11 @@ def _collect(period):
                 target[key] = None
         if target["unknown_loss_lines"]:
             target["unsaleable_cost_net"] = None
+        if target["unknown_return_cost_events"]:
+            target["return_delivery_cost"] = None
     summary["paid_orders"], summary["refunded_orders"] = len(paid_ids), len(refund_ids)
     summary["internal_orders"] = len(internal_ids)
     summary["average_order"] = summary["received"] / len(paid_ids) if paid_ids and not summary["unallocated_events"] else (None if summary["unallocated_events"] else ZERO)
-    if summary["unallocated_events"]:
-        # Carrier subtotals cannot be advertised as complete if allocation failed.
-        summary["courier_payable"] = None
     ordered_products = sorted(products.values(), key=lambda item: (-item["received"], item["name"]))
     top = [{**{key: product[key] for key in ("sku", "name", "sold_units", "returned_units")},
             "net_units": product["sold_units"] - product["returned_units"],

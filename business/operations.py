@@ -8,6 +8,9 @@ from django.utils import timezone
 
 from catalog.models import SupplierSyncReport
 from commerce.models import RedcapSyncReport, OrderReturn, OrderReturnLine, OwnedStockAllocation, OwnedStockLot, PaymentTransaction
+from commerce.refund_terms import settlement_for_refund
+from django.core.exceptions import ValidationError
+from commerce.courier_reporting import shipment_report
 
 from .reports import TBILISI, _money
 
@@ -15,7 +18,7 @@ PAGE_SIZE = 20
 PAYMENT_LABELS = {
     "pending": "დადასტურების მოლოდინში", "authorized": "თანხა ავტორიზებულია",
     "paid": "გადახდილია", "failed": "წარუმატებელი", "cancelled": "გაუქმებულია",
-    "refund_pending": "თანხის დაბრუნების მოლოდინში", "refunded": "თანხა დაბრუნებულია",
+    "refund_pending": "თანხის დაბრუნების მოლოდინში", "refunded": "თანხა დაბრუნებულია", "partially_refunded": "თანხა ნაწილობრივ დაბრუნებულია",
 }
 ACTION_LABELS = {
     "sale": "გადახდა", "authorize": "ავტორიზაცია", "capture": "თანხის ჩამოჭრა",
@@ -40,7 +43,7 @@ TRACKING_COUNTS = {
     "failed": "შეცდომა", "skipped": "გამოტოვებულია",
 }
 PENDING = Q(status__in=("pending", "authorized", "refund_pending"))
-ISSUES = ~Q(reconciliation_issue="") | Q(status="paid", order__isnull=True)
+ISSUES = ~Q(reconciliation_issue="") | ~Q(error_code="") | Q(status="paid", order__isnull=True)
 
 
 def _age(when, now):
@@ -67,10 +70,18 @@ def _returns(options, now):
         cases = cases.filter(receipt_status=selected)
     cases = cases.select_related("order").prefetch_related(
         Prefetch("lines", queryset=OrderReturnLine.objects.select_related("order_item").order_by("pk")),
+        Prefetch("order__payment_transactions", queryset=PaymentTransaction.objects.filter(action="refund").order_by("-created_at", "-pk")),
     ).order_by("created_at", "pk")
 
     def serialize(case):
         lines = list(case.lines.all())
+        refunds = list(case.order.payment_transactions.all())
+        latest = refunds[0] if refunds else None
+        try:
+            terms = settlement_for_refund(latest, total=case.order.total) if latest else None
+        except ValidationError:
+            terms = None
+        confirmed = [row for row in refunds if row.status == "refunded" and row.refunded_at]
         return {"id": case.pk, "order_number": case.order.order_number, "receipt_status": case.receipt_status,
                 "receipt_label": case.get_receipt_status_display(), "disposition_label": case.get_disposition_display(),
                 "payment_label": PAYMENT_LABELS.get(case.order.payment_status, "მდგომარეობა უცნობია"),
@@ -80,6 +91,14 @@ def _returns(options, now):
                 "saleable_units": sum(line.saleable_quantity for line in lines),
                 "unsaleable_units": sum(line.unsaleable_quantity for line in lines),
                 "product_count": len(lines),
+                "paid_total": _money(case.order.total),
+                "refunded_amount": _money(sum((row.amount for row in confirmed), Decimal("0.00"))),
+                "requested_refund": _money(latest.amount) if latest else None,
+                "refund_status_label": PAYMENT_LABELS.get(latest.status) if latest else "თანხის დაბრუნება არ მოთხოვნილა",
+                "refund_confirmed": bool(latest and latest.status == "refunded" and latest.refunded_at),
+                "retained_return_fee": terms["retained_return_fee"] if terms else None,
+                "return_delivery_cost": terms["return_delivery_cost"] if terms else None,
+                "return_delivery_payer": ("მომხმარებელი" if terms["return_delivery_payer"] == "customer" else "FlexDrive") if terms else None,
                 "products": [{"name": line.order_item.product_name, "sku": line.order_item.internal_sku,
                               "quantity": line.expected_quantity} for line in lines[:5]]}
 
@@ -128,6 +147,8 @@ def _payments(options):
 
     def serialize(payment):
         issue = ISSUE_LABELS.get(payment.reconciliation_issue, "შენახულია გადასამოწმებელი ჩანაწერი.") if payment.reconciliation_issue else None
+        if payment.error_code:
+            issue = "თანხის დაბრუნების შედეგი შესაჯერებელია — გადაამოწმეთ შეკვეთა ადმინში." if payment.action == "refund" else "გადახდას შენახული გაფრთხილება აქვს — გადაამოწმეთ ადმინში."
         if payment.status == "paid" and not payment.order_id:
             issue = ISSUE_LABELS["paid_without_order"]
         return {"id": payment.pk, "order_number": payment.order.order_number if payment.order_id else None,
@@ -171,5 +192,6 @@ def build_operations_report(options=None):
     now = timezone.now()
     return {"generated_at": now.isoformat(), "timezone": "Asia/Tbilisi",
             "returns": _returns(options, now), "stock": _stock(options, now), "payments": _payments(options),
+            "shipments": shipment_report(options),
             "syncs": [_sync(SupplierSyncReport, "supplier", "Cross Motors", SUPPLIER_COUNTS),
                       _sync(RedcapSyncReport, "carrier", "RedCap", TRACKING_COUNTS)]}

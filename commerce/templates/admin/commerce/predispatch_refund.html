@@ -5,22 +5,31 @@
   <h2>შეკვეთა {{ order.order_number }}</h2>
   <table style="width:100%"><thead><tr><th>პროდუქტი</th><th>რაოდენობა</th></tr></thead>
   <tbody>{% for item in items %}<tr><td>{{ item.product_name }}</td><td>{{ item.quantity }}</td></tr>{% endfor %}</tbody></table>
-  <p><strong>სრულად დასაბრუნებელი თანხა: {{ order.total }} ₾</strong></p>
+  <p><strong>შეკვეთაზე გადახდილია: {{ order.total }} ₾</strong></p>
   {% if allowed %}
-  <p>{% if customer_return %}ნივთები მიღებული და შემოწმებულია. დაბრუნდება შეკვეთის სრული თანხა.{% else %}არჩევანი ეხება მთელ შეკვეთას.{% endif %}</p>
+  <p>{% if customer_return %}ყველა ნივთი მიღებული და შემოწმებულია. აირჩიეთ უკუმიტანის ხარჯის გადამხდელი და გადაამოწმეთ დასაბრუნებელი თანხა.{% else %}არჩევანი ეხება მთელ შეკვეთას.{% endif %}</p>
   <form method="post">{% csrf_token %}{{ form.as_p }}
     <div class="module" style="padding:16px">
       {% if customer_return %}<p>მარაგი უკვე აღრიცხულია. თანხის დაბრუნება პროდუქტებს მეორედ არ დაამატებს.</p>{% else %}
       <p><strong>თუ ჯერ არ შეგიძენიათ:</strong> ბანკის დადასტურების შემდეგ მომწოდებლის რეზერვაცია გათავისუფლდება. ჩვენი მარაგიდან აღებული ცალები თავის მარაგს დაუბრუნდება.</p>
       <p><strong>თუ უკვე თქვენთანაა:</strong> პროდუქტები პირდაპირ FlexDrive-ის მარაგს დაემატება. უკან მოსალოდნელ ნივთებში არ მოხვდება.</p>
       {% endif %}
-      <p>ბანკში გაიგზავნება სრული თანხის დაბრუნების მოთხოვნა. თანხა დაბრუნებულად ჩაითვლება მხოლოდ ბანკის დადასტურების შემდეგ.</p>
+      {% if preview %}
+      <p>უკუმიტანის ხარჯი: {{ settlement.return_delivery_cost }} ₾</p>
+      <p>შეთანხმებული დაქვითვა: {{ settlement.retained_return_fee }} ₾</p>
+      <p><strong>მომხმარებლისთვის დასაბრუნებელი თანხა: {{ settlement.refund_amount }} ₾</strong></p>
+      <input type="hidden" name="preview_token" value="{{ preview_token }}">
+      {% endif %}
+      <p>თანხა დაბრუნებულად ჩაითვლება მხოლოდ ბანკის საბოლოო დადასტურების შემდეგ.</p>
       <p>ბანკში გაგზავნილ მოთხოვნას ვეღარ გააუქმებთ.</p>
     </div>
-    <div class="submit-row"><input type="submit" value="დადასტურება და თანხის დაბრუნება"><a href="{{ cancel_url }}" class="closelink">უკან, მოქმედების გარეშე</a></div>
+    <div class="submit-row">{% if customer_return %}{% if preview %}<button type="submit" name="execute" value="yes">დადასტურება და {{ settlement.refund_amount }} ₾-ის დაბრუნება</button>{% else %}<input type="submit" value="დასაბრუნებელი თანხის შემოწმება">{% endif %}{% else %}<input type="submit" value="დადასტურება და თანხის დაბრუნება">{% endif %}<a href="{{ cancel_url }}" class="closelink">უკან, მოქმედების გარეშე</a></div>
   </form>
   {% else %}
     {{ form.non_field_errors }}
+    {% if courier_cancellation_required %}
+    <p><strong>ჯერ უნდა დადასტურდეს RedCap-ის გზავნილის გაუქმება.</strong> გამოიყენეთ შეკვეთაზე „RedCap გზავნილის გაუქმება“. თუ კურიერი უკვე დანიშნულია, ჯერ RedCap-თან შეათანხმეთ შეჩერება ან დაბრუნება. გაურკვეველი შედეგისას გადაამოწმეთ საკურიერო სტატუსი.</p>
+    {% endif %}
     <p>ამ ეტაპზე თანხის დაბრუნების ახალი მოთხოვნა მიუწვდომელია. მიმდინარე მოთხოვნის შემთხვევაში შეამოწმეთ ბანკის მდგომარეობა შეკვეთის გვერდიდან. გაგზავნილი ნივთის დაბრუნებას ჯერ მიღება და შემოწმება სჭირდება.</p>
     <a href="{{ cancel_url }}">შეკვეთაზე დაბრუნება</a>
   {% endif %}

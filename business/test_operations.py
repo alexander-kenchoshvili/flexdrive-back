@@ -180,7 +180,7 @@ class OperationsTests(TestCase):
                 patch("socket.socket.connect", side_effect=AssertionError("outbound connection")), \
                 patch("socket.getaddrinfo", side_effect=AssertionError("outbound DNS")):
             report = self.report({"returns": "all"})
-        self.assertLessEqual(len(queries), 17)
+        self.assertLessEqual(len(queries), 21)
         self.assertNotIn("PRIVATE", str(report))
         self.assertNotIn("unknown-private-value", str(report))
 
@@ -195,7 +195,7 @@ class OperationsTests(TestCase):
         response = client.get(url)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Cache-Control"], "no-store")
-        for query in ({"returns": "bad"}, {"payments": "bad"}, {"stock_page": 0}, {"returns_page": "oops"}, {"payments_page": 1000001}):
+        for query in ({"returns": "bad"}, {"payments": "bad"}, {"stock_page": 0}, {"returns_page": "oops"}, {"payments_page": 1000001}, {"shipments": "bad"}, {"shipments_page": 0}):
             self.assertEqual(client.get(url, query).status_code, 400)
         self.assertEqual(client.post(url, {}, format="json").status_code, 405)
         owner.is_superuser = False

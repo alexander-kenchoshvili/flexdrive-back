@@ -2,6 +2,7 @@
 from django import forms
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.core import signing
 from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import reverse
@@ -10,6 +11,8 @@ from .bog_payments import BogPaymentError
 from .bog_refunds import can_request_bog_full_refund, request_bog_full_refund
 from .models import OrderReturn, ReturnDisposition, ReturnReceiptStatus
 from .returns import has_external_items, prepare_order_return, receive_order_return
+from .redcap_shipments import has_unsettled_redcap_shipment
+from .refund_terms import build_settlement
 
 
 class PredispatchRefundForm(forms.Form):
@@ -40,15 +43,49 @@ def predispatched_refund_view(model_admin, request, order):
     cancel_url = reverse("admin:commerce_order_change", args=[order.pk])
     customer_return = OrderReturn.objects.filter(order=order, disposition=ReturnDisposition.FROM_CUSTOMER).exists()
     data = request.POST if request.method == "POST" else None
-    form = ConfirmReturnForm(data) if customer_return else PredispatchRefundForm(data, order=order)
+    form = CustomerRefundForm(data) if customer_return else PredispatchRefundForm(data, order=order)
+    if customer_return:
+        pending = order.payment_transactions.filter(action="refund", status="refund_pending").order_by("-pk").first()
+        if pending:
+            from .refund_terms import settlement_for_refund
+            try:
+                frozen = settlement_for_refund(pending, total=order.total)
+            except ValidationError:
+                frozen = None
+            if frozen:
+                for field in ("return_delivery_payer", "return_delivery_cost", "customer_agreed", "deduction_reason"):
+                    form.fields[field].initial = frozen[field]
+                    form.fields[field].disabled = True
     allowed = can_request_bog_full_refund(order)
+    settlement = None
+    preview = False
+    preview_token = ""
     if request.method == "POST" and form.is_valid():
         try:
+            if customer_return:
+                settlement = build_settlement(total=order.total, cost=form.cleaned_data["return_delivery_cost"],
+                    payer=form.cleaned_data["return_delivery_payer"], agreed=form.cleaned_data["customer_agreed"],
+                    reason=form.cleaned_data["deduction_reason"])
+                preview_data = {"order_id": order.pk, "settlement": settlement}
+                try:
+                    confirmed = signing.loads(request.POST.get("preview_token", ""), salt="order-refund-preview", max_age=900)
+                except signing.BadSignature:
+                    confirmed = None
+                preview_token = signing.dumps(preview_data, salt="order-refund-preview", compress=True)
+                if request.POST.get("execute") != "yes" or confirmed != preview_data:
+                    preview = True
+            if preview:
+                raise RefundPreview
+            if not allowed:
+                raise ValidationError("ამ ეტაპზე თანხის დაბრუნების ახალი მოთხოვნა მიუწვდომელია.")
             refund = request_bog_full_refund(
                 order=order, requested_by=request.user,
                 disposition=ReturnDisposition.FROM_CUSTOMER if customer_return else form.cleaned_data["disposition"],
                 not_dispatched=False if customer_return else form.cleaned_data["not_dispatched"],
+                **({"settlement": settlement} if customer_return else {}),
             )
+        except RefundPreview:
+            pass
         except ValidationError as error:
             form.add_error(None, error.messages[0])
         except BogPaymentError as error:
@@ -71,6 +108,9 @@ def predispatched_refund_view(model_admin, request, order):
         "original": order, "title": f"თანხის დაბრუნება — {order.order_number}",
         "order": order, "items": order.items.all(), "form": form, "cancel_url": cancel_url,
         "allowed": allowed, "customer_return": customer_return,
+        "settlement": settlement, "preview": preview,
+        "preview_token": preview_token,
+        "courier_cancellation_required": not customer_return and has_unsettled_redcap_shipment(order),
     })
 
 
@@ -79,6 +119,26 @@ class ConfirmReturnForm(forms.Form):
         label="ვადასტურებ მოქმედებას.",
         error_messages={"required": "მოქმედებისთვის საჭიროა დადასტურება."},
     )
+
+
+class RefundPreview(Exception):
+    """A server-calculated preview makes the final money action explicit."""
+
+
+class CustomerRefundForm(ConfirmReturnForm):
+    return_delivery_payer = forms.ChoiceField(label="უკუმიტანის საფასურს ვინ იხდის?",
+        choices=[("merchant", "FlexDrive"), ("customer", "მომხმარებელი — შეთანხმებული თანხის დაქვითვით")],
+        error_messages={"required": "აირჩიეთ გადამხდელი.", "invalid_choice": "აირჩიეთ მითითებული ვარიანტი."})
+    return_delivery_cost = forms.DecimalField(label="უკუმიტანის საფასური (₾)", min_value=0,
+        max_digits=12, decimal_places=2, initial=0,
+        help_text="მიუთითეთ შეთანხმებული ხარჯი. FlexDrive-ის არჩევისას მომხმარებელს სრული თანხა უბრუნდება.",
+        error_messages={"required": "მიუთითეთ თანხა (ან 0).", "invalid": "მიუთითეთ სწორი თანხა.",
+            "min_value": "ხარჯი ვერ იქნება უარყოფითი.", "max_digits": "თანხა ძალიან დიდია.",
+            "max_decimal_places": "გამოიყენეთ მაქსიმუმ ორი ათწილადი.", "max_whole_digits": "თანხა ძალიან დიდია."})
+    customer_agreed = forms.BooleanField(required=False,
+        label="მომხმარებელს შევუთანხმე უკუმიტანის თანხის დაქვითვა.")
+    deduction_reason = forms.CharField(label="დაქვითვის მიზეზი", required=False, max_length=500,
+        widget=forms.Textarea(attrs={"rows": 2}), help_text="აუცილებელია, როცა უკუმიტანის ხარჯს მომხმარებელი იხდის.")
 
 
 class ReceiveReturnForm(ConfirmReturnForm):

@@ -284,3 +284,14 @@ class RedcapAdminTests(TestCase):
         response = self.client.get(reverse("admin:commerce_redcapreferencedata_change", args=[1]))
         self.assertContains(response, "10.00 ₾")
         self.assertNotContains(response, 'name="weights"')
+        self.assertNotContains(response, 'name="_save"')
+        self.assertNotContains(response, 'name="_continue"')
+        self.assertNotContains(response, 'name="_addanother"')
+
+    def test_detail_post_cannot_save_the_reference_snapshot(self):
+        snapshot = refresh_redcap_references(client=reference_client())
+        url = reverse("admin:commerce_redcapreferencedata_change", args=[1])
+        response = self.client.post(url, {"category": "Changed", "_save": "Save"})
+        self.assertEqual(response.status_code, 403)
+        snapshot.refresh_from_db()
+        self.assertEqual(snapshot.category, "მე-2 კატეგორია (ასლი)")

@@ -26,6 +26,8 @@ from .services import (
     create_payment_transaction,
     transition_order_payment_status,
 )
+from .redcap_shipments import has_unsettled_redcap_shipment
+from .refund_terms import build_settlement, settlement_for_refund
 
 
 logger = logging.getLogger(__name__)
@@ -49,6 +51,8 @@ def _return_ready_for_refund(order):
     if case and case.disposition == ReturnDisposition.FROM_CUSTOMER:
         return (order.status in {OrderStatus.SHIPPED, OrderStatus.DELIVERED}
                 and case.receipt_status == ReturnReceiptStatus.RECEIVED)
+    if has_unsettled_redcap_shipment(order):
+        return False
     return order.status in CANCELLABLE_ORDER_STATUSES
 
 
@@ -89,6 +93,7 @@ def request_bog_full_refund(
     client=None,
     disposition=None,
     not_dispatched=False,
+    settlement=None,
 ):
     refund, should_submit = _prepare_bog_full_refund(
         order=order,
@@ -96,16 +101,19 @@ def request_bog_full_refund(
         requested_by=requested_by,
         disposition=disposition,
         not_dispatched=not_dispatched,
+        settlement=settlement,
     )
     if not should_submit:
         return refund
 
     payment_client = client or BogPaymentsClient.from_settings()
     try:
-        result = payment_client.refund_full(
-            order_id=refund.provider_order_id,
-            idempotency_key=refund.idempotency_key,
-        )
+        terms = settlement_for_refund(refund, total=refund.order.total) if refund.order_id else None
+        arguments = {"order_id": refund.provider_order_id, "idempotency_key": refund.idempotency_key}
+        if terms and Decimal(terms["retained_return_fee"]) > 0:
+            result = payment_client.refund_partial(**arguments, amount=refund.amount)
+        else:
+            result = payment_client.refund_full(**arguments)
         if result.key != "request_received":
             raise BogResponseError(
                 code="bog_refund_response_unconfirmed",
@@ -134,6 +142,7 @@ def _prepare_bog_full_refund(
     requested_by=None,
     disposition=None,
     not_dispatched=False,
+    settlement=None,
 ):
     if (order is None) == (sale_payment is None):
         raise ValueError("Provide either order or sale_payment.")
@@ -155,6 +164,15 @@ def _prepare_bog_full_refund(
 
     _validate_refundable_sale(locked_sale, locked_order)
 
+    if locked_order:
+        customer_return = OrderReturn.objects.filter(
+            order=locked_order, disposition=ReturnDisposition.FROM_CUSTOMER,
+        ).exists()
+        if not customer_return and has_unsettled_redcap_shipment(locked_order):
+            raise DjangoValidationError(
+                "ჯერ დაადასტურეთ RedCap-ის გზავნილის გაუქმება. აქტიური ან გაურკვეველი გზავნილის დროს თანხა არ დაბრუნდება."
+            )
+
     return_case = None
     if locked_order and disposition == ReturnDisposition.FROM_CUSTOMER:
         from .returns import _validate_actor
@@ -173,6 +191,23 @@ def _prepare_bog_full_refund(
         return_case = prepare_order_return(order=locked_order, disposition=disposition, actor=requested_by)
     elif locked_order and OrderReturn.objects.filter(order=locked_order).exists():
         raise DjangoValidationError("დაბრუნება შეასრულეთ შეკვეთის დაბრუნების ფანჯრიდან.")
+
+    if settlement is not None:
+        if not return_case or disposition != ReturnDisposition.FROM_CUSTOMER:
+            raise DjangoValidationError("უკუმიტანის ხარჯი მხოლოდ მიღებულ მომხმარებლის დაბრუნებას ეხება.")
+        if not isinstance(settlement, dict):
+            raise DjangoValidationError("დაბრუნების პირობები არასწორია.")
+        expected = build_settlement(total=locked_sale.amount,
+            cost=settlement.get("return_delivery_cost"), payer=settlement.get("return_delivery_payer"),
+            agreed=settlement.get("customer_agreed"), reason=settlement.get("deduction_reason"))
+        if settlement != expected:
+            raise DjangoValidationError("დაბრუნების თანხა შენახულ პირობებს არ ემთხვევა.")
+        first_cost = locked_order.payment_transactions.filter(action="refund", provider="bog",
+            provider_reference__refund_request__settlement__kind="whole_order_return").order_by("created_at", "pk").first()
+        if first_cost:
+            recorded = settlement_for_refund(first_cost, total=locked_sale.amount)
+            if recorded["return_delivery_cost"] != settlement["return_delivery_cost"]:
+                raise DjangoValidationError("უკუმიტანის ხარჯი უკვე დაფიქსირებულია. თანხის დაბრუნების განმეორებით ცდა ამ ხარჯს ვერ შეცვლის.")
 
     existing = (
         PaymentTransaction.objects.select_for_update()
@@ -197,6 +232,8 @@ def _prepare_bog_full_refund(
         .first()
     )
     if existing is not None:
+        if settlement_for_refund(existing, total=locked_sale.amount) != settlement:
+            raise DjangoValidationError("მიმდინარე მოთხოვნის პირობებს ვერ შეცვლით. ჯერ გადაამოწმეთ ბანკის პასუხი.")
         should_submit = (
             existing.status == PaymentTransactionStatus.REFUND_PENDING
             and not existing.provider_action_id
@@ -224,11 +261,13 @@ def _prepare_bog_full_refund(
         request_context["requested_by_user_id"] = requested_by.pk
     if return_case:
         request_context["return_case_id"] = return_case.pk
+    if settlement is not None:
+        request_context["settlement"] = settlement
 
     refund = create_payment_transaction(
         order=locked_order,
         reservation=locked_sale.reservation,
-        amount=locked_sale.amount,
+        amount=Decimal(settlement["refund_amount"]) if settlement else locked_sale.amount,
         provider=PaymentProvider.BOG,
         payment_method=OrderPaymentMethod.CARD,
         action=PaymentTransactionAction.REFUND,
@@ -275,6 +314,10 @@ def _record_refund_request_accepted(refund, result):
     locked_refund = PaymentTransaction.objects.select_for_update().get(
         pk=refund.pk
     )
+    if locked_refund.status == PaymentTransactionStatus.REFUNDED:
+        if locked_refund.provider_action_id != result.action_id:
+            raise DjangoValidationError("ბანკის მოქმედების ნომერი დადასტურებულ დაბრუნებას არ ემთხვევა.")
+        return locked_refund
     duplicate_action = (
         PaymentTransaction.objects.select_for_update()
         .filter(
@@ -320,6 +363,8 @@ def _record_refund_request_error(refund, error):
     locked_refund = PaymentTransaction.objects.select_for_update().get(
         pk=refund.pk
     )
+    if locked_refund.status == PaymentTransactionStatus.REFUNDED:
+        return locked_refund
     outcome_unknown = bool(error.outcome_unknown or error.retryable)
     locked_refund.error_code = str(error.code or "bog_refund_error")[:80]
     locked_refund.error_message = (
@@ -347,6 +392,8 @@ def _record_unknown_refund_request_error(refund):
     locked_refund = PaymentTransaction.objects.select_for_update().get(
         pk=refund.pk
     )
+    if locked_refund.status == PaymentTransactionStatus.REFUNDED:
+        return locked_refund
     locked_refund.error_code = "bog_refund_unexpected_error"
     locked_refund.error_message = (
         "BOG refund result is not known; reconcile before retrying."
@@ -370,6 +417,46 @@ def reconcile_bog_refund_details(
     _validate_refundable_sale(sale, sale.order)
     action = _matching_refund_action(sale, details)
     refund = _lock_or_create_refund_from_details(sale, details, action)
+
+    # A confirmed money movement is terminal, including late/out-of-order events.
+    if refund.status == PaymentTransactionStatus.REFUNDED:
+        extra_actions = [a for a in details.actions if a.action in BOG_REFUND_ACTIONS
+                         and a.status == "completed" and a.action_id != refund.provider_action_id]
+        if details.refund_amount > refund.amount or extra_actions:
+            refund.error_code = "bog_refund_additional_activity_requires_review"
+            refund.error_message = "დადასტურებული დაბრუნების შემდეგ ბანკში დამატებითი დაბრუნება ჩანს. საჭიროა ხელით შეჯერება."
+            refund.provider_reference = _merge_provider_reference(refund, provider_reference)
+            refund.save(update_fields=["error_code", "error_message", "provider_reference", "updated_at"])
+            return BogRefundReconciliationResult(refund, refund.order, "refund_reconciliation_required")
+        if refund.error_code == "bog_refund_additional_activity_requires_review":
+            return BogRefundReconciliationResult(refund, refund.order, "refund_reconciliation_required")
+        if (details.refund_amount == refund.amount and details.status in {"refunded", "refunded_partially"}
+                and (action is None or action.status == "completed" and action.action_id == refund.provider_action_id
+                     and action.amount == refund.amount)):
+            return _mark_refund_completed(refund, provider_reference, action)
+        return BogRefundReconciliationResult(refund, refund.order, "already_refunded")
+
+    terms = settlement_for_refund(refund, total=sale.amount)
+    if terms is not None:
+        if details.order_id != sale.provider_order_id or details.currency != sale.currency or details.request_amount != sale.amount:
+            return _mark_refund_ambiguous(refund, provider_reference, "bog_refund_payment_mismatch")
+        context = refund.provider_reference[REFUND_REQUEST_CONTEXT_KEY]
+        valid_case = OrderReturn.objects.filter(pk=context.get("return_case_id"), order_id=sale.order_id,
+            disposition=ReturnDisposition.FROM_CUSTOMER, receipt_status=ReturnReceiptStatus.RECEIVED).exists()
+        if not valid_case or context.get("sale_payment_id") != sale.pk:
+            return _mark_refund_ambiguous(refund, provider_reference, "bog_refund_return_mismatch")
+        expected_action = "partial_refund" if refund.amount < sale.amount else "refund"
+        if action is not None and refund.provider_action_id and action.action_id != refund.provider_action_id:
+            return _mark_refund_ambiguous(refund, provider_reference, "bog_refund_action_mismatch")
+        if action is not None and action.status == "rejected" and details.refund_amount == 0:
+            return _mark_refund_rejected(refund, provider_reference, action)
+        if details.status in {"refunded", "refunded_partially"} or details.refund_amount > 0:
+            if (details.refund_amount != refund.amount or action is None or action.action != expected_action
+                    or action.status != "completed" or action.amount != refund.amount
+                    or details.status != ("refunded_partially" if refund.amount < sale.amount else "refunded")):
+                return _mark_refund_ambiguous(refund, provider_reference, "bog_refund_amount_mismatch")
+            return _mark_refund_completed(refund, provider_reference, action)
+        return _mark_refund_pending(refund, provider_reference, action)
 
     if _is_partial_refund(sale, details, action):
         return _mark_partial_refund_for_review(
@@ -676,8 +763,10 @@ def _mark_refund_completed(refund, provider_reference, action):
             order=None,
             result="refunded",
         )
-    if order.payment_status != OrderPaymentStatus.REFUNDED:
-        transition_order_payment_status(order, OrderPaymentStatus.REFUNDED)
+    target_status = (OrderPaymentStatus.PARTIALLY_REFUNDED
+                     if refund.amount < order.total else OrderPaymentStatus.REFUNDED)
+    if order.payment_status != target_status:
+        transition_order_payment_status(order, target_status)
         order.refresh_from_db()
 
     request_context = refund.provider_reference.get(
@@ -686,7 +775,7 @@ def _mark_refund_completed(refund, provider_reference, action):
     )
     if (
         was_refunded
-        and order.payment_status == OrderPaymentStatus.REFUNDED
+        and order.payment_status == target_status
         and (
             not request_context.get("restore_stock_on_success")
             or (

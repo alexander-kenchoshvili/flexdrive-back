@@ -31,7 +31,7 @@ class AccountingExportTests(AccountingAdminTests):
                 headers = [c.find("s:is/s:t", ns).text for c in sheet.findall('.//s:row[@r="7"]/s:c', ns)]
                 values = sheet.findall('.//s:row[@r="8"]/s:c', ns)
                 totals = sheet.findall('.//s:row[@r="9"]/s:c', ns)
-                self.assertEqual(len(headers), 18 if enabled else 16)
+                self.assertEqual(len(headers), 22 if enabled else 20)
                 self.assertEqual(len(values), len(headers))
                 self.assertEqual(len(totals), len(headers))
                 for header in (HEADERS[5], HEADERS[7]):
@@ -66,7 +66,7 @@ class AccountingExportTests(AccountingAdminTests):
         with ZipFile(BytesIO(response.content)) as archive:
             for name in archive.namelist():
                 ET.fromstring(archive.read(name))
-            self.assertEqual(len([n for n in archive.namelist() if n.startswith("xl/worksheets/")]), 1)
+            self.assertEqual(len([n for n in archive.namelist() if n.startswith("xl/worksheets/")]), 2)
             sheet = ET.fromstring(archive.read("xl/worksheets/sheet1.xml"))
             self.assertFalse(sheet.findall(".//s:f", ns))
             self.assertEqual(sheet.find('.//s:c[@r="K8"]/s:v', ns).text, "16.95")
@@ -90,7 +90,7 @@ class AccountingExportTests(AccountingAdminTests):
             self.assertIn("FlexDrive", sheet.find('.//s:c[@r="A1"]/s:is/s:t', ns).text)
             self.assertIn("01.09.2026 — 30.09.2026", sheet.find('.//s:c[@r="A2"]/s:is/s:t', ns).text)
             self.assertIn("FD-01-0999", sheet.find('.//s:c[@r="A3"]/s:is/s:t', ns).text)
-            self.assertEqual(sheet.find("s:autoFilter", ns).get("ref"), "A7:R8")
+            self.assertEqual(sheet.find("s:autoFilter", ns).get("ref"), "A7:V8")
             self.assertEqual(sheet.find(".//s:pane", ns).get("topLeftCell"), "E8")
             self.assertEqual(sheet.find('.//s:c[@r="K9"]', ns).get("s"), "8")
             self.assertEqual(sheet.find("s:pageSetup", ns).get("orientation"), "landscape")
@@ -122,7 +122,7 @@ class AccountingExportTests(AccountingAdminTests):
             self.assertEqual(sheet.find('.//s:c[@r="K9"]/s:v', ns).text, "-16.95")
             self.assertEqual(sheet.find('.//s:c[@r="K10"]/s:v', ns).text, "0.00")
             self.assertEqual(sheet.find('.//s:c[@r="P8"]/s:is/s:t', ns).text, "გადახდილი")
-            self.assertIsNone(sheet.find('.//s:c[@r="S7"]', ns))
+            self.assertIsNone(sheet.find('.//s:c[@r="W7"]', ns))
             self.assertIsNone(sheet.find('.//s:c[@r="O10"]/s:v', ns))
             self.assertEqual(len(sheet.findall('.//s:row', ns)), 10)
 

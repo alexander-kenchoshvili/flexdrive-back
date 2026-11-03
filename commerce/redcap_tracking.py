@@ -81,9 +81,10 @@ def _apply(shipment_id, number, token, status, metadata):
             shipment.carrier_status = status
             if status not in metadata or status not in STATUS_TARGETS:
                 issue = "უცნობი საკურიერო სტატუსია. შეკვეთა არ შეცვლილა."
-            elif shipment.state in {"cancel_unknown", "cancelling"} and status == "cancelled":
+            elif shipment.state in {"created", "cancel_unknown", "cancelling"} and status == "cancelled":
                 shipment.state = "cancelled"
                 shipment.last_error = ""
+                issue = "RedCap-ის გზავნილი გაუქმებულია. შეკვეთის გაუქმება და თანხის დაბრუნება ცალკე დასადასტურებელია."
             elif shipment.state != "created":
                 issue = "გაუქმების მდგომარეობა შესამოწმებელია. შეკვეთა არ შეცვლილა."
             elif status in ATTENTION:

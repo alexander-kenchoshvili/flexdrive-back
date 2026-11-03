@@ -45,6 +45,9 @@ def display(value):
 def order_block(group, columns):
     rows = group["rows"]
     first = rows[0]
+    provider = group.get("delivery_provider")
+    delivery_field = (11, "შიდა მიტანა (ძველი)") if provider == "internal" else (
+        12, "ჩექაუთის საკურიერო ტარიფი")
     subtotal = ["პროდუქტების ჯამი", None, sum(r[4] for r in rows), None, None]
     for column in range(7, 11):
         values = [r[column] for r in rows]
@@ -56,7 +59,12 @@ def order_block(group, columns):
             "rows": [[display(row[i]) for i in columns] for row in rows],
             "subtotal": [display(subtotal[i - 2]) for i in columns],
             "delivery": [(label, display(first[index])) for index, label in (
-                (11, "თბილისის მიტანა"), (12, "რეგიონის მიტანა"), (13, "ბუფერი"), (14, "შეკვეთის სრული თანხა"))]}
+                delivery_field, (13, "ბუფერი"), (14, "დაბრუნებული თანხა" if group.get("refund") else "შეკვეთის სრული თანხა"))]
+                + ([("შეკვეთის თავდაპირველი თანხა", display(group["original_total"])),
+                    ("უკუმიტანისთვის დაქვითული", display(first[18])), ("უკუმიტანის ხარჯი", display(first[19]))]
+                   if group.get("refund") else [])
+                + ([("RedCap-ის ფასი — საინფორმაციო", display(first[20])), ("ფასთა სხვაობა", display(first[21]))]
+                   if provider == "redcap" else [])}
 
 
 @require_GET
@@ -78,12 +86,14 @@ def accounting_view(request):
             report["show_purchase"] = form.cleaned_data["show_purchase"]
             columns = visible_columns(report["show_purchase"])
             product_columns = [i for i in columns if 2 <= i <= 10]
-            total_columns = [i for i in columns if i == 4 or 7 <= i <= 14]
+            total_columns = [i for i in columns if i == 4 or 7 <= i <= 14 or i == 18]
             if request.GET.get("export") == "xlsx":
                 from .accounting_export import export_response
                 return export_response(report)
             page = Paginator(report["groups"], 20).get_page(request.GET.get("page"))
             context.update(period=form.period, status=report["status"], sku=report["sku"], order_count=report["order_count"],
+                return_costs=report["return_costs"],
+                courier_bookings=report["courier_bookings"],
                 headers=report["headers"], rows=[[display(v) for v in row] for group in page for row in group["rows"]],
                 groups=[order_block(group, product_columns) for group in page],
                 product_headers=[report["headers"][i] for i in product_columns],

@@ -7,6 +7,7 @@ import re
 
 from django.http import HttpResponse
 from .accounting_ledger import HEADERS, visible_columns
+from .accounting_reports import TBILISI
 
 NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -27,7 +28,7 @@ def xml(element):
 HEADER_ROW = 7
 
 
-def workbook_bytes(sheets, *, introduction=(), bands=()):
+def workbook_bytes(sheets, *, introduction=(), bands=(), introductions=None):
     output = BytesIO()
     with ZipFile(output, "w", ZIP_DEFLATED) as archive:
         content = Element("Types", xmlns="http://schemas.openxmlformats.org/package/2006/content-types")
@@ -40,6 +41,7 @@ def workbook_bytes(sheets, *, introduction=(), bands=()):
         book_sheets = SubElement(book, "sheets")
         relationships = Element("Relationships", xmlns="http://schemas.openxmlformats.org/package/2006/relationships")
         for i, (name, headers, rows) in enumerate(sheets, 1):
+            sheet_introduction = (introductions or {}).get(name, introduction)
             SubElement(book_sheets, "sheet", name=name, sheetId=str(i), attrib={"r:id": f"rId{i}"})
             SubElement(relationships, "Relationship", Id=f"rId{i}", Type=REL + "/worksheet", Target=f"worksheets/sheet{i}.xml")
             SubElement(content, "Override", PartName=f"/xl/worksheets/sheet{i}.xml", ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml")
@@ -55,7 +57,7 @@ def workbook_bytes(sheets, *, introduction=(), bands=()):
             for j, header in enumerate(headers, 1):
                 SubElement(cols, "col", min=str(j), max=str(j), width=str(dict(zip(HEADERS, (*widths, 23, 30))).get(header, 20)), customWidth="1")
             data = SubElement(sheet, "sheetData")
-            prefix = [[value] for value in introduction]
+            prefix = [[value] for value in sheet_introduction]
             prefix += [[] for _ in range(HEADER_ROW - 1 - len(prefix))]
             last_row = HEADER_ROW + len(rows)
             for row_index, values in enumerate([*prefix, headers, *rows], 1):
@@ -92,8 +94,8 @@ def workbook_bytes(sheets, *, introduction=(), bands=()):
                         SubElement(SubElement(node, "is"), "t", attrib={"xml:space": "preserve"}).text = text
             # Summary stays outside the filter so sorting/filtering cannot treat it as a sale.
             SubElement(sheet, "autoFilter", ref=f"A{HEADER_ROW}:{column_name(len(headers))}{max(HEADER_ROW, last_row - 1)}")
-            merges = SubElement(sheet, "mergeCells", count=str(len(introduction)))
-            for row_index in range(1, len(introduction) + 1):
+            merges = SubElement(sheet, "mergeCells", count=str(len(sheet_introduction)))
+            for row_index in range(1, len(sheet_introduction) + 1):
                 SubElement(merges, "mergeCell", ref=f"A{row_index}:{column_name(len(headers))}{row_index}")
             SubElement(sheet, "printOptions", horizontalCentered="1")
             SubElement(sheet, "pageMargins", left="0.25", right="0.25", top="0.4", bottom="0.4", header="0.2", footer="0.2")
@@ -163,7 +165,32 @@ def export_response(report):
         + ("დაბრუნებები უარყოფითია; ჯამში აკლდება გადახდებს." if report["status"] == "all" else
            "თარიღები დაბრუნების დადასტურებით." if report["status"] == "refunded" else "თარიღები გადახდის დადასტურებით; დაბრუნებული შეკვეთები გამორიცხულია.")]
     bands = [index for index, group in enumerate(report["groups"]) for _ in group["rows"]]
-    response = HttpResponse(workbook_bytes([(name, headers, rows)], introduction=introduction, bands=bands),
+    sheets = [(name, headers, rows)]
+    costs = report.get("return_costs")
+    if costs is not None:
+        cost_rows = [[row["recorded_at"].astimezone(TBILISI).strftime("%d.%m.%Y %H:%M"),
+                      row["order_number"], row["cost"]] for row in costs["rows"]]
+        cost_rows.append(["სულ — დაფიქსირების თარიღით", None, costs["total"]])
+        sheets.append(("უკუმიტანის ხარჯი", ["ხარჯის დაფიქსირების დრო", "შეკვეთა", "უკუმიტანის ხარჯი ₾"], cost_rows))
+    cost_introduction = ["FlexDrive — უკუმიტანის ხარჯები", f"პერიოდი: {period.start:%d.%m.%Y} — {period.end:%d.%m.%Y}",
+        "ხარჯის დაფიქსირების თარიღით; ბანკის დაბრუნების შედეგისგან დამოუკიდებლად.",
+        "ოპერატორის დაფიქსირებული თანხები ლარში; ინვოისის გადახდას არ ადასტურებს.",
+        "უცნობი ხარჯი ნულის ნაცვლად ცარიელია; ასეთ შემთხვევაში სრული ჯამიც უცნობია."]
+    introductions = {"უკუმიტანის ხარჯი": cost_introduction}
+    bookings = report.get("courier_bookings")
+    if bookings is not None and bookings["rows"]:
+        booking_rows = [[row["date"], row["order_number"], row["stage_label"], Decimal(row["customer_delivery"]),
+            Decimal(row["quoted_price"]), Decimal(row["booked_price"]) if row["booked_price"] is not None else None,
+            Decimal(row["buffer"]), Decimal(row["difference"]) if row["difference"] is not None else None] for row in bookings["rows"]]
+        booking_rows.append(["სულ — გაუქმებულის გარეშე", None, None, None, None, bookings["total"], None, bookings["difference"]])
+        sheets.append(("RedCap გზავნილები", ["შექმნის თარიღი", "შეკვეთა", "მდგომარეობა", "მომხმარებლის მიტანის თანხა ₾",
+            "ჩექაუთის ტარიფი ₾", "RedCap-ის ფასი ₾", "ბუფერი ₾", "ფასთა სხვაობა ₾"], booking_rows))
+        introductions["RedCap გზავნილები"] = ["FlexDrive — RedCap-ის გზავნილების ფასები", introduction[1],
+            "გზავნილის შექმნის თარიღით; ინვოისის ნაშთს ან ხარჯის გადახდას არ ადასტურებს.",
+            "გაუქმებული გზავნილები ჯამში არ შედის; შესაძლო საკურიერო ხარჯი ცალკე შესაჯერებელია.",
+            "უცნობი ფასი ცარიელია და სრულ ჯამს უცნობს ტოვებს."]
+    response = HttpResponse(workbook_bytes(sheets, introduction=introduction, bands=bands,
+                            introductions=introductions),
                             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     response["Content-Disposition"] = f'attachment; filename="FlexDrive-{report["status"]}-{period.start}-{period.end}.xlsx"'
     return response

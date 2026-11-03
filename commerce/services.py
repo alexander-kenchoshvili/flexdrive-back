@@ -135,6 +135,7 @@ ALLOWED_ORDER_PAYMENT_STATUS_TRANSITIONS = {
     OrderPaymentStatus.PAID: {
         OrderPaymentStatus.REFUND_PENDING,
         OrderPaymentStatus.REFUNDED,
+        OrderPaymentStatus.PARTIALLY_REFUNDED,
     },
     OrderPaymentStatus.FAILED: {
         OrderPaymentStatus.PENDING,
@@ -149,8 +150,10 @@ ALLOWED_ORDER_PAYMENT_STATUS_TRANSITIONS = {
     OrderPaymentStatus.REFUND_PENDING: {
         OrderPaymentStatus.PAID,
         OrderPaymentStatus.REFUNDED,
+        OrderPaymentStatus.PARTIALLY_REFUNDED,
     },
     OrderPaymentStatus.REFUNDED: set(),
+    OrderPaymentStatus.PARTIALLY_REFUNDED: set(),
 }
 
 
@@ -1863,6 +1866,7 @@ def can_cancel_order(order):
             OrderPaymentStatus.AUTHORIZED,
             OrderPaymentStatus.PAID,
             OrderPaymentStatus.REFUND_PENDING,
+            OrderPaymentStatus.PARTIALLY_REFUNDED,
         }
     ):
         return False

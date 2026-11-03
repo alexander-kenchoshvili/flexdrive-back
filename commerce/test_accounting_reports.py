@@ -92,7 +92,7 @@ class AccountingReportTests(TestCase):
     def test_cross_month_refund_keeps_original_receipt(self):
         self.refund()
         Order.objects.filter(pk=self.order.pk).update(payment_status="refunded", status="cancelled")
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(4):
             september = build_cash_report(self.september)
         october = build_cash_report(self.october)
         self.assertEqual(september["currencies"]["GEL"]["received"], D(93))
@@ -208,7 +208,7 @@ class AccountingReportTests(TestCase):
         for i in range(5):
             order = Order.objects.create(order_number=f"MANY-{i}", subtotal=D(0), total=D(0))
             self.payment(order=order)
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(4):
             report = build_cash_report(self.september)
         self.assertEqual(len(report["events"]), 6)
 

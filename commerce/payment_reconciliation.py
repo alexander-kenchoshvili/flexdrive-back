@@ -45,7 +45,7 @@ def payments_requiring_reconciliation():
         PaymentTransactionStatus.REFUNDED, PaymentTransactionStatus.REFUND_PENDING,
         PaymentTransactionStatus.CANCELLED,
     ]).exclude(order__payment_status__in=[
-        OrderPaymentStatus.REFUND_PENDING, OrderPaymentStatus.REFUNDED,
+        OrderPaymentStatus.REFUND_PENDING, OrderPaymentStatus.REFUNDED, OrderPaymentStatus.PARTIALLY_REFUNDED,
         OrderPaymentStatus.CANCELLED,
     ]).filter(
         Q(status__in=[PaymentTransactionStatus.PENDING, PaymentTransactionStatus.AUTHORIZED])

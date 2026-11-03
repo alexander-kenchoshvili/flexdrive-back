@@ -29,5 +29,19 @@
 <div class="accounting-table" role="region" aria-label="პერიოდის ჯამები" tabindex="0"><table><thead><tr>{% for header in total_headers %}<th scope="col">{{ header }}</th>{% endfor %}</tr></thead>
 <tbody><tr>{% for value in total_values %}<td><strong>{{ value }}</strong></td>{% endfor %}</tr></tbody></table></div></section>
 <p><strong>სულ — არჩეული პერიოდის ყველა ჩანაწერი, ყველა გვერდიდან.</strong> თვითღირებულება და მოგება რაოდენობის გათვალისწინებითაა, დღგ-ის გარეშე. პროდუქტის მოგება სხვა ხარჯების გამოკლებამდეა; მიტანა მასში არ შედის.</p>
+{% if return_costs != None %}
+<section class="accounting-period-total" aria-label="უკუმიტანის ხარჯები"><h2>უკუმიტანის ხარჯი — დაფიქსირების თარიღით</h2>
+<p>ბანკის თანხის დაბრუნებისგან დამოუკიდებლად. შეკვეთის ქვემოთ ნაჩვენები ხარჯი საინფორმაციოა და აქ მეორედ არ ემატება. ინვოისის გადახდას არ ადასტურებს.</p>
+<p><strong>სულ: {{ return_costs.total|default_if_none:"—" }} ₾</strong>{% if return_costs.unknown %} · {{ return_costs.unknown }} დაბრუნების ხარჯი უცნობია.{% endif %}</p>
+<div class="accounting-table"><table><thead><tr><th>დაფიქსირდა</th><th>შეკვეთა</th><th>ხარჯი ₾</th></tr></thead><tbody>
+{% for cost in return_costs.rows|slice:":20" %}<tr><td>{{ cost.recorded_at|date:"d.m.Y H:i" }}</td><td>{{ cost.order_number }}</td><td>{{ cost.cost|default_if_none:"—" }}</td></tr>{% empty %}<tr><td colspan="3">ამ პერიოდში ხარჯი არ დაფიქსირებულა.</td></tr>{% endfor %}
+</tbody></table></div><p>პირველი 20 ჩანაწერი; სრული სია Excel-ის ცალკე ფურცელზეა.</p></section>
+{% endif %}
+{% if courier_bookings != None %}
+<section class="accounting-period-total" aria-label="RedCap გზავნილების ფასები"><h2>RedCap — პერიოდში შექმნილი გზავნილები</h2>
+<p>ჯამი: <strong>{{ courier_bookings.total|default_if_none:"—" }} ₾</strong> · ფასთა სხვაობა: {{ courier_bookings.difference|default_if_none:"—" }} ₾.
+გზავნილის შექმნის თარიღით; ინვოისის ნაშთი არ არის. {{ courier_bookings.cancelled }} გაუქმებული გზავნილი ჯამში არ შედის — მათი შესაძლო ხარჯი შესაჯერებელია.</p>
+<p>შეკვეთის ქვეშ მოცემული RedCap-ის ფასი საინფორმაციოა; ამ პერიოდის სრული სია Excel-ის „RedCap გზავნილები“ ფურცელზეა.</p></section>
+{% endif %}
 <nav class="accounting-pagination" aria-label="გვერდები">{% if previous_url %}<a href="{{ previous_url }}">← წინა</a>{% endif %}<span>{{ page.number }} / {{ page.paginator.num_pages }}</span>{% if next_url %}<a href="{{ next_url }}">შემდეგი →</a>{% endif %}</nav>
 {% endif %}</div><script src="{% static 'commerce/accounting.js' %}" defer></script>{% endblock %}

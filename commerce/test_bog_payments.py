@@ -471,6 +471,16 @@ class BogPaymentsClientTests(SimpleTestCase):
             timeout=(5.0, 15.0),
         )
 
+    def test_partial_refund_uses_same_endpoint_with_exact_amount_and_key(self):
+        key = uuid.uuid4()
+        self.http.request.return_value = FakeResponse(202, {"key": "request_received", "action_id": "partial-1"})
+        result = self.client.refund_partial(order_id="provider/order", idempotency_key=key, amount=Decimal("90.15"))
+        self.assertEqual(result.action_id, "partial-1")
+        call = self.http.request.call_args
+        self.assertEqual(call.args, ("POST", "https://api.bog.ge/payments/v1/payment/refund/provider%2Forder"))
+        self.assertEqual(call.kwargs["json"], {"amount": 90.15})
+        self.assertEqual(call.kwargs["headers"]["Idempotency-Key"], str(key))
+
     def test_invalid_authentication_response_is_rejected(self):
         self.http.post.return_value = FakeResponse(
             200,

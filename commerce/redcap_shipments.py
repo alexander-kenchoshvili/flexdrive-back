@@ -16,6 +16,16 @@ class RedcapShipmentError(RedcapError):
     pass
 
 
+def has_unsettled_redcap_shipment(order):
+    """Pre-dispatch refunds need a confirmed cancellation, not a stale local order status."""
+    if not order or order.delivery_provider != "redcap":
+        return False
+    shipment = RedcapShipment.objects.filter(order_id=order.pk).first()
+    if shipment is None or shipment.state == RedcapShipment.State.CANCELLED:
+        return False
+    return bool(shipment.tracking_number or shipment.state not in {"not_sent", "failed"})
+
+
 def _eligible(order):
     return (order.delivery_provider == "redcap" and order.payment_status == "paid"
             and order.status in {"new", "confirmed", "processing"}

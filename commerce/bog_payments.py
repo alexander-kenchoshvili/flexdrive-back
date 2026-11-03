@@ -247,6 +247,13 @@ class BogPaymentsClient:
         )
 
     def refund_full(self, *, order_id, idempotency_key):
+        return self._refund(order_id=order_id, idempotency_key=idempotency_key)
+
+    def refund_partial(self, *, order_id, idempotency_key, amount):
+        amount = _money(amount, "refund amount", positive=True)
+        return self._refund(order_id=order_id, idempotency_key=idempotency_key, amount=amount)
+
+    def _refund(self, *, order_id, idempotency_key, amount=None):
         normalized_order_id = _provider_identifier(order_id, "order ID")
         normalized_key = _uuid4_string(idempotency_key)
         response_data = self._api_request(
@@ -255,9 +262,9 @@ class BogPaymentsClient:
                 "/payments/v1/payment/refund/"
                 f"{quote(normalized_order_id, safe='')}"
             ),
-            operation="refund_full",
+            operation="refund_full" if amount is None else "refund_partial",
             idempotency_key=normalized_key,
-            json={},
+            json={} if amount is None else {"amount": _json_money(amount)},
             outcome_unknown_on_transport_error=True,
         )
 

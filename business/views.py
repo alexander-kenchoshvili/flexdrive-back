@@ -137,6 +137,8 @@ class BusinessReportInput(serializers.Serializer):
 
 
 class BusinessOperationsInput(serializers.Serializer):
+    shipments = serializers.ChoiceField(choices=("all", "not_sent", "created", "shipped", "delivered", "cancelled", "returning", "review"), default="all")
+    shipments_page = serializers.IntegerField(min_value=1, max_value=1000000, default=1)
     returns = serializers.ChoiceField(choices=("awaiting", "received", "not_required", "all"), default="awaiting")
     payments = serializers.ChoiceField(choices=("attention", "pending", "failed", "issues"), default="attention")
     returns_page = serializers.IntegerField(min_value=1, max_value=1000000, default=1)

@@ -1,5 +1,61 @@
 # Project Instructions
 
+## RedCap Business Panel And Shared Reporting - 2026-11-03
+
+- User authorized the six-point business-panel plan. Unified finance replaces
+  separate internal-Tbilisi UI; zero buffer card stays hidden. Checkout tariff,
+  customer delivery, buffer, booked RedCap price and discrepancy are separate.
+  Bookings use submitted_at; unsent requests are excluded, missing price stays
+  unknown, cancellations are excluded with explicit possible-charge review.
+  courier_payable is a historical private API key, NOT an invoice balance.
+- Shared commerce/courier_reporting.py feeds business, accountant and Excel;
+  shared commerce/return_costs.py records one expense per received return from
+  the FIRST frozen refund attempt, independently of bank result. Rejected/unknown
+  attempts retain the expense in its first month; changed-cost retries reject.
+  Confirmed retained return fees remain on bank-refund date. Unknown costs stay
+  unknown. Informational per-refund costs/booked prices are never added twice.
+- Operations adds paginated shipment filters, tracking/check time, sanitized
+  price/state warnings and return money details. Payment error_code now enters
+  attention even after confirmed refund. Report refresh is SELECT-only with no
+  provider calls; last saved sync report does not prove scheduler activation.
+- Accountant and XLSX show informational booking price/difference and separate
+  booking/expense period totals. Excel has independent cost and booking sheets;
+  SKU filtering excludes order-wide fee sheets. No invoice-payment ledger added.
+- 322 backend tests pass on disposable SQLite with network blocked, including
+  booking-month separation, unknown/cancelled/mismatched prices, rejected retries,
+  cross-month cash/expense, actual accountant HTML/XLSX parity, privacy and bounded
+  queries. 51 frontend tests pass, including actual new Vue components, filters,
+  pagination and buffer/missing-price states. Typecheck, scoped ESLint, migration
+  drift and whitespace pass. No browser/viewport/live-provider verification.
+- Requires paired backend/frontend deployment; no new schema migration beyond
+  prior pending0039. No business DB/env/scheduler/provider write, server/browser
+  start, commit, push or deployment. docs/REDCAP_INTEGRATION.md has the limits.
+
+## Whole Order Return With Agreed Partial Cash Refund - 2026-11-03
+
+- User authorized extending the existing Georgian refund form: after receipt of
+  all customer-returned goods, record return-delivery payer/cost and agreed reason.
+  Server-signed preview precedes the explicit amount-bearing bank action. Paid100,
+  customer return fee10 means refund90; merchant-pays means refund100/cost10.
+- Frozen refund_request.settlement preserves original order total and separates
+  cash refund, retained return fee and operator-recorded return-delivery expense.
+  BOG uses the same refund endpoint with amount for partial refunds. Only matched
+  verified final evidence completes it. Duplicate/unknown retries retain UUID/key
+  and terms; late responses cannot undo confirmed money, stock receipt is once.
+  Unplanned/additional external refunds remain manual-review cases.
+- Accountant HTML/Excel and business finance reverse all returned goods, separate
+  fee/expense from product profit, preserve unknown historical return costs and
+  exclude order-level fees under SKU filtering. Customer profile/list, guest
+  lookup and public order summary show confirmed amounts; pending/rejected are
+  distinct. No partial item/quantity returns or automatic RedCap reverse booking.
+- Final314 backend tests pass on disposable in-memory SQLite with network blocked;
+  33 paired frontend tests, Nuxt typecheck, scoped ESLint, migration drift and
+  whitespace checks pass. Browser/viewport and live bank checks were not performed.
+- Needs backend/frontend deployment and new0039_order_partial_refund_status
+  migration. No business database migration/write, actual refund/courier action,
+  env edit, server/browser launch, commit, push or deployment performed here.
+  docs/REDCAP_INTEGRATION.md records operational limits and rollout.
+
 ## Compact Product Compatibility UI In Paired Frontend - 2026-10-28
 
 - User authorized the paired frontend to replace separate large fitment cards

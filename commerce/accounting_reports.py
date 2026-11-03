@@ -13,6 +13,8 @@ from django.db.models import Q, Exists, OuterRef, Prefetch
 
 from .accounting_calculations import calculate_product_line
 from .models import Order, OrderItem, OrderItemInventory, PaymentTransaction
+from .refund_terms import settlement_for_refund
+from django.core.exceptions import ValidationError
 
 
 TBILISI = ZoneInfo("Asia/Tbilisi")
@@ -155,7 +157,7 @@ def order_row(order, *, tax_rates=None):
     return {
         "order_id": order.pk, "order_number": order.order_number,
         "created_at": order.created_at, "status": order.status,
-        "payment_status": "refunded" if getattr(order, "accounting_refunded", False) else "paid", "subtotal": order.subtotal,
+        "payment_status": order.payment_status, "subtotal": order.subtotal,
         "total": order.total, "delivery_price": order.delivery_price,
         "delivery_provider": order.delivery_provider, "carrier_quote": carrier_quote,
         "regional_buffer": buffer, "actual_delivery_cost": None,
@@ -193,6 +195,8 @@ def _allocation(payment, row):
         return None, "order_requires_review"
     if payment.currency != "GEL":
         return None, "order_currency_mismatch"
+    if payment.error_code == "bog_refund_additional_activity_requires_review":
+        return None, "refund_allocation_requires_review"
     transactions = list(payment.order.payment_transactions.all())
     sales = [p for p in transactions if p.action in RECEIPT_ACTIONS and p.status in RECEIVED_STATUSES]
     if len(sales) != 1:
@@ -200,21 +204,44 @@ def _allocation(payment, row):
     sale = sales[0]
     if sale.captured_at is None or sale.amount != row["total"] or sale.currency != payment.currency:
         return None, "sale_requires_review"
+    settlement = None
     if payment.action == "refund":
         reference = payment.provider_reference
         context = reference.get("refund_request", {}) if isinstance(reference, dict) else {}
         sale_id = context.get("sale_payment_id") if isinstance(context, dict) else None
         refunds = [p for p in transactions if p.action == "refund" and p.status == "refunded"]
+        try:
+            settlement = settlement_for_refund(payment, total=sale.amount)
+        except ValidationError:
+            return None, "refund_allocation_requires_review"
         if (type(sale_id) is not int or sale_id != sale.pk or payment.provider != sale.provider
-                or payment.amount != sale.amount or len(refunds) != 1
+                or (payment.amount != sale.amount and settlement is None) or len(refunds) != 1
                 or payment.refunded_at < sale.captured_at):
+            return None, "refund_allocation_requires_review"
+        if settlement and not context.get("return_case_id"):
             return None, "refund_allocation_requires_review"
     elif payment.pk != sale.pk:
         return None, "sale_requires_review"
     return {"product_gross": row["subtotal"], "delivery_gross": row["delivery_price"],
             "regional_buffer": row["regional_buffer"], "carrier_quote": row["carrier_quote"],
-            "product_lines": row["lines"]}, None
+            "product_lines": row["lines"],
+            "retained_return_fee": Decimal(settlement["retained_return_fee"]) if settlement else ZERO,
+            "return_delivery_cost": Decimal(settlement["return_delivery_cost"]) if settlement else None}, None
 
+
+
+def _cash_totals():
+    return {
+        "received": ZERO, "refunded": ZERO, "net_received": ZERO,
+        "delivery_received": ZERO, "delivery_refunded": ZERO, "net_delivery": ZERO,
+        "buffer_received": ZERO, "buffer_refunded": ZERO, "net_buffer": ZERO,
+        "product_received": ZERO, "product_refunded": ZERO,
+        "known_markup_received": ZERO, "known_markup_refunded": ZERO,
+        "markup_covered_lines_received": 0, "markup_covered_lines_refunded": 0,
+        "rounding_adjustment_received": ZERO, "rounding_adjustment_refunded": ZERO,
+        "unallocated_received": ZERO, "unallocated_refunded": ZERO,
+        "retained_return_fee": ZERO, "return_delivery_cost": ZERO, "unknown_return_cost_events": 0,
+    }
 
 def build_cash_report(period, *, tax_rates=None, limit=MAX_REPORT_ROWS, search=""):
     """Confirmed cash events, grouped by currency; never a VAT return or profit.
@@ -236,21 +263,14 @@ def build_cash_report(period, *, tax_rates=None, limit=MAX_REPORT_ROWS, search="
             "allocation": allocation, "issues": (issue,) if issue else (),
         }
         events.append(event)
-        totals = currencies.setdefault(payment.currency, {
-            "received": ZERO, "refunded": ZERO, "net_received": ZERO,
-            "delivery_received": ZERO, "delivery_refunded": ZERO,
-            "buffer_received": ZERO, "buffer_refunded": ZERO,
-            "product_received": ZERO, "product_refunded": ZERO,
-            "known_markup_received": ZERO, "known_markup_refunded": ZERO,
-            "markup_covered_lines_received": 0, "markup_covered_lines_refunded": 0,
-            "rounding_adjustment_received": ZERO, "rounding_adjustment_refunded": ZERO,
-            "unallocated_received": ZERO, "unallocated_refunded": ZERO,
-        })
+        totals = currencies.setdefault(payment.currency, _cash_totals())
         totals["refunded" if refund else "received"] += payment.amount
         suffix = "refunded" if refund else "received"
         if allocation is None:
             totals["unallocated_" + suffix] += payment.amount
         else:
+            if refund:
+                totals["retained_return_fee"] += allocation["retained_return_fee"]
             totals["product_" + suffix] += allocation["product_gross"]
             totals["delivery_" + suffix] += allocation["delivery_gross"]
             totals["buffer_" + suffix] += allocation["regional_buffer"]
@@ -262,6 +282,12 @@ def build_cash_report(period, *, tax_rates=None, limit=MAX_REPORT_ROWS, search="
         totals["net_received"] = totals["received"] - totals["refunded"]
         totals["net_delivery"] = totals["delivery_received"] - totals["delivery_refunded"]
         totals["net_buffer"] = totals["buffer_received"] - totals["buffer_refunded"]
+    from .return_costs import return_cost_report
+    costs = return_cost_report(period, search=search)
+    if "GEL" in currencies or costs["rows"]:
+        totals = currencies.setdefault("GEL", _cash_totals())
+        totals["return_delivery_cost"] = costs["total"]
+        totals["unknown_return_cost_events"] = costs["unknown"]
     events.sort(key=lambda e: (e["occurred_at"], e["transaction_id"]))
     return {"basis": "cash_confirmation", "period": period, "events": events,
             "currencies": currencies}

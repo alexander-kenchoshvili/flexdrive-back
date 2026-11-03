@@ -174,5 +174,5 @@ class AccountingAdminTests(TestCase):
         self.assertEqual(first.context["totals"], second.context["totals"])
         for group in first.context["groups"] + second.context["groups"]:
             self.assertEqual(len(group["rows"]), group["line_count"])
-            self.assertEqual(len(group["delivery"]), 4)
+            self.assertEqual(len(group["delivery"]), 3)
         self.assertContains(first, 'class="accounting-order"', count=20)

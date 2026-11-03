@@ -12,6 +12,7 @@ from django.core.management.base import CommandError
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from rest_framework.test import APIClient
 
 from .delivery_quotes import (DeliveryQuoteError, build_delivery_quote, delivery_locations,
                              delivery_order_fields, resolve_delivery_location, validate_delivery_quote)
@@ -146,6 +147,27 @@ class RedcapWorkflowFixture(TestCase):
 
 
 class RedcapShipmentTests(RedcapWorkflowFixture):
+    def test_carrier_panel_cancellation_is_recorded_without_refunding_or_cancelling_the_order(self):
+        from .redcap_shipments import has_unsettled_redcap_shipment
+        self.submit()
+        self.carrier.get_tracking_statuses.return_value = self.status("cancelled")
+        counts = sync_shipments([self.order.pk], client=self.carrier)
+        self.assertEqual(counts["review"], 1)
+        self.assertEqual(RedcapShipment.objects.get().state, "cancelled")
+        self.assertFalse(has_unsettled_redcap_shipment(self.order))
+        self.order.refresh_from_db()
+        self.assertEqual((self.order.status, self.order.payment_status), ("confirmed", "paid"))
+
+    def test_provider_rejection_after_status_check_keeps_refunds_blocked(self):
+        from .redcap_shipments import has_unsettled_redcap_shipment
+        self.submit()
+        self.carrier.get_tracking_statuses.return_value = self.status("registered")
+        self.carrier.cancel_order.side_effect = RedcapResponseError(status_code=403)
+        with self.assertRaises(RedcapShipmentError):
+            cancel_shipment(self.order.pk, reason="Test", client=self.carrier)
+        self.assertEqual(RedcapShipment.objects.get().state, "created")
+        self.assertTrue(has_unsettled_redcap_shipment(self.order))
+
     def test_retired_easyway_commands_fail_without_network_or_database_changes(self):
         with patch("requests.request", side_effect=AssertionError("Retired courier must not connect")):
             for command in ("sync_easyway_tracking", "sync_easyway_locations", "check_easyway_api"):
@@ -374,3 +396,57 @@ class RedcapOrderAdminTests(RedcapWorkflowFixture):
         self.user.save()
         self.assertEqual(self.client.get(label).status_code, 403)
         self.assertEqual(self.client.get(label + "?size=bad").status_code, 403)
+
+
+@override_settings(ORDER_RECEIPTS_ENABLED=False)
+class RedcapCustomerStatusTests(RedcapWorkflowFixture):
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+
+    def lookup(self, phone="555000002"):
+        with patch("commerce.views.validate_recaptcha", return_value=True):
+            return Client().post(reverse("commerce-order-lookup"), {
+                "order_number": self.order.order_number, "phone": phone, "recaptcha_token": "test-only",
+            })
+
+    def test_synced_status_reaches_profile_list_detail_guest_lookup_and_success_page(self):
+        user = get_user_model().objects.create_user(username="rc-buyer", email="rc-buyer@example.test", password="Test-only-123", is_active=True)
+        self.order.user = user
+        self.order.save(update_fields=["user"])
+        self.client.force_authenticate(user=user)
+        self.submit()
+        for carrier_status, visible_status in (("pending_pickup", "processing"), ("picked_up", "shipped"), ("delivered", "delivered")):
+            with self.subTest(carrier_status=carrier_status):
+                self.carrier.get_tracking_statuses.return_value = self.status(carrier_status)
+                sync_shipments([self.order.pk], client=self.carrier)
+                listed = self.client.get(reverse("commerce-order-list"))
+                detail = self.client.get(reverse("commerce-order-detail", args=[self.order.public_token]))
+                public = Client().get(reverse("commerce-order-summary", args=[self.order.public_token]))
+                guest = self.lookup()
+                self.assertEqual(listed.status_code, 200)
+                self.assertEqual(listed.json()["results"][0]["status"], visible_status)
+                for response in (detail, public, guest):
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.json()["status"], visible_status)
+                for private_field in ("tracking_history", "tracking_error", "operation_token", "sender_address"):
+                    self.assertNotIn(private_field, guest.json())
+
+    def test_guest_order_is_available_without_registration_but_requires_matching_phone(self):
+        self.assertIsNone(self.order.user_id)
+        self.submit()
+        self.carrier.get_tracking_statuses.return_value = self.status("picked_up")
+        sync_shipments([self.order.pk], client=self.carrier)
+        response = self.lookup()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "shipped")
+        self.assertEqual(self.lookup(phone="555000999").status_code, 404)
+
+    def test_another_account_cannot_open_the_order_in_profile(self):
+        owner = get_user_model().objects.create_user(username="rc-owner", email="rc-owner@example.test", is_active=True)
+        other = get_user_model().objects.create_user(username="rc-other", email="rc-other@example.test", is_active=True)
+        self.order.user = owner
+        self.order.save(update_fields=["user"])
+        self.client.force_authenticate(user=other)
+        self.assertEqual(self.client.get(reverse("commerce-order-list")).json()["results"], [])
+        self.assertEqual(self.client.get(reverse("commerce-order-detail", args=[self.order.public_token])).status_code, 404)

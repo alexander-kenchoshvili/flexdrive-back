@@ -968,7 +968,7 @@ class BuyNowCheckoutAPIView(BuyNowSessionResponseMixin, APIView):
 
 class OrderSummaryAPIView(APIView):
     def get(self, request, public_token):
-        order = get_object_or_404(Order.objects.prefetch_related("items"), public_token=public_token)
+        order = get_object_or_404(Order.objects.prefetch_related("items", "payment_transactions"), public_token=public_token)
         serializer = PublicOrderSummarySerializer(order, context={"request": request})
         return Response(serializer.data)
 
@@ -994,7 +994,7 @@ class OrderLookupAPIView(APIView):
             )
 
         order = (
-            Order.objects.prefetch_related("items")
+            Order.objects.prefetch_related("items", "payment_transactions")
             .filter(order_number__iexact=serializer.validated_data["order_number"])
             .first()
         )
@@ -1015,7 +1015,7 @@ class OwnedOrderListAPIView(generics.ListAPIView):
     pagination_class = OrderPagination
 
     def _get_base_queryset(self):
-        return Order.objects.filter(user=self.request.user)
+        return Order.objects.filter(user=self.request.user).prefetch_related("payment_transactions")
 
     def _build_summary(self):
         summary = self._get_base_queryset().aggregate(
@@ -1070,7 +1070,7 @@ class OwnedOrderDetailAPIView(APIView):
 
     def get(self, request, public_token):
         order = get_object_or_404(
-            Order.objects.prefetch_related("items"),
+            Order.objects.prefetch_related("items", "payment_transactions"),
             user=request.user,
             public_token=public_token,
         )

@@ -398,6 +398,7 @@ class OrderAdmin(OrderRedcapAdminMixin, admin.ModelAdmin):
                 extra_context["return_flow_status"] = {
                     "refund_pending": "თანხის დაბრუნება მუშავდება — ველოდებით ბანკის დადასტურებას.",
                     "refunded": "თანხა დაბრუნებულია.",
+                    "partially_refunded": "თანხა ნაწილობრივ დაბრუნებულია — უკუმიტანის შეთანხმებული საფასური დაქვითულია.",
                     "paid": "დაბრუნება დაფიქსირებულია — თანხა ჯერ არ დაბრუნებულა.",
                 }.get(order.payment_status, "დაბრუნება დაფიქსირებულია.")
                 extra_context["return_flow_note"] = (

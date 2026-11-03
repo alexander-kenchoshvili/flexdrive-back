@@ -20,6 +20,7 @@ from .bog_payments import (
     BogTransportError,
 )
 from .bog_refunds import (
+    can_request_bog_full_refund,
     reconcile_bog_refund_details,
     request_bog_full_refund,
 )
@@ -35,6 +36,8 @@ from .models import (
     PaymentTransactionStatus,
     StockReservation,
     StockReservationStatus,
+    RedcapShipment,
+    OrderReturn,
 )
 
 
@@ -435,3 +438,87 @@ class BogRefundFlowTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertContains(response, "თანხის დაბრუნება")
         self.assertContains(response, "ბანკის მდგომარეობის შემოწმება")
+
+    def redcap_shipment(self, state="created", tracking="000123"):
+        self.order.delivery_provider = "redcap"
+        self.order.save(update_fields=["delivery_provider"])
+        return RedcapShipment.objects.create(order=self.order, state=state, tracking_number=tracking, service_slug="same_day")
+
+    def test_redcap_active_and_unknown_states_block_refund_before_any_side_effect(self):
+        shipment = self.redcap_shipment()
+        for state in ("submitting", "unknown", "created", "cancelling", "cancel_unknown"):
+            with self.subTest(state=state):
+                RedcapShipment.objects.filter(pk=shipment.pk).update(state=state)
+                self.assertFalse(can_request_bog_full_refund(self.order))
+                with self.assertRaisesMessage(DjangoValidationError, "RedCap"):
+                    request_bog_full_refund(order=self.order, client=self.client,
+                        requested_by=self.admin_user, disposition="on_hand", not_dispatched=True)
+                self.client.refund_full.assert_not_called()
+                self.assertFalse(OrderReturn.objects.filter(order=self.order).exists())
+                self.assertFalse(PaymentTransaction.objects.filter(action="refund").exists())
+        self.product.refresh_from_db()
+        self.assertEqual((self.product.stock_qty, self.product.owned_stock_qty), (4, 0))
+
+    def test_redcap_direct_on_hand_receipt_also_requires_cancel_confirmation(self):
+        from .returns import prepare_order_return
+        self.redcap_shipment()
+        with self.assertRaisesMessage(DjangoValidationError, "RedCap"):
+            prepare_order_return(order=self.order, disposition="on_hand", actor=self.admin_user)
+        self.assertFalse(OrderReturn.objects.exists())
+
+    def test_redcap_without_a_created_shipment_can_refund(self):
+        shipment = self.redcap_shipment("not_sent", None)
+        self.assertTrue(can_request_bog_full_refund(self.order))
+        RedcapShipment.objects.filter(pk=shipment.pk).update(state="failed")
+        self.assertTrue(can_request_bog_full_refund(self.order))
+        RedcapShipment.objects.filter(pk=shipment.pk).update(state="unknown")
+        self.assertFalse(can_request_bog_full_refund(self.order))
+
+    def test_redcap_cancel_then_refund_finalizes_order_and_stock_only_after_bank_confirmation(self):
+        from .redcap_shipments import cancel_shipment
+        from .redcap_references import refresh_redcap_references
+        from .test_redcap import reference_client
+        refresh_redcap_references(client=reference_client())
+        self.redcap_shipment()
+        carrier = Mock()
+        carrier.get_tracking_statuses.return_value = {"success": True, "orders": [
+            {"tracking_number": "000123", "found": True, "status": "registered"}]}
+        cancel_shipment(self.order.pk, reason="Customer changed their mind", client=carrier)
+        self.assertTrue(can_request_bog_full_refund(self.order))
+        refund = request_bog_full_refund(order=self.order, client=self.client, requested_by=self.admin_user,
+                                        disposition="not_purchased", not_dispatched=True)
+        self.order.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual((self.order.status, self.order.payment_status, self.product.stock_qty), ("new", "refund_pending", 4))
+        details = self._details(status="refunded", refund_amount=Decimal(100))
+        reconcile_bog_refund_details(self.sale, details, provider_reference={"source": "payment_details"})
+        reconcile_bog_refund_details(self.sale, details, provider_reference={"source": "payment_details"})
+        self.order.refresh_from_db()
+        self.product.refresh_from_db()
+        refund.refresh_from_db()
+        self.assertEqual((self.order.status, self.order.payment_status, self.product.stock_qty), ("cancelled", "refunded", 5))
+        self.assertEqual(refund.status, "refunded")
+        self.assertEqual(RedcapShipment.objects.get().state, "cancelled")
+
+    def test_redcap_received_customer_return_can_refund_without_cancelling_the_outbound_shipment(self):
+        from .returns import prepare_order_return, receive_order_return
+        self.redcap_shipment()
+        self.order.status = "delivered"
+        self.order.save(update_fields=["status"])
+        case = prepare_order_return(order=self.order, disposition="from_customer", actor=self.admin_user)
+        self.assertFalse(can_request_bog_full_refund(self.order))
+        receive_order_return(return_case=case, actor=self.admin_user,
+                             inspection={line.pk: {"saleable": 1, "unsaleable": 0} for line in case.lines.all()})
+        self.assertTrue(can_request_bog_full_refund(self.order))
+        request_bog_full_refund(order=self.order, client=self.client, requested_by=self.admin_user, disposition="from_customer")
+        self.client.refund_full.assert_called_once()
+
+    def test_redcap_stale_refund_form_cannot_bypass_the_cancellation_requirement(self):
+        self.redcap_shipment()
+        url = reverse("admin:commerce_order_bog_refund", args=[self.order.pk])
+        with patch("commerce.bog_refunds.BogPaymentsClient.from_settings") as bank:
+            response = self.admin_client.post(url, {"disposition": "on_hand", "not_dispatched": "on"})
+        self.assertContains(response, "ჯერ უნდა დადასტურდეს RedCap")
+        bank.assert_not_called()
+        self.assertFalse(PaymentTransaction.objects.filter(action="refund").exists())
+        self.assertFalse(OrderReturn.objects.exists())

@@ -135,6 +135,7 @@ class OrderPaymentStatus(models.TextChoices):
     CANCELLED = "cancelled", "Cancelled"
     REFUND_PENDING = "refund_pending", "Refund pending"
     REFUNDED = "refunded", "Refunded"
+    PARTIALLY_REFUNDED = "partially_refunded", "თანხა ნაწილობრივ დაბრუნებულია"
 
 
 class OrderCheckoutSource(models.TextChoices):

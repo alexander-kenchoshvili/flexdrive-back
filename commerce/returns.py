@@ -29,8 +29,15 @@ def has_external_items(order):
 def finalize_return_refund(*, order, case_id):
     locked = Order.objects.select_for_update().get(pk=order.pk)
     case = OrderReturn.objects.get(pk=case_id, order=locked)
-    if locked.payment_status != OrderPaymentStatus.REFUNDED:
+    if locked.payment_status not in {OrderPaymentStatus.REFUNDED, OrderPaymentStatus.PARTIALLY_REFUNDED}:
         raise ValidationError("ბანკს თანხის დაბრუნება ჯერ არ დაუდასტურებია.")
+    if locked.payment_status == OrderPaymentStatus.PARTIALLY_REFUNDED:
+        from .refund_terms import settlement_for_refund
+        confirmed = locked.payment_transactions.filter(action="refund", status="refunded", refunded_at__isnull=False).first()
+        terms = settlement_for_refund(confirmed, total=locked.total) if confirmed else None
+        if (not terms or case.disposition != ReturnDisposition.FROM_CUSTOMER
+                or confirmed.provider_reference.get("refund_request", {}).get("return_case_id") != case.pk):
+            raise ValidationError("ნაწილობრივი დაბრუნება მიღებულ ნივთებსა და ბანკის დადასტურებას უნდა შეესაბამებოდეს.")
     if locked.stock_restored_at:
         return locked
     permitted = ({OrderStatus.SHIPPED, OrderStatus.DELIVERED}
@@ -80,6 +87,10 @@ def prepare_order_return(*, order, disposition, actor):
             raise ValidationError("ეს მოქმედება გაგზავნილ ან ჩაბარებულ შეკვეთას სჭირდება.")
     elif locked_order.status not in {OrderStatus.NEW, OrderStatus.CONFIRMED, OrderStatus.PROCESSING}:
         raise ValidationError("პირდაპირი დაბრუნება მხოლოდ გაგზავნამდეა შესაძლებელი.")
+    if disposition != ReturnDisposition.FROM_CUSTOMER:
+        from .redcap_shipments import has_unsettled_redcap_shipment
+        if has_unsettled_redcap_shipment(locked_order):
+            raise ValidationError("ჯერ დაადასტურეთ RedCap-ის გზავნილის გაუქმება.")
 
     items = list(locked_order.items.order_by("product_id", "pk"))
     if not items or any(item.product_id is None for item in items):

@@ -34,6 +34,15 @@ class RedcapReferenceDataAdmin(admin.ModelAdmin):
         extra_context["refresh_url"] = reverse("admin:commerce_redcapreferencedata_refresh")
         return super().changelist_view(request, extra_context=extra_context)
 
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        if request.method == "POST":
+            raise PermissionDenied
+        context = dict(extra_context or {})
+        context.update(show_save=False, show_save_and_continue=False,
+                       show_save_and_add_another=False, show_save_as_new=False,
+                       show_close=True, title="RedCap-ის ტარიფები")
+        return super().changeform_view(request, object_id, form_url, context)
+
     def refresh_view(self, request):
         if not self.has_change_permission(request):
             raise PermissionDenied

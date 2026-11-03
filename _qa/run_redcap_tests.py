@@ -39,8 +39,11 @@ with patch("socket.socket.connect", side_effect=AssertionError("Network disabled
         runner = get_runner(settings)(verbosity=1, interactive=False)
         failures = runner.run_tests([
             "commerce.test_redcap", "commerce.test_redcap_flow", "commerce.test_bog_callback_flow",
-            "commerce.test_bog_refunds", "commerce.test_payment_reconciliation",
+            "commerce.test_bog_refunds", "commerce.test_partial_refunds", "commerce.test_bog_payments", "commerce.test_payment_reconciliation",
             "commerce.test_accounting_reports", "commerce.test_accounting_access",
-            "business.test_reports", "business.test_operations",
+            "commerce.test_redcap_accounting", "commerce.test_accounting_admin",
+            "commerce.test_accounting_export",
+            "commerce.test_returns_foundation",
+            "business.test_reports", "business.test_operations", "business.test_redcap_panel",
         ])
         sys.exit(bool(failures))

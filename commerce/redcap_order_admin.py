@@ -81,10 +81,11 @@ class OrderRedcapAdminMixin:
             raise Http404
         return order
 
-    def _redcap_action(self, request, order, *, title, action, form=None):
+    def _redcap_action(self, request, order, *, title, action, form=None, notice=""):
         return TemplateResponse(request, "admin/commerce/order/redcap_action.html", {
             **self.admin_site.each_context(request), "opts": self.model._meta,
             "original": order, "title": title, "action": action, "form": form,
+            "notice": notice,
             "cancel_url": reverse("admin:commerce_order_change", args=[order.pk]),
         })
 
@@ -126,7 +127,8 @@ class OrderRedcapAdminMixin:
                 self.log_change(request, order, "RedCap-ის გზავნილი გაუქმებულია; გადახდა და მარაგი არ შეცვლილა.")
                 self.message_user(request, "RedCap-ის გზავნილი გაუქმდა. თანხა და მარაგი არ შეცვლილა.")
                 return HttpResponseRedirect(reverse("admin:commerce_order_change", args=[order.pk]))
-        return self._redcap_action(request, order, title="RedCap გზავნილის გაუქმება", action="გზავნილის გაუქმება", form=form)
+        return self._redcap_action(request, order, title="RedCap გზავნილის გაუქმება", action="გზავნილის გაუქმება", form=form,
+            notice="API-ით გაუქმება მხოლოდ „გაფორმებული“ სტატუსზეა შესაძლებელი. კურიერის დანიშვნის შემდეგ RedCap-თან შეჩერება ან დაბრუნება უნდა შეთანხმდეს. აქ უქმდება მხოლოდ კურიერის გზავნილი; შეკვეთის გაუქმება და თანხის დაბრუნება ცალკე მოქმედებებია.")
 
     def redcap_tracking_view(self, request, object_id):
         order = self._redcap_order(request, object_id)
