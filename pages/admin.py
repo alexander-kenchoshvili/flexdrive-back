@@ -267,6 +267,8 @@ class ContentItemInline(admin.TabularInline):
 
     def get_fields(self, request, obj=None):
         content_name = (getattr(obj, "name", "") or "").lower()
+        if content_name == "faq_questions":
+            return ("title", "description", "position")
         if content_name == "value_proposition_cards":
             return self.base_fields + self.image_fields
         if content_name == "vehicle_brand_cards":
@@ -344,6 +346,8 @@ class ContentItemAdmin(admin.ModelAdmin):
         return []
 
     def get_fields(self, request, obj=None):
+        if obj and obj.content and (obj.content.name or "").lower() == "faq_questions":
+            return ("content", "title", "description", "position")
         if obj and obj.content and (obj.content.name or "").lower() == "bloglist":
             return self.base_fields
         return self.base_fields + self.image_fields
