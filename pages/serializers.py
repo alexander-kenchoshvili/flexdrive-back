@@ -395,6 +395,15 @@ class FooterSettingsSerializer(serializers.ModelSerializer):
                 }
             )
 
+        if obj.linkedin_url:
+            items.append(
+                {
+                    "type": "linkedin",
+                    "label": "LinkedIn",
+                    "url": obj.linkedin_url,
+                }
+            )
+
         return items
 
 

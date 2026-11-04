@@ -705,6 +705,23 @@ class SitemapEntriesAPITests(APITestCase):
 
 
 class FooterAPITests(APITestCase):
+    def test_linkedin_is_optional_and_uses_the_saved_admin_url(self):
+        settings, _ = FooterSettings.objects.update_or_create(
+            pk=1, defaults={"linkedin_url": "https://www.linkedin.com/company/flexdrive-test/"},
+        )
+        response = self.client.get(reverse("footer"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [item for item in response.data["socials"] if item["type"] == "linkedin"],
+            [{"type": "linkedin", "label": "LinkedIn", "url": settings.linkedin_url}],
+        )
+        for empty_value in (None, ""):
+            settings.linkedin_url = empty_value
+            settings.save(update_fields=["linkedin_url"])
+            response = self.client.get(reverse("footer"))
+            self.assertEqual(response.status_code, 200)
+            self.assertFalse(any(item["type"] == "linkedin" for item in response.data["socials"]))
+
     def test_footer_endpoint_returns_grouped_links_and_settings(self):
         FooterSettings.objects.update_or_create(
             pk=1,

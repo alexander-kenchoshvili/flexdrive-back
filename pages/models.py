@@ -62,6 +62,7 @@ class FooterSettings(models.Model):
     city = models.CharField(max_length=255, blank=True, null=True)
     instagram_url = models.URLField(blank=True, null=True)
     facebook_url = models.URLField(blank=True, null=True)
+    linkedin_url = models.URLField(blank=True, null=True)
     copyright_text = models.CharField(max_length=255, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

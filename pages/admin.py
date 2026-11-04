@@ -104,6 +104,7 @@ class FooterSettingsAdmin(admin.ModelAdmin):
                 "fields": (
                     "instagram_url",
                     "facebook_url",
+                    "linkedin_url",
                     "copyright_text",
                 )
             },
