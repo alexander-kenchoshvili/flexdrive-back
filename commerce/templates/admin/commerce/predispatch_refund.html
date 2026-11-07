@@ -7,7 +7,8 @@
   <tbody>{% for item in items %}<tr><td>{{ item.product_name }}</td><td>{{ item.quantity }}</td></tr>{% endfor %}</tbody></table>
   <p><strong>შეკვეთაზე გადახდილია: {{ order.total }} ₾</strong></p>
   {% if allowed %}
-  <p>{% if customer_return %}ყველა ნივთი მიღებული და შემოწმებულია. აირჩიეთ უკუმიტანის ხარჯის გადამხდელი და გადაამოწმეთ დასაბრუნებელი თანხა.{% else %}არჩევანი ეხება მთელ შეკვეთას.{% endif %}</p>
+  <p>{% if customer_return %}ყველა ნივთი მიღებული და შემოწმებულია. აირჩიეთ საკურიერო ხარჯების გადამხდელი და გადაამოწმეთ დასაბრუნებელი თანხა.{% else %}არჩევანი ეხება მთელ შეკვეთას.{% endif %}</p>
+  {% if customer_return %}<p>შეკვეთაზე გადახდილი პირველი მიტანა: {{ order.delivery_price }} ₾</p>{% endif %}
   <form method="post">{% csrf_token %}{{ form.as_p }}
     <div class="module" style="padding:16px">
       {% if customer_return %}<p>მარაგი უკვე აღრიცხულია. თანხის დაბრუნება პროდუქტებს მეორედ არ დაამატებს.</p>{% else %}
@@ -16,7 +17,8 @@
       {% endif %}
       {% if preview %}
       <p>უკუმიტანის ხარჯი: {{ settlement.return_delivery_cost }} ₾</p>
-      <p>შეთანხმებული დაქვითვა: {{ settlement.retained_return_fee }} ₾</p>
+      <p>პირველი მიტანის დაქვითვა: {{ settlement.retained_delivery_fee|default:"0.00" }} ₾</p>
+      <p>უკუმიტანის დაქვითვა: {{ settlement.retained_return_fee }} ₾</p>
       <p><strong>მომხმარებლისთვის დასაბრუნებელი თანხა: {{ settlement.refund_amount }} ₾</strong></p>
       <input type="hidden" name="preview_token" value="{{ preview_token }}">
       {% endif %}

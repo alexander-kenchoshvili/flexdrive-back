@@ -44,6 +44,7 @@ def predispatched_refund_view(model_admin, request, order):
     customer_return = OrderReturn.objects.filter(order=order, disposition=ReturnDisposition.FROM_CUSTOMER).exists()
     data = request.POST if request.method == "POST" else None
     form = CustomerRefundForm(data) if customer_return else PredispatchRefundForm(data, order=order)
+    frozen = None
     if customer_return:
         pending = order.payment_transactions.filter(action="refund", status="refund_pending").order_by("-pk").first()
         if pending:
@@ -56,6 +57,9 @@ def predispatched_refund_view(model_admin, request, order):
                 for field in ("return_delivery_payer", "return_delivery_cost", "customer_agreed", "deduction_reason"):
                     form.fields[field].initial = frozen[field]
                     form.fields[field].disabled = True
+                if frozen["version"] == 1:
+                    form.fields["return_delivery_payer"].label = "ძველი მოთხოვნის უკუმიტანის გადამხდელი"
+                    form.fields["return_delivery_payer"].choices = [("merchant", "FlexDrive"), ("customer", "მომხმარებელი — მხოლოდ უკუმიტანის დაქვითვა")]
     allowed = can_request_bog_full_refund(order)
     settlement = None
     preview = False
@@ -63,9 +67,9 @@ def predispatched_refund_view(model_admin, request, order):
     if request.method == "POST" and form.is_valid():
         try:
             if customer_return:
-                settlement = build_settlement(total=order.total, cost=form.cleaned_data["return_delivery_cost"],
+                settlement = frozen or build_settlement(total=order.total, cost=form.cleaned_data["return_delivery_cost"],
                     payer=form.cleaned_data["return_delivery_payer"], agreed=form.cleaned_data["customer_agreed"],
-                    reason=form.cleaned_data["deduction_reason"])
+                    reason=form.cleaned_data["deduction_reason"], outbound_delivery=order.delivery_price)
                 preview_data = {"order_id": order.pk, "settlement": settlement}
                 try:
                     confirmed = signing.loads(request.POST.get("preview_token", ""), salt="order-refund-preview", max_age=900)
@@ -126,19 +130,20 @@ class RefundPreview(Exception):
 
 
 class CustomerRefundForm(ConfirmReturnForm):
-    return_delivery_payer = forms.ChoiceField(label="უკუმიტანის საფასურს ვინ იხდის?",
-        choices=[("merchant", "FlexDrive"), ("customer", "მომხმარებელი — შეთანხმებული თანხის დაქვითვით")],
+    return_delivery_payer = forms.ChoiceField(label="მიტანისა და უკუმიტანის საფასურს ვინ ფარავს?",
+        choices=[("merchant", "FlexDrive — მომხმარებელს სრული თანხა უბრუნდება"),
+                 ("customer", "მომხმარებელი — ორივე საფასურის დაქვითვით")],
         error_messages={"required": "აირჩიეთ გადამხდელი.", "invalid_choice": "აირჩიეთ მითითებული ვარიანტი."})
     return_delivery_cost = forms.DecimalField(label="უკუმიტანის საფასური (₾)", min_value=0,
         max_digits=12, decimal_places=2, initial=0,
-        help_text="მიუთითეთ შეთანხმებული ხარჯი. FlexDrive-ის არჩევისას მომხმარებელს სრული თანხა უბრუნდება.",
+        help_text="მხოლოდ უკან წამოღების რეალური ხარჯი. პირველი მიტანის თანხას სისტემა შეკვეთიდან იღებს.",
         error_messages={"required": "მიუთითეთ თანხა (ან 0).", "invalid": "მიუთითეთ სწორი თანხა.",
             "min_value": "ხარჯი ვერ იქნება უარყოფითი.", "max_digits": "თანხა ძალიან დიდია.",
             "max_decimal_places": "გამოიყენეთ მაქსიმუმ ორი ათწილადი.", "max_whole_digits": "თანხა ძალიან დიდია."})
     customer_agreed = forms.BooleanField(required=False,
-        label="მომხმარებელს შევუთანხმე უკუმიტანის თანხის დაქვითვა.")
+        label="მომხმარებელს შევუთანხმე წინასწარ დათვლილი საკურიერო თანხების დაქვითვა.")
     deduction_reason = forms.CharField(label="დაქვითვის მიზეზი", required=False, max_length=500,
-        widget=forms.Textarea(attrs={"rows": 2}), help_text="აუცილებელია, როცა უკუმიტანის ხარჯს მომხმარებელი იხდის.")
+        widget=forms.Textarea(attrs={"rows": 2}), help_text="აუცილებელია, როცა საკურიერო თანხები მომხმარებელს აკლდება.")
 
 
 class ReceiveReturnForm(ConfirmReturnForm):

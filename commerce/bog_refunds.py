@@ -27,7 +27,7 @@ from .services import (
     transition_order_payment_status,
 )
 from .redcap_shipments import has_unsettled_redcap_shipment
-from .refund_terms import build_settlement, settlement_for_refund
+from .refund_terms import settlement_for_refund, validate_settlement
 
 
 logger = logging.getLogger(__name__)
@@ -110,7 +110,7 @@ def request_bog_full_refund(
     try:
         terms = settlement_for_refund(refund, total=refund.order.total) if refund.order_id else None
         arguments = {"order_id": refund.provider_order_id, "idempotency_key": refund.idempotency_key}
-        if terms and Decimal(terms["retained_return_fee"]) > 0:
+        if terms and refund.amount < Decimal(terms["paid_total"]):
             result = payment_client.refund_partial(**arguments, amount=refund.amount)
         else:
             result = payment_client.refund_full(**arguments)
@@ -197,11 +197,7 @@ def _prepare_bog_full_refund(
             raise DjangoValidationError("უკუმიტანის ხარჯი მხოლოდ მიღებულ მომხმარებლის დაბრუნებას ეხება.")
         if not isinstance(settlement, dict):
             raise DjangoValidationError("დაბრუნების პირობები არასწორია.")
-        expected = build_settlement(total=locked_sale.amount,
-            cost=settlement.get("return_delivery_cost"), payer=settlement.get("return_delivery_payer"),
-            agreed=settlement.get("customer_agreed"), reason=settlement.get("deduction_reason"))
-        if settlement != expected:
-            raise DjangoValidationError("დაბრუნების თანხა შენახულ პირობებს არ ემთხვევა.")
+        validate_settlement(settlement, total=locked_sale.amount, outbound_delivery=locked_order.delivery_price)
         first_cost = locked_order.payment_transactions.filter(action="refund", provider="bog",
             provider_reference__refund_request__settlement__kind="whole_order_return").order_by("created_at", "pk").first()
         if first_cost:

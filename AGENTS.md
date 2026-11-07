@@ -1,5 +1,32 @@
 # Project Instructions
 
+## Separate Outbound And Return Delivery Deductions - 2026-11-07
+
+- User authorized the admin customer-pays choice to deduct both paid outbound
+  delivery and actual return shipping: total110/delivery10/return10 refunds90;
+  merchant-pays refunds110 and separately records return expense10. Uses frozen
+  Order.delivery_price including any paid buffer, never today's/booked tariff.
+  No new customer-facing fee instructions; existing public refund amount stays
+  accurate. Existing agreement/reason and explicit signed bank preview remain.
+- Version2 settlement freezes both fees independently. Version1 historical and
+  pending requests retain their original amounts, UUIDs and terms. Outbound-only
+  deductions use the partial-bank endpoint even when return expense is zero.
+  Actual bank/provider actions, production writes and return booking are excluded.
+- Shared allocation reverses goods fully and only the refunded delivery amount;
+  retained_delivery_fee is informational within net delivery, never extra income
+  or another courier expense. Accountant HTML/XLSX and business finance/operations
+  separate both fees. Expense remains once on first-attempt date, retention on
+  bank-confirmation date. SKU filtering excludes all order-wide fee amounts.
+- 337 backend tests pass on disposable SQLite with network blocked, including15
+  new calculation/admin/bank/history/cross-month/HTML/XLSX/public API regressions.
+  52 relevant frontend tests pass after the user-authorized checkout test update:
+  removed obsolete text assertions and checked all five zones, selected values
+  and separate destination inputs. Checkout application code unchanged.
+  Typecheck, scoped ESLint and migration drift also pass.
+- Requires paired backend/frontend deployment; no new migration. No browser,
+  server, DB/env/scheduler/provider change, refund, commit, push or deploy.
+  Pre-existing frontend docs/HOMEPAGE_FAQ.md edits were preserved.
+
 ## RedCap Business Panel And Shared Reporting - 2026-11-03
 
 - User authorized the six-point business-panel plan. Unified finance replaces

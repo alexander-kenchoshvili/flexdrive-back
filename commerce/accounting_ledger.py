@@ -11,7 +11,8 @@ HEADERS = ["თარიღი", "შეკვეთა", "პროდუქტ
            "თვითღირებულება დღგ-ის გარეშე ₾", "პროდუქტის მოგება დღგ-ის გარეშე ₾", "შიდა მიტანა (ძველი) ₾",
            "ჩექაუთის საკურიერო ტარიფი ₾", "ბუფერი ₾", "გადახდილი / დაბრუნებული თანხა ₾", "გადახდა", "მყიდველის ტიპი", "მყიდველი კომპანია დღგ-ის გადამხდელია",
            "უკუმიტანისთვის დაქვითული ₾", "უკუმიტანის ხარჯი (საინფორმაციო) ₾",
-           "RedCap-ის ფასი (საინფორმაციო) ₾", "ფასთა სხვაობა (საინფორმაციო) ₾"]
+           "RedCap-ის ფასი (საინფორმაციო) ₾", "ფასთა სხვაობა (საინფორმაციო) ₾",
+           "პირველი მიტანისთვის დაქვითული (მიტანის ნაშთში შედის) ₾"]
 
 
 def visible_columns(show_purchase=False):
@@ -59,9 +60,9 @@ def build_ledger(period, status, sku=""):
                 purchase.gross / line["quantity"] if purchase else None, a.sale.gross / line["quantity"],
                 purchase.gross * sign if purchase and allocation else None, a.sale.gross * sign if allocation else None,
                 purchase.net * sign if purchase and allocation else None, a.net_markup * sign if allocation and a.net_markup is not None else None,
-                order["delivery_price"] * sign if first and internal and allocation else (Decimal(0) if first and allocation else None),
-                order["carrier_quote"] * sign if first and courier and allocation else (Decimal(0) if first and allocation else None),
-                order["regional_buffer"] * sign if first and allocation else None,
+                allocation["delivery_gross"] * sign if first and internal and allocation else (Decimal(0) if first and allocation else None),
+                allocation["carrier_quote"] * sign if first and courier and allocation else (Decimal(0) if first and allocation else None),
+                allocation["regional_buffer"] * sign if first and allocation else None,
                 payment.amount * sign if first else None,
                 ("ნაწილობრივ დაბრუნებული" if payment.amount < payment.order.total else "დაბრუნებული") if refund else "გადახდილი",
                 "იურიდიული პირი" if payment.order.buyer_type == "legal_entity" else "ფიზიკური პირი",
@@ -71,6 +72,7 @@ def build_ledger(period, status, sku=""):
                 allocation["retained_return_fee"] if first and refund and allocation else (Decimal(0) if first and not refund else None),
                 allocation["return_delivery_cost"] if first and refund and allocation else (Decimal(0) if first and not refund else None),
                 booked_price if first else None, difference if first else None,
+                allocation["retained_delivery_fee"] if first and refund and allocation else (Decimal(0) if first and not refund and allocation else None),
             ])
         if len(rows) > group_start:
             groups.append({"event_id": payment.pk, "delivery_provider": order["delivery_provider"],
@@ -89,6 +91,10 @@ def build_ledger(period, status, sku=""):
         totals.append(None if sku or any(v is None for v in values) else sum(values, Decimal(0)))
     totals[19] = None  # Expense periods are independent of cash-refund dates.
     totals.extend([None, None])  # Booking snapshots are information, not cash.
+    delivery_fees = [row[22] for row in rows if row[14] is not None]
+    # Informational subset of net delivery, not another income/expense entry.
+    totals.append(None if sku or any(value is None for value in delivery_fees)
+                  else sum(delivery_fees, Decimal(0)))
     costs = return_cost_report(period) if not sku else None
     bookings = booking_report(period) if not sku else None
     return {"headers": HEADERS, "rows": rows, "groups": groups, "totals": totals, "period": period,

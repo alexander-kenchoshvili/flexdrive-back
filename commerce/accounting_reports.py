@@ -222,9 +222,14 @@ def _allocation(payment, row):
             return None, "refund_allocation_requires_review"
     elif payment.pk != sale.pk:
         return None, "sale_requires_review"
-    return {"product_gross": row["subtotal"], "delivery_gross": row["delivery_price"],
-            "regional_buffer": row["regional_buffer"], "carrier_quote": row["carrier_quote"],
+    retained_delivery = Decimal(settlement.get("retained_delivery_fee", "0.00")) if settlement else ZERO
+    if retained_delivery not in {ZERO, row["delivery_price"]}:
+        return None, "refund_allocation_requires_review"
+    return {"product_gross": row["subtotal"], "delivery_gross": row["delivery_price"] - retained_delivery,
+            "regional_buffer": ZERO if retained_delivery else row["regional_buffer"],
+            "carrier_quote": ZERO if retained_delivery else row["carrier_quote"],
             "product_lines": row["lines"],
+            "retained_delivery_fee": retained_delivery,
             "retained_return_fee": Decimal(settlement["retained_return_fee"]) if settlement else ZERO,
             "return_delivery_cost": Decimal(settlement["return_delivery_cost"]) if settlement else None}, None
 
@@ -240,7 +245,8 @@ def _cash_totals():
         "markup_covered_lines_received": 0, "markup_covered_lines_refunded": 0,
         "rounding_adjustment_received": ZERO, "rounding_adjustment_refunded": ZERO,
         "unallocated_received": ZERO, "unallocated_refunded": ZERO,
-        "retained_return_fee": ZERO, "return_delivery_cost": ZERO, "unknown_return_cost_events": 0,
+        "retained_return_fee": ZERO, "retained_delivery_fee": ZERO,
+        "return_delivery_cost": ZERO, "unknown_return_cost_events": 0,
     }
 
 def build_cash_report(period, *, tax_rates=None, limit=MAX_REPORT_ROWS, search=""):
@@ -271,6 +277,7 @@ def build_cash_report(period, *, tax_rates=None, limit=MAX_REPORT_ROWS, search="
         else:
             if refund:
                 totals["retained_return_fee"] += allocation["retained_return_fee"]
+                totals["retained_delivery_fee"] += allocation["retained_delivery_fee"]
             totals["product_" + suffix] += allocation["product_gross"]
             totals["delivery_" + suffix] += allocation["delivery_gross"]
             totals["buffer_" + suffix] += allocation["regional_buffer"]

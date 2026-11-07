@@ -97,6 +97,7 @@ def _returns(options, now):
                 "refund_status_label": PAYMENT_LABELS.get(latest.status) if latest else "თანხის დაბრუნება არ მოთხოვნილა",
                 "refund_confirmed": bool(latest and latest.status == "refunded" and latest.refunded_at),
                 "retained_return_fee": terms["retained_return_fee"] if terms else None,
+                "retained_delivery_fee": terms.get("retained_delivery_fee", "0.00") if terms else None,
                 "return_delivery_cost": terms["return_delivery_cost"] if terms else None,
                 "return_delivery_payer": ("მომხმარებელი" if terms["return_delivery_payer"] == "customer" else "FlexDrive") if terms else None,
                 "products": [{"name": line.order_item.product_name, "sku": line.order_item.internal_sku,

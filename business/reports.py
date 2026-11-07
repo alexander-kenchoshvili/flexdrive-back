@@ -23,7 +23,7 @@ MONEY_KEYS = (
     "courier_payable", "buffer_received",
     "buffer_refunded", "net_buffer", "internal_delivery_received", "internal_delivery_refunded",
     "net_internal_delivery", "unsaleable_cost_net", "average_order", "retained_return_fee", "return_delivery_cost",
-    "courier_price_difference",
+    "courier_price_difference", "retained_delivery_fee",
 )
 COUNT_KEYS = (
     "paid_orders", "refunded_orders", "sold_units", "returned_units", "net_units",
@@ -36,7 +36,7 @@ ALLOCATED_KEYS = (
     "delivery_refunded", "net_delivery_received", "product_sales_net", "product_cost_net",
     "product_rounding_net", "product_profit_net",
     "buffer_received", "buffer_refunded", "net_buffer", "internal_delivery_received",
-    "internal_delivery_refunded", "net_internal_delivery", "sold_units", "returned_units", "net_units", "retained_return_fee",
+    "internal_delivery_refunded", "net_internal_delivery", "sold_units", "returned_units", "net_units", "retained_return_fee", "retained_delivery_fee",
 )
 
 
@@ -122,13 +122,14 @@ def _collect(period):
         for target in targets:
             if refund:
                 target["retained_return_fee"] += allocation["retained_return_fee"]
+                target["retained_delivery_fee"] += allocation["retained_delivery_fee"]
             target[f"product_{suffix}"] += allocation["product_gross"]
             target[f"delivery_{suffix}"] += allocation["delivery_gross"]
             target[f"buffer_{suffix}"] += allocation["regional_buffer"]
             if not refund:
                 target["buffer_orders"] += int(allocation["regional_buffer"] > ZERO)
             if row["delivery_provider"] == "internal":
-                target[f"internal_delivery_{suffix}"] += row["delivery_price"]
+                target[f"internal_delivery_{suffix}"] += allocation["delivery_gross"]
         if not refund and row["delivery_provider"] == "internal":
             internal_ids.add(payment.order_id)
         for line in allocation["product_lines"]:

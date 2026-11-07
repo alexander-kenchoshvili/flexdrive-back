@@ -61,6 +61,7 @@ def order_block(group, columns):
             "delivery": [(label, display(first[index])) for index, label in (
                 delivery_field, (13, "ბუფერი"), (14, "დაბრუნებული თანხა" if group.get("refund") else "შეკვეთის სრული თანხა"))]
                 + ([("შეკვეთის თავდაპირველი თანხა", display(group["original_total"])),
+                    ("პირველი მიტანისთვის დაქვითული — მიტანის ნაშთში შედის", display(first[22])),
                     ("უკუმიტანისთვის დაქვითული", display(first[18])), ("უკუმიტანის ხარჯი", display(first[19]))]
                    if group.get("refund") else [])
                 + ([("RedCap-ის ფასი — საინფორმაციო", display(first[20])), ("ფასთა სხვაობა", display(first[21]))]
@@ -86,7 +87,7 @@ def accounting_view(request):
             report["show_purchase"] = form.cleaned_data["show_purchase"]
             columns = visible_columns(report["show_purchase"])
             product_columns = [i for i in columns if 2 <= i <= 10]
-            total_columns = [i for i in columns if i == 4 or 7 <= i <= 14 or i == 18]
+            total_columns = [i for i in columns if i == 4 or 7 <= i <= 14 or i in {18, 22}]
             if request.GET.get("export") == "xlsx":
                 from .accounting_export import export_response
                 return export_response(report)
