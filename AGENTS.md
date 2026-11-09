@@ -1,5 +1,64 @@
 # Project Instructions
 
+## Wingo Standard Checkout Backend Then Frontend - 2026-11-10
+
+- User authorized the next paired step, backend first, then frontend using existing
+  reusable components/Tailwind. ONLY standard Wingo type1 is allowed; no customer
+  service choice/date grid/new buffer. Product shipping weights remain operator-owned.
+- Active delivery_quotes now uses Wingo/local tariffs. Stable numeric WingoRegion/
+  WingoLocality mappings bridge string provider IDs; refresh updates mappings and
+  snapshot atomically without reusing IDs. Availability flags are separate from
+  weekdays; orders are not blocked just because today isn't a delivery weekday.
+- v3 signed quotes bind source/items/raw weights/rounded total/locality/revision/
+  standard price. Both cart/buy-now payments freeze price and external IDs; bank
+  confirmation decodes without current references. Legacy v1/v2 decoding retained
+  in delivery_quote_data.py. New private Order.delivery_provider_data stores only
+  four booking reference values, not included in public serializers.
+- New0041_wingo_checkout_locations creates two mappings and order JSON field,
+  backfills an existing snapshot without HTTP. Applied ONLY to local SQLite after
+  backup;60 pre-existing tables' original values verified unchanged;12/2865 mappings.
+  Production remains at0040; user owns push/deploy and will request0041 separately.
+- Paired frontend uses two existing searchable BaseSelects in the shared checkout,
+  canonical city names, request-ID/sync invalidation, safe draft provider marker.
+  Old courier draft contacts/address survive; overlapping location IDs are cleared.
+- 52 Wingo tests and337 prior regressions pass on disposable SQLite with network
+  blocked;52 frontend tests, typecheck, scoped lint and migration drift pass.
+  No browser/server, provider/bank call, production DB/env, commit/push/deploy.
+  Booking/PDF/webhook/status/cancel/returns and Wingo financial reporting remain
+  future stages. See docs/WINGO_CHECKOUT.md; earlier phase1 limits are historical.
+
+## Wingo Phase 1 Production Migration Applied - 2026-11-10
+
+- After the user reported pushing and explicitly requested production migration,
+  verified the previously supplied DigitalOcean PostgreSQL target over SSL with a
+  read-only preflight. Only commerce0040_wingo_reference_data was pending.
+- Applied exactly0040 in one guarded PostgreSQL transaction. Created only
+  commerce_wingoreferencedata and standard content-type/four permission records.
+  All60 pre-existing table schemas and server-side fingerprints of24 existing
+  commerce/product tables remain identical. New Wingo snapshot table is empty.
+- A fresh read-only connection verified the committed migration/table/permissions
+  at00:58:58 Tbilisi. Credential-free preflight/schema/fingerprint/result evidence
+  remains ignored in tmp/measurements-20261015/wingo-phase1-20261110/.
+- No production Wingo env edit, reference import, booking, provider action,
+  application push/deploy, or browser/server action. Runtime Wingo configuration
+  and initial admin reference refresh are still needed to populate that table.
+
+## Wingo Phase 1 Local Admin Preparation - 2026-11-10
+
+- User requested local admin verification and reserved production migration until
+  their own push/deployment. Verified default database is workspace db.sqlite3.
+  Local pending0037-0039 were prerequisites; applied0037-0040 after a consistent
+  SQLite backup. All original columns/rows in56 pre-existing business tables match
+  the backup;0038 adds only its two expected order metadata columns plus new tables.
+- Configured only local ignored .env WINGO_API_KEY/BASE_URL/ACCOUNT_MODE=test from
+  the user-provided Desktop key, never printed it. Existing running Django process
+  needs restart to read these env settings. Loaded12 regions/2865 localities/15
+  test tariffs with reference-only GETs into this local database. No provider action.
+- Backup and local verification remain ignored in
+  tmp/measurements-20261015/wingo-phase1-20261110/. No production DB/env change,
+  server/browser restart, commit, push or deployment. User owns push/deployment;
+  production migration must wait until they confirm the deployed backend is ready.
+
 ## Wingo Phase 1 References And Admin Only - 2026-11-10
 
 - User authorized ONLY phase 1: reference-only Wingo client, atomic private

@@ -14,7 +14,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from .delivery_quotes import (DeliveryQuoteError, build_delivery_quote, delivery_locations,
+from .redcap_quotes import (DeliveryQuoteError, build_delivery_quote, delivery_locations,
                              delivery_order_fields, resolve_delivery_location, validate_delivery_quote)
 from .models import Order, OrderItem, RedcapReferenceData, RedcapShipment, RedcapSyncReport
 from .redcap import RedcapClient, RedcapResponseError, RedcapTransportError
@@ -104,24 +104,22 @@ class RedcapQuoteTests(TestCase):
             validate_delivery_quote(quote_token=quote["quote_token"], source="cart", items=[item()], region=self.location, city=self.location)
         self.assertEqual(caught.exception.code, "delivery_quote_expired")
 
-    def test_locations_endpoints_are_one_provider_and_no_carrier_requests(self):
+    def test_legacy_redcap_references_are_not_exposed_by_active_checkout(self):
         with patch("commerce.redcap.RedcapClient.from_settings", side_effect=AssertionError("No HTTP")):
             response = self.client.get(reverse("commerce-delivery-region-list"))
-            self.assertEqual(len(response.json()["results"]), 5)
+            self.assertEqual(response.json()["results"], [])
             self.assertTrue(all(not row["is_internal_delivery"] for row in response.json()["results"]))
             response = self.client.get(reverse("commerce-delivery-city-list", args=[5]))
-            self.assertEqual(response.json()["results"], [{"id": 5, "name": "რეგიონი (სოფლები)"}])
+            self.assertEqual(response.status_code, 404)
             self.assertEqual(self.client.get(reverse("commerce-delivery-city-list", args=[999])).status_code, 404)
 
-    def test_checkout_requires_actual_settlement_instead_of_generic_region_name(self):
+    def test_retired_redcap_locations_cannot_start_a_new_checkout(self):
         from rest_framework.exceptions import ValidationError
         from .serializers import CheckoutSerializer
         serializer = CheckoutSerializer()
-        for city in ("", "რეგიონი (ქალაქები)"):
+        for city in ("", "რეგიონი (ქალაქები)", "ბათუმი"):
             with self.assertRaises(ValidationError):
                 serializer.validate({"delivery_region_id": 4, "delivery_city_id": 4, "city": city})
-        self.assertEqual(serializer.validate({"delivery_region_id": 4, "delivery_city_id": 4,
-                                              "city": "ბათუმი"})["city"], "ბათუმი")
 
 
 @override_settings(REDCAP_SENDER_NAME="Test Store", REDCAP_SENDER_PHONE="555000001",

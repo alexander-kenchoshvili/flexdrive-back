@@ -39,6 +39,19 @@ class WingoReferenceData(models.Model):
         return f"Wingo — {self.get_account_mode_display()}"
 
 
+class WingoRegion(models.Model):
+    """Stable local IDs; current names and availability live in the snapshot."""
+
+    id = models.AutoField(primary_key=True)
+    external_id = models.CharField(max_length=200, unique=True)
+
+
+class WingoLocality(models.Model):
+    id = models.AutoField(primary_key=True)
+    external_id = models.CharField(max_length=200, unique=True)
+    region = models.ForeignKey(WingoRegion, on_delete=models.PROTECT, related_name="localities")
+
+
 class RedcapReferenceData(models.Model):
     """One atomically refreshed, private snapshot; no credentials or order PII."""
 
@@ -618,6 +631,7 @@ class Order(TimeStampedModel):
     delivery_package_id = models.PositiveIntegerField(null=True, blank=True)
     delivery_service_slug = models.CharField(max_length=80, blank=True, default="")
     delivery_tariff_revision = models.CharField(max_length=64, blank=True, default="")
+    delivery_provider_data = models.JSONField(default=dict, editable=False)
     easyway_shipment_state = models.CharField(
         max_length=20,
         choices=EasywayShipmentState.choices,

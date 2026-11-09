@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("labels", nargs="*", default=["commerce.test_wingo"])
+parser.add_argument("labels", nargs="*", default=["commerce.test_wingo", "commerce.test_wingo_checkout"])
 mode = parser.add_mutually_exclusive_group()
 mode.add_argument("--make-migrations", action="store_true")
 mode.add_argument("--check-migrations", action="store_true")

@@ -1,7 +1,7 @@
-"""Stable delivery imports; the active implementation is RedCap."""
+"""Stable delivery imports; new checkouts use local standard-only Wingo quotes."""
 
-from .redcap_quotes import (
+from .wingo_quotes import (
     DeliveryLocation, DeliveryQuoteError, QUOTE_SIGNING_SALT,
-    build_delivery_quote, delivery_locations, delivery_order_fields,
+    build_delivery_quote, delivery_cities, delivery_locations, delivery_order_fields,
     resolve_checkout_delivery, resolve_delivery_location, validate_delivery_quote,
 )

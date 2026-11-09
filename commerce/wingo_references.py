@@ -204,4 +204,6 @@ def refresh_wingo_references(*, client=None):
         snapshot.revision = revision
         snapshot.synced_at = timezone.now()
         snapshot.save()
+        from .wingo_locations import synchronize_location_ids
+        synchronize_location_ids(snapshot)
     return snapshot

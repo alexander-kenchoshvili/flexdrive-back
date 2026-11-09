@@ -114,11 +114,20 @@ class BogCallbackFlowTests(APITransactionTestCase):
             slug="callback-brakes",
             sort_order=1,
         )
-        from .test_redcap import reference_client
-        from .redcap_references import refresh_redcap_references
+        from .test_wingo import reference_client, sample
+        from .wingo_references import refresh_wingo_references
+        from .models import WingoLocality
         from .delivery_quotes import resolve_delivery_location
-        refresh_redcap_references(client=reference_client())
-        self.delivery_region = resolve_delivery_location(1, 1)
+        # Keep established bank/stock amounts while switching the active courier.
+        # These are valid personal test tariffs, not the live Wingo account prices.
+        self.courier_data = sample()
+        for row, amount in zip(self.courier_data["tariffs"], (10, 12, 16)):
+            row["standardTbilisi"] = amount
+            row["isCustom"] = True
+        self.courier_data["tariffs"][0]["standardRegion"] = 12
+        refresh_wingo_references(client=reference_client(self.courier_data))
+        mapping = WingoLocality.objects.get(external_id="oayK3wTbTlSTuvTHkTHc")
+        self.delivery_region = resolve_delivery_location(mapping.region_id, mapping.pk)
         self.delivery_city = self.delivery_region
         self.product = Product.objects.create(
             category=self.category,
@@ -176,7 +185,7 @@ class BogCallbackFlowTests(APITransactionTestCase):
             "email": "nino@example.com",
             "phone": "555123456",
             "city": getattr(self, "actual_destination", "Tbilisi"),
-            "delivery_region_id": self.delivery_region.external_id,
+            "delivery_region_id": self.delivery_region.region_id,
             "delivery_city_id": self.delivery_city.external_id,
             "delivery_quote_token": quote["quote_token"],
             "address_line": "Saburtalo 1",
@@ -417,7 +426,9 @@ class BogCallbackFlowTests(APITransactionTestCase):
 
     def _assert_regional_destination_survives_payment(self, source):
         from .delivery_quotes import resolve_delivery_location
-        self.delivery_region = self.delivery_city = resolve_delivery_location(4, 4)
+        from .models import WingoLocality
+        mapping = WingoLocality.objects.get(external_id="TPJtXj8vtQefzbiRytWY")
+        self.delivery_region = self.delivery_city = resolve_delivery_location(mapping.region_id, mapping.pk)
         self.actual_destination = "ბათუმი"
         start = self._start_cart_payment if source == "cart" else self._start_buy_now_payment
         _, response, payment = start()
@@ -425,8 +436,8 @@ class BogCallbackFlowTests(APITransactionTestCase):
         self.assertEqual(payment.checkout_snapshot["buyer"]["city"], "ბათუმი")
         self.assertEqual(self._signed_callback_request(self._callback_payload(payment)).status_code, 200)
         order = Order.objects.get()
-        self.assertEqual((order.city, order.delivery_city_name), ("ბათუმი", "რეგიონი (ქალაქები)"))
-        self.assertEqual((order.delivery_provider, order.delivery_service_slug), ("redcap", "RegionCity"))
+        self.assertEqual((order.city, order.delivery_city_name), ("ბათუმი", "ბათუმი"))
+        self.assertEqual((order.delivery_provider, order.delivery_service_slug), ("wingo", "standard"))
 
     def test_cart_regional_destination_survives_bank_snapshot(self):
         self._assert_regional_destination_survives_payment("cart")
@@ -494,18 +505,17 @@ class BogCallbackFlowTests(APITransactionTestCase):
         self.assertEqual(self.provider_client.create_order.call_args.kwargs["delivery_amount"], "16.00")
         self.product.shipping_weight_kg = Decimal("1.000")
         self.product.save(update_fields=["shipping_weight_kg"])
-        from .test_redcap import reference_client
-        from .redcap_references import refresh_redcap_references
-        changed = reference_client()
-        changed.get_weight_options.return_value["weights"][2]["prices"]["same_day"] = 18
-        refresh_redcap_references(client=changed)
+        from .test_wingo import reference_client
+        from .wingo_references import refresh_wingo_references
+        self.courier_data["tariffs"][2]["standardTbilisi"] = 18
+        refresh_wingo_references(client=reference_client(self.courier_data))
         response = self._signed_callback_request(self._callback_payload(payment))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         payment.refresh_from_db()
-        self.assertEqual(payment.order.delivery_provider, "redcap")
+        self.assertEqual(payment.order.delivery_provider, "wingo")
         self.assertEqual(payment.order.delivery_price, Decimal("16.00"))
         self.assertEqual(payment.order.shipping_weight_kg, Decimal("11.00"))
-        self.assertEqual(payment.order.delivery_service_slug, "same_day")
+        self.assertEqual(payment.order.delivery_service_slug, "standard")
         self.assertEqual(payment.order.total, Decimal("106.00"))
 
     def _seed_owned_unit(self):

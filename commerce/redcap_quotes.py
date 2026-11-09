@@ -2,15 +2,17 @@
 
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_CEILING
-import hashlib
-import json
 
 from django.conf import settings
 from django.core import signing
 
 from .models import RedcapReferenceData
-from .redcap import RedcapError, positive_decimal
+from .redcap import RedcapError
 from .redcap_references import tariff_price
+from .delivery_quote_data import (
+    DeliveryQuoteError, contents_fingerprint as _fingerprint,
+    normalize_quote_items as _normalize_items, delivery_order_fields,
+)
 
 
 QUOTE_SIGNING_SALT = "commerce.redcap.delivery-quote.v2"
@@ -18,12 +20,6 @@ STANDARD_SERVICE_BY_ZONE = {
     "city": "same_day", "suburban": "Dgesshemog", "region_city": "RegionCity",
     "region_village": "sofeli", "region_mountain": "Magalmtiani",
 }
-
-
-class DeliveryQuoteError(Exception):
-    def __init__(self, detail, *, code="delivery_quote_failed", status_code=400):
-        super().__init__(detail)
-        self.detail, self.code, self.status_code = detail, code, status_code
 
 
 @dataclass(frozen=True)
@@ -57,27 +53,6 @@ def resolve_delivery_location(region_id, city_id):
     if location is None:
         raise DeliveryQuoteError("მიწოდების ზონა ხელმისაწვდომი არ არის. სცადეთ ხელახლა.", code="delivery_location_unavailable")
     return location
-
-
-def _normalize_items(items):
-    result = []
-    for item in items:
-        try:
-            weight = positive_decimal(item.product.effective_shipping_weight_kg)
-            quantity = int(item.quantity)
-            if quantity <= 0:
-                raise ValueError
-        except (RedcapError, TypeError, ValueError) as exc:
-            raise DeliveryQuoteError("ერთ ან მეტ პროდუქტს შეფუთული წონა არ აქვს მითითებული.", code="shipping_weight_missing") from exc
-        result.append({"product_id": item.product.pk, "quantity": quantity, "weight": weight})
-    if not result:
-        raise DeliveryQuoteError("კალათა ცარიელია.", code="delivery_items_empty")
-    return result
-
-
-def _fingerprint(items):
-    content = [{**row, "weight": format(row["weight"], "f")} for row in sorted(items, key=lambda row: row["product_id"])]
-    return hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def build_delivery_quote(*, source, items, region, city, client=None):
@@ -125,24 +100,3 @@ def resolve_checkout_delivery(*, validated_data, source, items):
     location = resolve_delivery_location(validated_data.get("delivery_region_id"), validated_data.get("delivery_city_id"))
     return validate_delivery_quote(quote_token=validated_data.get("delivery_quote_token"), source=source,
                                    items=items, region=location, city=location)
-
-
-def delivery_order_fields(payload):
-    """Decode new quotes and frozen legacy bank snapshots without carrier HTTP."""
-    if not isinstance(payload, dict) or payload.get("version") not in {1, 2}:
-        raise DeliveryQuoteError("მიწოდების მონაცემების ვერსია არასწორია.", code="delivery_quote_invalid")
-    measurements = payload["measurements"]
-    result = {
-        "delivery_provider": payload["provider"],
-        "delivery_region_id": payload["region_id"], "delivery_region_name": payload["region_name"],
-        "delivery_city_id": payload["city_id"], "delivery_city_name": payload["city_name"],
-        "carrier_delivery_cost": Decimal(payload["carrier_delivery_cost"]),
-        "delivery_margin": Decimal(payload["delivery_margin"]), "delivery_price": Decimal(payload["customer_delivery_price"]),
-        "shipping_weight_kg": Decimal(measurements["weight"]), "delivery_package_id": payload.get("package_id"),
-        **{f"shipping_{key}_cm": Decimal(measurements[key]) if measurements.get(key) is not None else None
-           for key in ("length", "width", "height")},
-    }
-    if payload["version"] == 2:
-        result["delivery_service_slug"] = payload["service_slug"]
-        result["delivery_tariff_revision"] = payload["tariff_revision"]
-    return result

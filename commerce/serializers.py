@@ -152,13 +152,9 @@ class CheckoutSerializer(serializers.Serializer):
         try:
             location = resolve_delivery_location(attrs["delivery_region_id"], attrs["delivery_city_id"])
         except DeliveryQuoteError as exc:
-            raise serializers.ValidationError({"delivery_region_id": exc.detail}) from exc
-        actual_city = str(attrs.get("city") or "").strip()
-        if not actual_city and location.zone_slug == "city":
-            actual_city = "თბილისი"
-        if not actual_city or (location.zone_slug != "city" and actual_city == location.name):
-            raise serializers.ValidationError({"city": "შეიყვანეთ ქალაქის ან დასახლების სახელი."})
-        attrs["city"] = actual_city
+            raise serializers.ValidationError({"delivery_city_id": exc.detail}) from exc
+        # The selected Wingo locality is authoritative; free text cannot change it.
+        attrs["city"] = location.name
 
         buyer_type = attrs.get("buyer_type", OrderBuyerType.INDIVIDUAL)
 
@@ -208,7 +204,7 @@ class DeliveryQuoteRequestSerializer(serializers.Serializer):
         try:
             location = resolve_delivery_location(attrs["delivery_region_id"], attrs["delivery_city_id"])
         except DeliveryQuoteError as exc:
-            raise serializers.ValidationError({"delivery_region_id": exc.detail}) from exc
+            raise serializers.ValidationError({"delivery_city_id": exc.detail}) from exc
         attrs["region"] = location
         attrs["city"] = location
         return attrs
