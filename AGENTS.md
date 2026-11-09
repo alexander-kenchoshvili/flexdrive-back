@@ -1,5 +1,51 @@
 # Project Instructions
 
+## Wingo Webhook And Canonical Tracking - 2026-11-10
+
+- User authorized explaining/implementing the next status stage. Added private
+  per-order HMAC URL in callback_url (WINGO_WEBHOOK_PUBLIC_URL), webhook receiver,
+  canonical authenticated GET verification, Georgian admin check/history/pending.
+  Optional agreed WINGO_WEBHOOK_SECRET enforces raw-body SHA256 HMAC when set.
+  No new cron/worker/thread. Production booking requires public URL; TEST can
+  operate locally with manual check. Public callback activation still awaits deploy.
+- Exact resolved Wingo callback view is CSRF-exempt in custom API middleware;
+  other paths remain protected. Incoming status/timestamp never authorizes a write.
+  Provider identity/frozen request and current updatedAt/status are verified;
+  short2/4s HTTP outside row locks,60s lease/CAS, bounded history and pending markers.
+  Busy/failure returns503 for provider retries, not a false successful ack.
+- Order status advances2=>processing,3/5/6/7=>shipped,9=>delivered only while paid
+  and not returning/cancelled.4/8/10/11 require attention; no money/stock/cancel
+  actions. Old/equal-conflicting/final-regressing responses cannot undo good state.
+  Canonical9=>11 is recorded for review, without undoing delivered/payment state.
+  Unknown creation can be resolved from a private callback's exact verified ID.
+- 135 Wingo +8 existing CSRF +339 prior regressions pass on disposable SQLite,
+  network blocked. Actual guest/profile detail/list/public APIs reflect new status;
+  existing Nuxt badges/steps already support them. No frontend edit or live UI.
+  Read-only existing TEST order + callback emulation in ephemeral memory succeeds;
+  not an actual public provider push. No new provider order/status mutation/bank call.
+- Applied local0043 after backup;65 tables' original column values unchanged.
+  Production remains0042. No production env/DB/provider change, server/browser,
+  push/deploy. User owns backend deployment and will request production0043 later.
+  See docs/WINGO_TRACKING.md; real public delivery and recovery after exhausted
+  Wingo retries need operational checking, with the manual button as fallback.
+
+## Wingo Outbound Production Migration Applied - 2026-11-10
+
+- User explicitly requested production migration0042. Read-only SSL preflight
+  verified the previously supplied DigitalOcean target and only0042 pending.
+- Applied commerce0042_wingo_outbound_shipment in one guarded PostgreSQL
+  transaction. Created only commerce_wingoshipment and its normal content type
+  (no permissions, per model). All63 pre-existing table schemas and server-side
+  fingerprints of60 original data tables remained identical.
+- Fresh read-only SSL connection confirms commit at02:57:44 Tbilisi, zero pending
+  migrations, valid constraints, new shipment rows0 and original data unchanged.
+  Wingo references/mappings remain empty as planned; production runtime credentials
+  and later reference refresh are still separate. No provider/bank/env operation,
+  app change, server/browser start, push or deployment performed by agent.
+- Credential-free preflight/schema/fingerprint/postcommit evidence is ignored in
+  tmp/measurements-20261015/wingo-outbound-20261110/production-0042-*.json and
+  production-before-0042.json. Earlier stage3 production-pending notes are historical.
+
 ## Wingo Manual Outbound And Labels - 2026-11-10
 
 - User authorized backend-only stage3: paid-order manual booking, Georgian prepare

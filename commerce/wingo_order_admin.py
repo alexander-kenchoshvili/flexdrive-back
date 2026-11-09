@@ -5,11 +5,12 @@ from django.contrib import admin, messages
 from django.http import FileResponse, Http404, HttpResponseNotAllowed, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 
 from .models import WingoShipment
 from .wingo import WingoError
 from .wingo_shipments import can_submit, get_shipment_label, recover_submission, submit_shipment
+from .wingo_tracking import STATUS_LABELS, sync_shipment
 
 
 class WingoPrepareForm(forms.Form):
@@ -24,6 +25,7 @@ class WingoPrepareForm(forms.Form):
 class OrderWingoAdminMixin:
     def get_urls(self):
         routes = [("submit", self.wingo_submit_view), ("recover", self.wingo_recover_view),
+                  ("tracking", self.wingo_tracking_view),
                   ("label", self.wingo_label_view)]
         return [path(f"<path:object_id>/wingo-{action}/", self.admin_site.admin_view(view),
                      name=f"commerce_order_wingo_{action}") for action, view in routes] + super().get_urls()
@@ -40,7 +42,8 @@ class OrderWingoAdminMixin:
             context["show_wingo_submit"] = can_submit(order)
             context["show_wingo_recover"] = bool(shipment and shipment.state in {"unknown", "submitting"})
             context["show_wingo_label"] = bool(shipment and shipment.state == "created" and shipment.provider_order_id)
-            for action in ("submit", "recover", "label"):
+            context["show_wingo_tracking"] = context["show_wingo_label"]
+            for action in ("submit", "recover", "label", "tracking"):
                 context[f"wingo_{action}_url"] = reverse(f"admin:commerce_order_wingo_{action}", args=[order.pk])
         return super().changeform_view(request, object_id, form_url, context)
 
@@ -52,14 +55,29 @@ class OrderWingoAdminMixin:
         price = f"{shipment.booked_price:.2f} ₾" if shipment.booked_price is not None else "ჯერ არ დადასტურებულა"
         difference = (f"{shipment.booked_price - obj.carrier_delivery_cost:+.2f} ₾"
                       if shipment.booked_price is not None else "ჯერ არ დადასტურებულა")
+        history = format_html_join("", "<li>{} — {}{}</li>", (
+            (row.get("observed_at", "—"), STATUS_LABELS.get(row.get("status"), "უცნობი სტატუსი"),
+             " (საჭიროა გადამოწმება)" if row.get("result") == "review" else
+             " (ძველი პასუხი — უგულებელყოფილია)" if row.get("result") == "stale" else "")
+            for row in shipment.tracking_history[-20:]))
+        pending = ("მიღებული შეტყობინება ჯერ ვერ გადამოწმდა. გამოიყენეთ „Wingo-ს სტატუსის განახლება“."
+                   if shipment.webhook_received_at and (not shipment.webhook_checked_at
+                   or shipment.webhook_received_at > shipment.webhook_checked_at) else "")
+        automatic = ("ავტომატური განახლების მისამართი გაგზავნილია Wingo-ში."
+                     if shipment.request_payload.get("callback_url") else
+                     "ამ გზავნილს ავტომატური განახლების მისამართი არ გაგზავნია. სტატუსი შეამოწმეთ ღილაკით.")
         return format_html(
             "<p><strong>{}</strong></p><p>გზავნილის ნომერი: {}<br>შეფუთვები: {}<br>"
             "მომხმარებლის მიერ გადახდილი მიტანა: {} ₾<br>შენახული საკურიერო ტარიფი: {} ₾<br>"
             "Wingo-ში დაფიქსირებული ფასი: {}<br>სხვაობა ტარიფთან: {}<br>"
-            "გზავნილის დადასტურების დრო: {}</p><p>{}</p>",
+            "გზავნილის დადასტურების დრო: {}<br>Wingo-ს სტატუსი: {}<br>"
+            "ბოლო წარმატებული შემოწმება: {}</p><p>{}</p><p>{}</p><p>{}</p><p>{}</p>"
+            "<p>ბოლო 20 დაკვირვება (შემოწმების დრო):</p><ul>{}</ul>",
             shipment.get_state_display(), shipment.tracking_number or "—", shipment.parcel_count,
             obj.delivery_price, obj.carrier_delivery_cost, price, difference,
-            shipment.submitted_at or "—", shipment.last_error)
+            shipment.submitted_at or "—", STATUS_LABELS.get(shipment.carrier_status, "ჯერ არ დადასტურებულა"),
+            shipment.tracking_checked_at or "—", shipment.last_error, shipment.tracking_error,
+            pending, automatic, history)
 
     def _wingo_order(self, request, object_id):
         order = self._get_action_order(request, object_id)
@@ -67,10 +85,10 @@ class OrderWingoAdminMixin:
             raise Http404
         return order
 
-    def _wingo_action(self, request, order, *, title, action, form=None, recovery=False):
+    def _wingo_action(self, request, order, *, title, action, form=None, recovery=False, tracking=False):
         return TemplateResponse(request, "admin/commerce/order/wingo_action.html", {
             **self.admin_site.each_context(request), "opts": self.model._meta, "original": order,
-            "title": title, "action": action, "form": form, "recovery": recovery,
+            "title": title, "action": action, "form": form, "recovery": recovery, "tracking": tracking,
             "cancel_url": reverse("admin:commerce_order_change", args=[order.pk]),
         })
 
@@ -130,3 +148,23 @@ class OrderWingoAdminMixin:
         response["Pragma"] = "no-cache"
         response["X-Content-Type-Options"] = "nosniff"
         return response
+
+    def wingo_tracking_view(self, request, object_id):
+        order = self._wingo_order(request, object_id)
+        if request.method not in {"GET", "POST"}:
+            return HttpResponseNotAllowed(["GET", "POST"])
+        if request.method == "POST":
+            try:
+                result = sync_shipment(order.pk)
+            except WingoError as exc:
+                self.message_user(request, str(exc), messages.ERROR)
+            else:
+                self.log_change(request, order, "Wingo-ს სტატუსი გადამოწმებულია.")
+                message = {"synced": "Wingo-ს სტატუსი განახლდა.",
+                           "review": "Wingo-ს პასუხი შენახულია. იხილეთ შეკვეთაზე შენიშვნა.",
+                           "stale": "ძველი პასუხი უგულებელყოფილია. შენახული მდგომარეობა უცვლელია.",
+                           "skipped": "მიმდინარე შემოწმება უფრო ახალმა შემოწმებამ ჩაანაცვლა."}[result]
+                self.message_user(request, message, messages.SUCCESS if result == "synced" else messages.WARNING)
+            return HttpResponseRedirect(reverse("admin:commerce_order_change", args=[order.pk]))
+        return self._wingo_action(request, order, title="Wingo-ს სტატუსის განახლება",
+                                  action="მიმდინარე სტატუსის შემოწმება", tracking=True)

@@ -1,4 +1,5 @@
 from django.urls import path
+from .wingo_webhooks import WingoWebhookAPIView
 
 from .views import (
     BuyNowCardPaymentStartAPIView,
@@ -28,6 +29,8 @@ from .views import (
 )
 
 urlpatterns = [
+    path("wingo/webhook/<uuid:public_token>/<str:token>/", WingoWebhookAPIView.as_view(),
+         name="commerce-wingo-webhook"),
     path(
         "delivery/regions/",
         DeliveryRegionListAPIView.as_view(),

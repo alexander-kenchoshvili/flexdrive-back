@@ -2,10 +2,11 @@
 
 {% block submit_buttons_bottom %}
 {{ block.super }}
-{% if show_wingo_submit or show_wingo_recover %}
+{% if show_wingo_submit or show_wingo_recover or show_wingo_tracking %}
 <div class="submit-row">
   {% if show_wingo_submit %}<a class="button" href="{{ wingo_submit_url }}">Wingo-ში გაგზავნა</a>{% endif %}
   {% if show_wingo_recover %}<a class="button" href="{{ wingo_recover_url }}">Wingo-ში გაგზავნის შედეგის გადამოწმება</a>{% endif %}
+  {% if show_wingo_tracking %}<a class="button" href="{{ wingo_tracking_url }}">Wingo-ს სტატუსის განახლება</a>{% endif %}
 </div>
 {% endif %}
 {% if show_wingo_label %}

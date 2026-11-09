@@ -1,5 +1,6 @@
 from django.http import JsonResponse
 from django.middleware.csrf import CsrfViewMiddleware
+from django.urls import Resolver404, resolve
 
 
 SAFE_HTTP_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
@@ -17,8 +18,8 @@ class ApiCsrfProtectionMiddleware:
     authentication reads credentials from HttpOnly cookies. Without an explicit
     check, a browser can attach those cookies to a forged cross-site request.
 
-    Keep exemptions limited to endpoints whose POST method is read-only. New
-    API endpoints are protected by default.
+    Only read-only POSTs and specifically routed provider callbacks are exempt.
+    New API endpoints are protected by default.
     """
 
     API_PREFIX = "/api/"
@@ -62,7 +63,20 @@ class ApiCsrfProtectionMiddleware:
             and request.path.startswith(self.API_PREFIX)
             and request.path not in self.READ_ONLY_POST_PATHS
             and request.path not in self.CSRF_EXEMPT_PATHS
+            and not self._is_wingo_webhook(request)
         )
+
+    @staticmethod
+    def _is_wingo_webhook(request):
+        if request.method != "POST" or not request.path.startswith("/api/commerce/wingo/webhook/"):
+            return False
+        try:
+            match = resolve(request.path)
+        except Resolver404:
+            return False
+        # Exempt this exact registered view, never the entire courier path prefix.
+        from commerce.wingo_webhooks import WingoWebhookAPIView
+        return match.url_name == "commerce-wingo-webhook" and getattr(match.func, "view_class", None) is WingoWebhookAPIView
 
 
 class NoStorePrivateApiMiddleware:

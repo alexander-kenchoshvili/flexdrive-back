@@ -65,13 +65,13 @@ class WingoClient:
         self.http_client = http_client or requests
 
     @classmethod
-    def from_settings(cls):
+    def from_settings(cls, *, connect_timeout=None, read_timeout=None):
         return cls(
             api_key=settings.WINGO_API_KEY,
             api_base_url=settings.WINGO_API_BASE_URL,
             account_mode=settings.WINGO_ACCOUNT_MODE,
-            connect_timeout=settings.WINGO_HTTP_CONNECT_TIMEOUT_SECONDS,
-            read_timeout=settings.WINGO_HTTP_READ_TIMEOUT_SECONDS,
+            connect_timeout=(settings.WINGO_HTTP_CONNECT_TIMEOUT_SECONDS if connect_timeout is None else connect_timeout),
+            read_timeout=(settings.WINGO_HTTP_READ_TIMEOUT_SECONDS if read_timeout is None else read_timeout),
         )
 
     def get_regions(self):

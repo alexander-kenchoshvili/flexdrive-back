@@ -11,6 +11,7 @@ from .delivery_quote_data import DeliveryQuoteError
 from .models import Order, OrderReturn, WingoShipment
 from .wingo import WingoClient, WingoConfigurationError, WingoError
 from .wingo_locations import resolve_delivery_location
+from .wingo_webhook_urls import build_webhook_url
 
 
 class WingoShipmentError(WingoError):
@@ -75,7 +76,7 @@ def build_order_payload(order, *, parcel_count, client):
     products = [{"productName": row.product_name, "quantity": row.quantity} for row in order.items.order_by("pk")]
     if not products or any(not row["productName"].strip() or row["quantity"] <= 0 for row in products):
         raise WingoShipmentError("შეკვეთის პროდუქტები შესამოწმებელია.")
-    return {
+    payload = {
         "userId": merchant, "supplierOrderId": order.order_number,
         "recipientName": recipient, "recipientPhone": _phone(order.phone),
         "regionId": frozen["region_id"], "localityId": frozen["locality_id"],
@@ -85,6 +86,10 @@ def build_order_payload(order, *, parcel_count, client):
         "deliveryTypeId": 1, "weightRangeId": band_id, "recipientPaymentDue": 0,
         "packageCount": parcel_count, "products": products, "courierComment": (order.note or "")[:1000],
     }
+    callback_url = build_webhook_url(order)
+    if callback_url:
+        payload["callback_url"] = callback_url
+    return payload
 
 
 def _account_matches(shipment, client):
