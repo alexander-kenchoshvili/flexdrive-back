@@ -12,6 +12,33 @@ from catalog.models import Product, TimeStampedModel
 from .accounting_snapshots import COST_FIELDS
 
 
+class WingoReferenceData(models.Model):
+    """Private, complete reference snapshot; independent of active checkout."""
+
+    class AccountMode(models.TextChoices):
+        TEST = "test", "სატესტო"
+        PRODUCTION = "production", "სამუშაო"
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    account_mode = models.CharField("ანგარიშის რეჟიმი", max_length=16, choices=AccountMode.choices, editable=False)
+    api_base_url = models.URLField("მონაცემების წყარო", max_length=500, editable=False)
+    regions = models.JSONField(default=list, editable=False)
+    localities = models.JSONField(default=list, editable=False)
+    weight_ranges = models.JSONField(default=list, editable=False)
+    delivery_types = models.JSONField(default=list, editable=False)
+    tariffs = models.JSONField(default=list, editable=False)
+    revision = models.CharField(max_length=64, editable=False)
+    synced_at = models.DateTimeField("ბოლო წარმატებული განახლება", editable=False)
+
+    class Meta:
+        verbose_name = "Wingo ტარიფები"
+        verbose_name_plural = "Wingo ტარიფები"
+        constraints = [models.CheckConstraint(condition=Q(id=1), name="wingo_reference_singleton")]
+
+    def __str__(self):
+        return f"Wingo — {self.get_account_mode_display()}"
+
+
 class RedcapReferenceData(models.Model):
     """One atomically refreshed, private snapshot; no credentials or order PII."""
 

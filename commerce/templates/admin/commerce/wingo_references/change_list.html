@@ -1,0 +1,11 @@
+{% extends "admin/change_list.html" %}
+{% block object-tools-items %}
+{% if can_refresh %}<li><a href="{{ refresh_url }}">Wingo-ს მონაცემების განახლება</a></li>{% endif %}
+{{ block.super }}
+{% endblock %}
+{% block content %}
+<p>აქ ინახება Wingo-ს ანგარიშიდან მიღებული ტარიფები და ცნობარები. მონაცემების განახლება ხელით ხდება.
+შენახული მონაცემების ანგარიშის რეჟიმი ცხრილში მითითებულია.
+ამ ეტაპზე განახლება ჩექაუთს არ ცვლის და გზავნილს არ ქმნის.</p>
+{{ block.super }}
+{% endblock %}

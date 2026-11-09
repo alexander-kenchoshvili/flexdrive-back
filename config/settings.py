@@ -430,6 +430,12 @@ _validate_bog_payment_configuration(
     callback_max_body_bytes=BOG_CALLBACK_MAX_BODY_BYTES,
 )
 
+WINGO_API_KEY = os.getenv("WINGO_API_KEY", "").strip()
+WINGO_API_BASE_URL = os.getenv("WINGO_API_BASE_URL", "https://www.apiwingo.com/api/v1").strip().rstrip("/")
+WINGO_ACCOUNT_MODE = os.getenv("WINGO_ACCOUNT_MODE", "test").strip()
+WINGO_HTTP_CONNECT_TIMEOUT_SECONDS = _parse_int_env("WINGO_HTTP_CONNECT_TIMEOUT_SECONDS", 5)
+WINGO_HTTP_READ_TIMEOUT_SECONDS = _parse_int_env("WINGO_HTTP_READ_TIMEOUT_SECONDS", 20)
+
 REDCAP_API_KEY = os.getenv("REDCAP_API_KEY", "").strip()
 REDCAP_API_BASE_URL = os.getenv("REDCAP_API_BASE_URL", "https://redcap.ge/api/v1").strip().rstrip("/")
 REDCAP_HTTP_CONNECT_TIMEOUT_SECONDS = _parse_int_env("REDCAP_HTTP_CONNECT_TIMEOUT_SECONDS", 5)

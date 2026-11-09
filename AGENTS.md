@@ -1,5 +1,30 @@
 # Project Instructions
 
+## Wingo Phase 1 References And Admin Only - 2026-11-10
+
+- User authorized ONLY phase 1: reference-only Wingo client, atomic private
+  WingoReferenceData snapshot, manual refresh and read-only Georgian tariff admin.
+  New migration0040_wingo_reference_data creates the singleton table only.
+  WINGO_API_KEY/BASE_URL/ACCOUNT_MODE and HTTP timeouts are backend runtime settings;
+  default mode is test, key empty. Account mode is an operator label, not API identity.
+- Stores exact external IDs, detailed locality weekdays/active/operational and
+  nullable address requirement, weight ranges, both delivery types and five prices.
+  Full locality/weight/tariff cross-checks precede one transaction. Failed or stale
+  refresh cannot overwrite the previous data/success time. No network under locks.
+  Admin GET is local-only; refresh requires change permission, POST and CSRF.
+  No Save/Add/Delete on snapshot. Secrets/provider raw errors are not persisted.
+- 34 new tests and all337 prior courier/payment/refund/report regressions pass on
+  disposable SQLite with network blocked; migration drift passes. Captured full
+  references also validate. Live check used16 reference-only GETs and disposable
+  in-memory SQLite:12 regions/2865 localities/15 bands/2 services, tariff HTML passes.
+  Credential-free evidence is ignored under tmp/measurements-20261015/wingo-phase1-20261110/.
+- Active checkout/provider, RedCap paths/admin, frontend, quotes, product weights,
+  booking/PDF/status/webhook/cancel/return/refund and finances are unchanged.
+  Delivery type/cutoff remains undecided. Future stages need separate authorization.
+  No business DB migration/write, env/scheduler/server/browser/provider mutation,
+  booking, commit/push/deploy. Backend deployment, runtime configuration, migration
+  and initial manual refresh are still needed. See docs/WINGO_PHASE1.md.
+
 ## Separate Outbound And Return Delivery Deductions - 2026-11-07
 
 - User authorized the admin customer-pays choice to deduct both paid outbound

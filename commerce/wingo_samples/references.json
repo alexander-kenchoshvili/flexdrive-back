@@ -1,0 +1,404 @@
+{
+  "regions": {
+    "regions": [
+      {
+        "id": "Adjara",
+        "nameGe": "აჭარა"
+      },
+      {
+        "id": "Mtskheta-Mtianeti",
+        "nameGe": "მცხეთა-მთიანეთი"
+      },
+      {
+        "id": "Tbilisi",
+        "nameGe": "თბილისი"
+      },
+      {
+        "id": "Tbilisi surroundings",
+        "nameGe": "თბილისის შემოგარენი"
+      }
+    ],
+    "localities": [
+      {
+        "id": "TPJtXj8vtQefzbiRytWY",
+        "nameGe": "აჭარა - ბათუმი",
+        "regionGe": "აჭარა"
+      },
+      {
+        "id": "gjFtxS8HEeuyq7o6YrUQ",
+        "nameGe": "მცხეთა-მთიანეთი - ყაზბეგი",
+        "regionGe": "მცხეთა-მთიანეთი"
+      },
+      {
+        "id": "oayK3wTbTlSTuvTHkTHc",
+        "nameGe": "თბილისი - თბილისი",
+        "regionGe": "თბილისი"
+      },
+      {
+        "id": "CEYo2KMYqhlrU5nrVohQ",
+        "nameGe": "თბილისის შემოგარენი - ბეთანია",
+        "regionGe": "თბილისის შემოგარენი"
+      }
+    ]
+  },
+  "localities": {
+    "აჭარა": [
+      {
+        "id": "TPJtXj8vtQefzbiRytWY",
+        "nameGe": "აჭარა - ბათუმი",
+        "localityGe": "ბათუმი",
+        "regionGe": "აჭარა",
+        "groupType": "standardRegion",
+        "active": true,
+        "operational": true,
+        "monday": true,
+        "tuesday": false,
+        "wednesday": true,
+        "thursday": false,
+        "friday": true,
+        "saturday": false,
+        "sunday": false,
+        "addressRequired": true
+      }
+    ],
+    "მცხეთა-მთიანეთი": [
+      {
+        "id": "gjFtxS8HEeuyq7o6YrUQ",
+        "nameGe": "მცხეთა-მთიანეთი - ყაზბეგი",
+        "localityGe": "ყაზბეგი",
+        "regionGe": "მცხეთა-მთიანეთი",
+        "groupType": "mountainRegion",
+        "active": true,
+        "operational": true,
+        "monday": false,
+        "tuesday": false,
+        "wednesday": false,
+        "thursday": false,
+        "friday": true,
+        "saturday": false,
+        "sunday": false
+      }
+    ],
+    "თბილისი": [
+      {
+        "id": "oayK3wTbTlSTuvTHkTHc",
+        "nameGe": "თბილისი - თბილისი",
+        "localityGe": "თბილისი",
+        "regionGe": "თბილისი",
+        "groupType": "tbilisi",
+        "active": true,
+        "operational": true,
+        "monday": true,
+        "tuesday": true,
+        "wednesday": true,
+        "thursday": true,
+        "friday": true,
+        "saturday": false,
+        "sunday": false,
+        "addressRequired": true
+      }
+    ],
+    "თბილისის შემოგარენი": [
+      {
+        "id": "CEYo2KMYqhlrU5nrVohQ",
+        "nameGe": "თბილისის შემოგარენი - ბეთანია",
+        "localityGe": "ბეთანია",
+        "regionGe": "თბილისის შემოგარენი",
+        "groupType": "tbilisiSuburbs",
+        "active": true,
+        "operational": true,
+        "monday": false,
+        "tuesday": true,
+        "wednesday": false,
+        "thursday": true,
+        "friday": false,
+        "saturday": true,
+        "sunday": false
+      }
+    ]
+  },
+  "weight_ranges": [
+    {
+      "id": 1,
+      "weightRangeId": 1,
+      "minWeight": "0.00",
+      "maxWeight": "5.00"
+    },
+    {
+      "id": 2,
+      "weightRangeId": 2,
+      "minWeight": "5.01",
+      "maxWeight": "10.00"
+    },
+    {
+      "id": 3,
+      "weightRangeId": 3,
+      "minWeight": "10.01",
+      "maxWeight": "15.00"
+    },
+    {
+      "id": 4,
+      "weightRangeId": 4,
+      "minWeight": "15.01",
+      "maxWeight": "20.00"
+    },
+    {
+      "id": 5,
+      "weightRangeId": 5,
+      "minWeight": "20.01",
+      "maxWeight": "30.00"
+    },
+    {
+      "id": 6,
+      "weightRangeId": 6,
+      "minWeight": "30.01",
+      "maxWeight": "50.00"
+    },
+    {
+      "id": 7,
+      "weightRangeId": 7,
+      "minWeight": "50.01",
+      "maxWeight": "100.00"
+    },
+    {
+      "id": 8,
+      "weightRangeId": 8,
+      "minWeight": "100.01",
+      "maxWeight": "150.00"
+    },
+    {
+      "id": 9,
+      "weightRangeId": 9,
+      "minWeight": "150.01",
+      "maxWeight": "200.00"
+    },
+    {
+      "id": 10,
+      "weightRangeId": 10,
+      "minWeight": "200.01",
+      "maxWeight": "250.00"
+    },
+    {
+      "id": 11,
+      "weightRangeId": 11,
+      "minWeight": "250.01",
+      "maxWeight": "300.00"
+    },
+    {
+      "id": 12,
+      "weightRangeId": 12,
+      "minWeight": "300.01",
+      "maxWeight": "350.00"
+    },
+    {
+      "id": 13,
+      "weightRangeId": 13,
+      "minWeight": "350.01",
+      "maxWeight": "400.00"
+    },
+    {
+      "id": 14,
+      "weightRangeId": 14,
+      "minWeight": "400.01",
+      "maxWeight": "450.00"
+    },
+    {
+      "id": 15,
+      "weightRangeId": 15,
+      "minWeight": "450.01",
+      "maxWeight": "500.00"
+    }
+  ],
+  "delivery_types": [
+    {
+      "id": 1,
+      "nameGe": "სტანდარტული მიწოდება"
+    },
+    {
+      "id": 2,
+      "nameGe": "სწრაფი მიწოდება"
+    }
+  ],
+  "tariffs": [
+    {
+      "weightRangeId": 1,
+      "minWeight": "0.00",
+      "maxWeight": "5.00",
+      "fastTbilisi": 19,
+      "standardTbilisi": 9,
+      "tbilisiSurroundings": 11,
+      "standardRegion": 13,
+      "highlandRegion": 15,
+      "isCustom": false,
+      "hidden": false
+    },
+    {
+      "weightRangeId": 2,
+      "minWeight": "5.01",
+      "maxWeight": "10.00",
+      "fastTbilisi": 28,
+      "standardTbilisi": 11,
+      "tbilisiSurroundings": 13,
+      "standardRegion": 16,
+      "highlandRegion": 19,
+      "isCustom": false,
+      "hidden": false
+    },
+    {
+      "weightRangeId": 3,
+      "minWeight": "10.01",
+      "maxWeight": "15.00",
+      "fastTbilisi": 31,
+      "standardTbilisi": 13,
+      "tbilisiSurroundings": 15,
+      "standardRegion": 21,
+      "highlandRegion": 25,
+      "isCustom": false,
+      "hidden": false
+    },
+    {
+      "weightRangeId": 4,
+      "minWeight": "15.01",
+      "maxWeight": "20.00",
+      "fastTbilisi": 43,
+      "standardTbilisi": 17,
+      "tbilisiSurroundings": 19,
+      "standardRegion": 28,
+      "highlandRegion": 33,
+      "isCustom": false,
+      "hidden": false
+    },
+    {
+      "weightRangeId": 5,
+      "minWeight": "20.01",
+      "maxWeight": "30.00",
+      "fastTbilisi": 55,
+      "standardTbilisi": 29,
+      "tbilisiSurroundings": 32,
+      "standardRegion": 42,
+      "highlandRegion": 50,
+      "isCustom": false,
+      "hidden": false
+    },
+    {
+      "weightRangeId": 6,
+      "minWeight": "30.01",
+      "maxWeight": "50.00",
+      "fastTbilisi": 83,
+      "standardTbilisi": 46,
+      "tbilisiSurroundings": 51,
+      "standardRegion": 55,
+      "highlandRegion": 60,
+      "isCustom": false,
+      "hidden": false
+    },
+    {
+      "weightRangeId": 7,
+      "minWeight": "50.01",
+      "maxWeight": "100.00",
+      "fastTbilisi": 93,
+      "standardTbilisi": 57,
+      "tbilisiSurroundings": 62,
+      "standardRegion": 78,
+      "highlandRegion": 88,
+      "isCustom": false,
+      "hidden": false
+    },
+    {
+      "weightRangeId": 8,
+      "minWeight": "100.01",
+      "maxWeight": "150.00",
+      "fastTbilisi": 120,
+      "standardTbilisi": 63,
+      "tbilisiSurroundings": 68,
+      "standardRegion": 88,
+      "highlandRegion": 103,
+      "isCustom": false,
+      "hidden": false
+    },
+    {
+      "weightRangeId": 9,
+      "minWeight": "150.01",
+      "maxWeight": "200.00",
+      "fastTbilisi": 140,
+      "standardTbilisi": 80,
+      "tbilisiSurroundings": 85,
+      "standardRegion": 125,
+      "highlandRegion": 140,
+      "isCustom": false,
+      "hidden": false
+    },
+    {
+      "weightRangeId": 10,
+      "minWeight": "200.01",
+      "maxWeight": "250.00",
+      "fastTbilisi": 210,
+      "standardTbilisi": 105,
+      "tbilisiSurroundings": 110,
+      "standardRegion": 145,
+      "highlandRegion": 160,
+      "isCustom": false,
+      "hidden": false
+    },
+    {
+      "weightRangeId": 11,
+      "minWeight": "250.01",
+      "maxWeight": "300.00",
+      "fastTbilisi": 240,
+      "standardTbilisi": 130,
+      "tbilisiSurroundings": 135,
+      "standardRegion": 195,
+      "highlandRegion": 200,
+      "isCustom": false,
+      "hidden": false
+    },
+    {
+      "weightRangeId": 12,
+      "minWeight": "300.01",
+      "maxWeight": "350.00",
+      "fastTbilisi": 315,
+      "standardTbilisi": 170,
+      "tbilisiSurroundings": 175,
+      "standardRegion": 245,
+      "highlandRegion": 265,
+      "isCustom": false,
+      "hidden": false
+    },
+    {
+      "weightRangeId": 13,
+      "minWeight": "350.01",
+      "maxWeight": "400.00",
+      "fastTbilisi": 335,
+      "standardTbilisi": 190,
+      "tbilisiSurroundings": 195,
+      "standardRegion": 275,
+      "highlandRegion": 285,
+      "isCustom": false,
+      "hidden": false
+    },
+    {
+      "weightRangeId": 14,
+      "minWeight": "400.01",
+      "maxWeight": "450.00",
+      "fastTbilisi": 450,
+      "standardTbilisi": 245,
+      "tbilisiSurroundings": 250,
+      "standardRegion": 340,
+      "highlandRegion": 365,
+      "isCustom": false,
+      "hidden": false
+    },
+    {
+      "weightRangeId": 15,
+      "minWeight": "450.01",
+      "maxWeight": "500.00",
+      "fastTbilisi": 500,
+      "standardTbilisi": 295,
+      "tbilisiSurroundings": 300,
+      "standardRegion": 390,
+      "highlandRegion": 420,
+      "isCustom": false,
+      "hidden": false
+    }
+  ]
+}

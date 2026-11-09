@@ -45,6 +45,7 @@ admin.site.index_template = "admin/commerce/accounting/index.html"
 # Register the two read-only return/inventory sections alongside order actions.
 from . import inventory_admin  # noqa: F401, E402
 from . import redcap_admin  # noqa: F401, E402
+from . import wingo_admin  # noqa: F401, E402
 from .redcap_order_admin import OrderRedcapAdminMixin
 
 

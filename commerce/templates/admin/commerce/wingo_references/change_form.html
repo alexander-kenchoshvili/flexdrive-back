@@ -1,0 +1,7 @@
+{% extends "admin/change_form.html" %}
+{% block object-tools-items %}
+{% if can_refresh %}<li><a href="{{ refresh_url }}">Wingo-ს მონაცემების განახლება</a></li>{% endif %}
+{{ block.super }}
+{% endblock %}
+{% block submit_buttons_top %}{% endblock %}
+{% block submit_buttons_bottom %}<p><a href="{{ back_url }}">ცხრილების სიაში დაბრუნება</a></p>{% endblock %}
