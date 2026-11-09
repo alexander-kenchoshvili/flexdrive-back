@@ -56,7 +56,7 @@ class WingoTransportTests(SimpleTestCase):
             params={"includeLocalities": 1}, timeout=(5.0, 20.0), allow_redirects=False, stream=True)
         response.close.assert_called_once()
 
-    def test_exposes_only_reference_operations(self):
+    def test_reference_operations_remain_read_only(self):
         client, http, _ = self.make_client()
         client.get_regions()
         client.get_localities("თბილისი")
@@ -66,7 +66,6 @@ class WingoTransportTests(SimpleTestCase):
         self.assertEqual(http.request.call_count, 5)
         self.assertTrue(all(call.args[0] == "GET" for call in http.request.call_args_list))
         self.assertEqual(http.request.call_args_list[1].kwargs["params"], {"regionGe": "თბილისი"})
-        self.assertFalse(hasattr(client, "create_order"))
 
     def test_http_failures_and_redirects_do_not_retry_or_expose_provider_body(self):
         for status in (301, 302, 401, 403, 429, 500):

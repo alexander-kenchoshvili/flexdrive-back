@@ -26,7 +26,7 @@ from .services import (
     create_payment_transaction,
     transition_order_payment_status,
 )
-from .redcap_shipments import has_unsettled_redcap_shipment
+from .courier_state import cancellation_required_message, has_unsettled_courier_shipment
 from .refund_terms import settlement_for_refund, validate_settlement
 
 
@@ -51,7 +51,7 @@ def _return_ready_for_refund(order):
     if case and case.disposition == ReturnDisposition.FROM_CUSTOMER:
         return (order.status in {OrderStatus.SHIPPED, OrderStatus.DELIVERED}
                 and case.receipt_status == ReturnReceiptStatus.RECEIVED)
-    if has_unsettled_redcap_shipment(order):
+    if has_unsettled_courier_shipment(order):
         return False
     return order.status in CANCELLABLE_ORDER_STATUSES
 
@@ -168,9 +168,9 @@ def _prepare_bog_full_refund(
         customer_return = OrderReturn.objects.filter(
             order=locked_order, disposition=ReturnDisposition.FROM_CUSTOMER,
         ).exists()
-        if not customer_return and has_unsettled_redcap_shipment(locked_order):
+        if not customer_return and has_unsettled_courier_shipment(locked_order):
             raise DjangoValidationError(
-                "ჯერ დაადასტურეთ RedCap-ის გზავნილის გაუქმება. აქტიური ან გაურკვეველი გზავნილის დროს თანხა არ დაბრუნდება."
+                cancellation_required_message(locked_order) + " აქტიური ან გაურკვეველი გზავნილის დროს თანხა არ დაბრუნდება."
             )
 
     return_case = None

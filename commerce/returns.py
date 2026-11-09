@@ -88,9 +88,9 @@ def prepare_order_return(*, order, disposition, actor):
     elif locked_order.status not in {OrderStatus.NEW, OrderStatus.CONFIRMED, OrderStatus.PROCESSING}:
         raise ValidationError("პირდაპირი დაბრუნება მხოლოდ გაგზავნამდეა შესაძლებელი.")
     if disposition != ReturnDisposition.FROM_CUSTOMER:
-        from .redcap_shipments import has_unsettled_redcap_shipment
-        if has_unsettled_redcap_shipment(locked_order):
-            raise ValidationError("ჯერ დაადასტურეთ RedCap-ის გზავნილის გაუქმება.")
+        from .courier_state import cancellation_required_message, has_unsettled_courier_shipment
+        if has_unsettled_courier_shipment(locked_order):
+            raise ValidationError(cancellation_required_message(locked_order))
 
     items = list(locked_order.items.order_by("product_id", "pk"))
     if not items or any(item.product_id is None for item in items):

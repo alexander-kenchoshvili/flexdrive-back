@@ -52,6 +52,46 @@ class WingoLocality(models.Model):
     region = models.ForeignKey(WingoRegion, on_delete=models.PROTECT, related_name="localities")
 
 
+class WingoShipment(models.Model):
+    """Private outbound attempt. Frozen request survives an ambiguous HTTP result."""
+
+    class State(models.TextChoices):
+        NOT_SENT = "not_sent", "არ არის გაგზავნილი"
+        SUBMITTING = "submitting", "იგზავნება — გადაამოწმეთ შედეგი"
+        CREATED = "created", "გზავნილი შექმნილია"
+        FAILED = "failed", "მოთხოვნა უარყოფილია"
+        UNKNOWN = "unknown", "შედეგი გაურკვეველია — გადაამოწმეთ"
+
+    order = models.OneToOneField("Order", on_delete=models.PROTECT, related_name="wingo_shipment")
+    state = models.CharField(max_length=24, choices=State.choices, default=State.NOT_SENT, db_index=True)
+    provider_order_id = models.CharField(max_length=200, unique=True, null=True, blank=True)
+    tracking_number = models.CharField(max_length=200, unique=True, null=True, blank=True)
+    parcel_count = models.PositiveSmallIntegerField(default=1)
+    booked_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    carrier_status = models.PositiveSmallIntegerField(null=True, blank=True)
+    request_payload = models.JSONField(default=dict, editable=False)
+    account_mode = models.CharField(max_length=16, editable=False)
+    api_base_url = models.URLField(max_length=500, editable=False)
+    operation_token = models.UUIDField(null=True, editable=False)
+    attempted_at = models.DateTimeField(null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True, default="")
+
+    class Meta:
+        verbose_name = "Wingo გზავნილი"
+        verbose_name_plural = "Wingo გზავნილები"
+        default_permissions = ()
+        constraints = [
+            models.CheckConstraint(condition=Q(parcel_count__gte=1, parcel_count__lte=1000),
+                                   name="wingo_valid_parcels"),
+            models.CheckConstraint(condition=Q(booked_price__isnull=True) | Q(booked_price__gte=0),
+                                   name="wingo_nonnegative_price"),
+            models.CheckConstraint(condition=~Q(state="created") | (
+                Q(provider_order_id__isnull=False, tracking_number__isnull=False, submitted_at__isnull=False)
+                & ~Q(provider_order_id="") & ~Q(tracking_number="")), name="wingo_created_identity"),
+        ]
+
+
 class RedcapReferenceData(models.Model):
     """One atomically refreshed, private snapshot; no credentials or order PII."""
 

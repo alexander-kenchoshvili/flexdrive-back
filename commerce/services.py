@@ -1859,6 +1859,9 @@ def record_payment_processing_exception(
 
 
 def can_cancel_order(order):
+    from .courier_state import has_unsettled_courier_shipment
+    if has_unsettled_courier_shipment(order):
+        return False
     if (
         order.payment_method != OrderPaymentMethod.CASH_ON_DELIVERY
         and order.payment_status

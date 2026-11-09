@@ -8,7 +8,8 @@ from unittest.mock import patch
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("labels", nargs="*", default=["commerce.test_wingo", "commerce.test_wingo_checkout"])
+parser.add_argument("labels", nargs="*", default=["commerce.test_wingo", "commerce.test_wingo_checkout", "commerce.test_wingo_shipments"])
+parser.add_argument("--migration-name", default="wingo_reference_data")
 mode = parser.add_mutually_exclusive_group()
 mode.add_argument("--make-migrations", action="store_true")
 mode.add_argument("--check-migrations", action="store_true")
@@ -38,7 +39,7 @@ settings.CSRF_COOKIE_SECURE = False
 settings.PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 with patch("socket.socket.connect", side_effect=AssertionError("Network disabled in tests")):
     if args.make_migrations:
-        call_command("makemigrations", "commerce", name="wingo_reference_data", interactive=False)
+        call_command("makemigrations", "commerce", name=args.migration_name, interactive=False)
     elif args.check_migrations:
         call_command("makemigrations", check=True, dry_run=True, interactive=False)
     else:

@@ -241,4 +241,5 @@ class WingoLocationMigrationTests(TransactionTestCase):
             self.assertEqual(WingoRegion.objects.count(), 4)
             self.assertTrue(all(row.region_id for row in WingoLocality.objects.all()))
         finally:
-            MigrationExecutor(connection).migrate([("commerce", "0041_wingo_checkout_locations")])
+            executor = MigrationExecutor(connection)
+            executor.migrate(executor.loader.graph.leaf_nodes())

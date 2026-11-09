@@ -1,5 +1,48 @@
 # Project Instructions
 
+## Wingo Manual Outbound And Labels - 2026-11-10
+
+- User authorized backend-only stage3: paid-order manual booking, Georgian prepare
+  form with package count1 and explicit prepared confirmation, standard type1/COD0,
+  saved provider ID/number/fee/state and private A4/small PDF proxy. Nuxt untouched.
+- New0042 WingoShipment freezes request/account/UUID before network outside locks.
+  One order lock/attempt prevents duplicate POSTs. Only documented validation/auth
+  refusals allow retry; timeout/invalid/foreign/ambiguous success stays blocked.
+  Recovery reads max10x100 unfiltered pages (provider ignores search filters),
+  requires exactly one supplier match and validates GET detail against frozen data.
+  Late replies cannot overwrite a recovered result; unknown never auto-expires.
+- Booking does not change order/payment/stock/charged tariff. Actual fee remains
+  separate, nullable and discrepancy-labelled. Shared local courier guard blocks
+  pre-dispatch refund/stock receipt for active/unknown Wingo while preserving
+  historical RedCap and received-customer-return behavior. No bank logic rewrite.
+- 94 Wingo tests plus339 prior regressions pass on disposable SQLite with network
+  blocked. Includes actual admin HTML, CSRF/perms, PDF/privacy, duplicate/race/recovery
+  and bank guard checks. Migration drift/whitespace pass. Read-only live check on
+  an EXISTING TEST order validates detail and both PDFs; no new live POST/order.
+- Local0042 applied after backup;62 pre-existing tables' data unchanged. Local
+  ignored .env adds TEST merchant ID and user-approved pickup name/address/phone;
+  restart backend to load. Production unchanged: user owns push/deploy, then must
+  request0042 separately. No browser/server, bank/provider mutation, push/deploy.
+- Tracking/webhook/cancel/reverse returns and Wingo financial-report integration
+  remain later stages. Cancellation API contract still unresolved; active booking
+  guard has no manual-clear bypass. docs/WINGO_OUTBOUND.md describes limits/rollout.
+
+## Wingo Checkout Production Migration Applied - 2026-11-10
+
+- User confirmed backend deployment and authorized the previously agreed0041.
+  Read-only SSL preflight verified the correct DigitalOcean production target and
+  only commerce0041_wingo_checkout_locations pending after0040.
+- Applied exactly0041 in one guarded PostgreSQL transaction: two mapping tables,
+  Order.delivery_provider_data JSONB default{}, and snapshot-based mapping backfill.
+  All61 pre-existing schemas match except that authorized new column; original
+  columns/rows in25 commerce/product tables have identical server-side fingerprints.
+- Fresh read-only connection confirms commit/tables/field at01:46:51 Tbilisi.
+  Production references remain empty as planned; mapping rows are0/0. User will
+  attach real Wingo credentials and refresh references later. No env/provider/
+  bank change, reference import, commit/push or app deployment performed by agent.
+  Frontend deployment can now proceed. Credential-free evidence is ignored in
+  tmp/measurements-20261015/wingo-checkout-20261110/production-0041-*.json.
+
 ## Wingo Standard Checkout Backend Then Frontend - 2026-11-10
 
 - User authorized the next paired step, backend first, then frontend using existing

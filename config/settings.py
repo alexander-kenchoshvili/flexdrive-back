@@ -433,6 +433,10 @@ _validate_bog_payment_configuration(
 WINGO_API_KEY = os.getenv("WINGO_API_KEY", "").strip()
 WINGO_API_BASE_URL = os.getenv("WINGO_API_BASE_URL", "https://www.apiwingo.com/api/v1").strip().rstrip("/")
 WINGO_ACCOUNT_MODE = os.getenv("WINGO_ACCOUNT_MODE", "test").strip()
+WINGO_MERCHANT_USER_ID = os.getenv("WINGO_MERCHANT_USER_ID", "").strip()
+WINGO_PICKUP_TITLE = os.getenv("WINGO_PICKUP_TITLE", "").strip()
+WINGO_PICKUP_ADDRESS = os.getenv("WINGO_PICKUP_ADDRESS", "").strip()
+WINGO_PICKUP_PHONE = os.getenv("WINGO_PICKUP_PHONE", "").strip()
 WINGO_HTTP_CONNECT_TIMEOUT_SECONDS = _parse_int_env("WINGO_HTTP_CONNECT_TIMEOUT_SECONDS", 5)
 WINGO_HTTP_READ_TIMEOUT_SECONDS = _parse_int_env("WINGO_HTTP_READ_TIMEOUT_SECONDS", 20)
 

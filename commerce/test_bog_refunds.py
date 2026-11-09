@@ -37,6 +37,7 @@ from .models import (
     StockReservation,
     StockReservationStatus,
     RedcapShipment,
+    WingoShipment,
     OrderReturn,
 )
 
@@ -443,6 +444,31 @@ class BogRefundFlowTests(TestCase):
         self.order.delivery_provider = "redcap"
         self.order.save(update_fields=["delivery_provider"])
         return RedcapShipment.objects.create(order=self.order, state=state, tracking_number=tracking, service_slug="same_day")
+
+    def test_wingo_active_and_unknown_states_block_refund_before_any_side_effect(self):
+        self.order.delivery_provider = "wingo"
+        self.order.save(update_fields=["delivery_provider"])
+        shipment = WingoShipment.objects.create(order=self.order, state="created",
+            provider_order_id="wingo-id", tracking_number="999-1000001", submitted_at=timezone.now())
+        for state in ("submitting", "unknown", "created"):
+            with self.subTest(state=state):
+                WingoShipment.objects.filter(pk=shipment.pk).update(state=state)
+                self.assertFalse(can_request_bog_full_refund(self.order))
+                with self.assertRaisesMessage(DjangoValidationError, "Wingo"):
+                    request_bog_full_refund(order=self.order, client=self.client,
+                        requested_by=self.admin_user, disposition="on_hand", not_dispatched=True)
+                self.client.refund_full.assert_not_called()
+                self.assertFalse(OrderReturn.objects.filter(order=self.order).exists())
+                self.assertFalse(PaymentTransaction.objects.filter(action="refund").exists())
+        self.product.refresh_from_db()
+        self.assertEqual((self.product.stock_qty, self.product.owned_stock_qty), (4, 0))
+
+    def test_wingo_without_created_or_unknown_shipment_can_refund(self):
+        self.order.delivery_provider = "wingo"
+        self.order.save(update_fields=["delivery_provider"])
+        self.assertTrue(can_request_bog_full_refund(self.order))
+        WingoShipment.objects.create(order=self.order, state="failed")
+        self.assertTrue(can_request_bog_full_refund(self.order))
 
     def test_redcap_active_and_unknown_states_block_refund_before_any_side_effect(self):
         shipment = self.redcap_shipment()

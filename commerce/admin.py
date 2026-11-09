@@ -47,6 +47,7 @@ from . import inventory_admin  # noqa: F401, E402
 from . import redcap_admin  # noqa: F401, E402
 from . import wingo_admin  # noqa: F401, E402
 from .redcap_order_admin import OrderRedcapAdminMixin
+from .wingo_order_admin import OrderWingoAdminMixin
 
 
 def _bog_reconciliation_message_level(result):
@@ -162,7 +163,7 @@ class OrderAdminForm(forms.ModelForm):
 
 
 @admin.register(Order)
-class OrderAdmin(OrderRedcapAdminMixin, admin.ModelAdmin):
+class OrderAdmin(OrderWingoAdminMixin, OrderRedcapAdminMixin, admin.ModelAdmin):
     @admin.display(description="დღგ-ის გადამხდელი (მყიდველის მითითებით)", ordering="company_is_vat_registered")
     def company_vat_status(self, obj):
         if obj.buyer_type != "legal_entity":
@@ -207,6 +208,7 @@ class OrderAdmin(OrderRedcapAdminMixin, admin.ModelAdmin):
     readonly_fields = (
         "company_vat_status",
         "redcap_overview",
+        "wingo_overview",
         "order_number",
         "public_token",
         "subtotal",
@@ -289,6 +291,7 @@ class OrderAdmin(OrderRedcapAdminMixin, admin.ModelAdmin):
         ),
         ("Totals", {"fields": ("subtotal", "delivery_price", "total")}),
         ("RedCap მიწოდება", {"fields": ("redcap_overview",)}),
+        ("Wingo მიწოდება", {"fields": ("wingo_overview",)}),
         (
             "Legal acceptance",
             {

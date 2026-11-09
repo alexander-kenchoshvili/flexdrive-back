@@ -2,6 +2,19 @@
 
 {% block submit_buttons_bottom %}
 {{ block.super }}
+{% if show_wingo_submit or show_wingo_recover %}
+<div class="submit-row">
+  {% if show_wingo_submit %}<a class="button" href="{{ wingo_submit_url }}">Wingo-ში გაგზავნა</a>{% endif %}
+  {% if show_wingo_recover %}<a class="button" href="{{ wingo_recover_url }}">Wingo-ში გაგზავნის შედეგის გადამოწმება</a>{% endif %}
+</div>
+{% endif %}
+{% if show_wingo_label %}
+<div class="submit-row">
+  <a class="button" href="{{ wingo_label_url }}?size=a4" target="_blank" rel="noopener">სტიკერის გახსნა / ბეჭდვა — A4</a>
+  <a class="button" href="{{ wingo_label_url }}?size=small" target="_blank" rel="noopener">პატარა სტიკერის გახსნა / ბეჭდვა</a>
+  <a class="button" href="{{ wingo_label_url }}?size=a4&amp;download=1">PDF ჩამოტვირთვა — A4</a>
+</div>
+{% endif %}
 {% if show_redcap_submit or show_redcap_recover or show_redcap_tracking or show_redcap_cancel or show_redcap_label %}
 <div class="submit-row">
   {% if show_redcap_submit %}<a class="button" href="{{ redcap_submit_url }}">RedCap-ში გზავნილის შექმნა</a>{% endif %}
