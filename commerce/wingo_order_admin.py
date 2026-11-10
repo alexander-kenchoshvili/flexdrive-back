@@ -6,11 +6,14 @@ from django.http import FileResponse, Http404, HttpResponseNotAllowed, HttpRespo
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.html import format_html, format_html_join
+from django.utils import timezone
 
 from .models import WingoShipment
 from .wingo import WingoError
 from .wingo_shipments import can_submit, get_shipment_label, recover_submission, submit_shipment
 from .wingo_tracking import STATUS_LABELS, sync_shipment
+from .wingo_services import booking_deadline, delivery_summary
+from .delivery_quote_data import DeliveryQuoteError
 
 
 class WingoPrepareForm(forms.Form):
@@ -20,6 +23,13 @@ class WingoPrepareForm(forms.Form):
                         "min_value": "მინიმუმ ერთი შეფუთვაა საჭირო.", "max_value": "მაქსიმუმ 1000 შეფუთვაა დასაშვები."})
     prepared = forms.BooleanField(label="ნივთები შემოწმებულია, შეფუთულია და მზადაა კურიერისთვის",
         error_messages={"required": "დაადასტურეთ ნივთების შემოწმება და მომზადება."})
+
+    def __init__(self, *args, late=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        if late:
+            self.fields["late_delivery_confirmed"] = forms.BooleanField(
+                label="მომხმარებელთან შეთანხმებულია სტანდარტული მიტანის ვადის გადაწევა",
+                error_messages={"required": "დაადასტურეთ მომხმარებელთან ახალი ვადის შეთანხმება."})
 
 
 class OrderWingoAdminMixin:
@@ -50,8 +60,11 @@ class OrderWingoAdminMixin:
     @admin.display(description="გზავნილი")
     def wingo_overview(self, obj):
         shipment = WingoShipment.objects.filter(order=obj).first()
+        summary = delivery_summary(obj) or {"label": "მიწოდების ტიპი შესამოწმებელია", "estimate_label": ""}
+        intro = format_html("<p>მომსახურება: <strong>{}</strong><br>შეკვეთაზე ნაჩვენები ვადა: {}</p>",
+                            summary["label"], summary["estimate_label"] or "—")
         if shipment is None:
-            return "გზავნილი ჯერ არ შექმნილა. ნივთების მომზადების შემდეგ გამოიყენეთ „Wingo-ში გაგზავნა“."
+            return format_html("{}<p>გზავნილი ჯერ არ შექმნილა. ნივთების მომზადების შემდეგ გამოიყენეთ „Wingo-ში გაგზავნა“.</p>", intro)
         price = f"{shipment.booked_price:.2f} ₾" if shipment.booked_price is not None else "ჯერ არ დადასტურებულა"
         difference = (f"{shipment.booked_price - obj.carrier_delivery_cost:+.2f} ₾"
                       if shipment.booked_price is not None else "ჯერ არ დადასტურებულა")
@@ -67,13 +80,13 @@ class OrderWingoAdminMixin:
                      if shipment.request_payload.get("callback_url") else
                      "ამ გზავნილს ავტომატური განახლების მისამართი არ გაგზავნია. სტატუსი შეამოწმეთ ღილაკით.")
         return format_html(
-            "<p><strong>{}</strong></p><p>გზავნილის ნომერი: {}<br>შეფუთვები: {}<br>"
+            "{}<p><strong>{}</strong></p><p>გზავნილის ნომერი: {}<br>შეფუთვები: {}<br>"
             "მომხმარებლის მიერ გადახდილი მიტანა: {} ₾<br>შენახული საკურიერო ტარიფი: {} ₾<br>"
             "Wingo-ში დაფიქსირებული ფასი: {}<br>სხვაობა ტარიფთან: {}<br>"
             "გზავნილის დადასტურების დრო: {}<br>Wingo-ს სტატუსი: {}<br>"
             "ბოლო წარმატებული შემოწმება: {}</p><p>{}</p><p>{}</p><p>{}</p><p>{}</p>"
             "<p>ბოლო 20 დაკვირვება (შემოწმების დრო):</p><ul>{}</ul>",
-            shipment.get_state_display(), shipment.tracking_number or "—", shipment.parcel_count,
+            intro, shipment.get_state_display(), shipment.tracking_number or "—", shipment.parcel_count,
             obj.delivery_price, obj.carrier_delivery_cost, price, difference,
             shipment.submitted_at or "—", STATUS_LABELS.get(shipment.carrier_status, "ჯერ არ დადასტურებულა"),
             shipment.tracking_checked_at or "—", shipment.last_error, shipment.tracking_error,
@@ -89,6 +102,7 @@ class OrderWingoAdminMixin:
         return TemplateResponse(request, "admin/commerce/order/wingo_action.html", {
             **self.admin_site.each_context(request), "opts": self.model._meta, "original": order,
             "title": title, "action": action, "form": form, "recovery": recovery, "tracking": tracking,
+            "delivery_summary": delivery_summary(order),
             "cancel_url": reverse("admin:commerce_order_change", args=[order.pk]),
         })
 
@@ -99,7 +113,12 @@ class OrderWingoAdminMixin:
         if not can_submit(order):
             self.message_user(request, "გაგზავნა შეუძლებელია. გადაამოწმეთ გადახდა და არსებული გზავნილის შედეგი.", messages.WARNING)
             return HttpResponseRedirect(reverse("admin:commerce_order_change", args=[order.pk]))
-        form = WingoPrepareForm(request.POST if request.method == "POST" else None)
+        try:
+            deadline = booking_deadline(order)
+        except DeliveryQuoteError:
+            deadline = None  # Service validation below still rejects malformed saved dates.
+        late = bool(deadline and timezone.now() >= deadline and order.delivery_service_slug == "standard")
+        form = WingoPrepareForm(request.POST if request.method == "POST" else None, late=late)
         if request.method == "POST" and form.is_valid():
             try:
                 shipment = submit_shipment(order.pk, **form.cleaned_data)
@@ -109,7 +128,8 @@ class OrderWingoAdminMixin:
                     return HttpResponseRedirect(reverse("admin:commerce_order_change", args=[order.pk]))
                 form.add_error(None, str(exc))
             else:
-                self.log_change(request, order, "Wingo-ს გზავნილი შექმნილია.")
+                self.log_change(request, order, "Wingo-ს გზავნილი შექმნილია." +
+                                (" სტანდარტული მიტანის ვადის გადაწევა შეთანხმებულია მომხმარებელთან." if late else ""))
                 self.message_user(request, f"გზავნილი შექმნილია. ნომერი: {shipment.tracking_number}")
                 return HttpResponseRedirect(reverse("admin:commerce_order_change", args=[order.pk]))
         return self._wingo_action(request, order, title="Wingo-ში გაგზავნა", action="Wingo-ში გაგზავნის დადასტურება", form=form)

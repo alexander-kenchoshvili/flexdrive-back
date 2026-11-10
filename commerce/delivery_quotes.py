@@ -1,4 +1,4 @@
-"""Stable delivery imports; new checkouts use local standard-only Wingo quotes."""
+"""Stable delivery imports; new checkouts use local Wingo service quotes."""
 
 from .wingo_quotes import (
     DeliveryLocation, DeliveryQuoteError, QUOTE_SIGNING_SALT,

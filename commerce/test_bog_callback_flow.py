@@ -342,6 +342,35 @@ class BogCallbackFlowTests(APITransactionTestCase):
             HTTP_CALLBACK_SIGNATURE=signature,
         )
 
+    def test_fast_service_and_amount_survive_a_late_bank_confirmation_without_requote(self):
+        from .models import WingoReferenceData
+        from .test_wingo_services import moment
+        original = self._checkout_payload
+
+        def fast_payload(**kwargs):
+            payload = original(**kwargs)
+            items = kwargs.get("items") or Cart.objects.get(user=self.user).items.select_related("product").all()
+            quote = build_delivery_quote(source=kwargs.get("source", "cart"), items=items,
+                region=self.delivery_region, city=self.delivery_city, service_slug="fast")
+            payload.update(delivery_service_slug="fast", delivery_quote_token=quote["quote_token"])
+            return payload
+
+        with patch("django.utils.timezone.now", return_value=moment()), patch.object(self, "_checkout_payload", side_effect=fast_payload):
+            _, response, payment = self._start_cart_payment()
+        self.assertEqual(response.status_code, 201, response.data)
+        frozen = payment.checkout_snapshot["delivery"]
+        self.assertEqual((frozen["service_slug"], frozen["delivery_type_id"]), ("fast", 2))
+        WingoReferenceData.objects.all().delete()
+        with patch("django.utils.timezone.now", return_value=moment(hour=14)):
+            completed = self._signed_callback_request(self._callback_payload(payment))
+        self.assertEqual(completed.status_code, 200, completed.data)
+        payment.refresh_from_db()
+        order = payment.order
+        self.assertEqual((order.delivery_service_slug, order.delivery_provider_data["delivery_type_id"]), ("fast", 2))
+        self.assertEqual(order.delivery_price, Decimal(frozen["customer_delivery_price"]))
+        self.assertEqual(order.total, payment.amount)
+        self.assertEqual(order.delivery_provider_data["schedule"], frozen["schedule"])
+
     def test_company_vat_status_validation_and_fingerprint(self):
         from .serializers import CheckoutSerializer
         from .services import build_checkout_request_fingerprint

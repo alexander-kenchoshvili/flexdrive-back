@@ -320,7 +320,7 @@ class GetCurrentContentAPITests(APITestCase):
         self.assertEqual(component_payload["data"]["title"], "მიწოდების პირობები")
         self.assertEqual(
             component_payload["data"]["subtitle"],
-            "FlexDrive-ზე მიწოდების ვადა დამოკიდებულია შეკვეთის დადასტურებაზე, მისამართზე და კურიერის სამუშაო პროცესზე. თბილისში სტანდარტული ვადაა 1-2 სამუშაო დღე, რეგიონებში - 4-5 სამუშაო დღე.",
+            "თბილისში სტანდარტული მიტანა — 1–2 სამუშაო დღეში; სწრაფი — იმავე ან მომდევნო სამუშაო დღეს. რეგიონებში — 3–5 სამუშაო დღეში. მიტანის ფასი ჩანს ჩექაუთში.",
         )
         self.assertEqual(component_payload["data"]["contentData"]["listcount"], 4)
         self.assertEqual(

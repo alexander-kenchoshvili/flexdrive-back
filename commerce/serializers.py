@@ -123,6 +123,7 @@ class CheckoutSerializer(serializers.Serializer):
     delivery_region_id = serializers.IntegerField(min_value=1)
     delivery_city_id = serializers.IntegerField(min_value=1)
     delivery_quote_token = serializers.CharField(write_only=True)
+    delivery_service_slug = serializers.ChoiceField(choices=("standard", "fast"), required=False, default="standard")
     city = serializers.CharField(max_length=120, required=False, allow_blank=True)
     address_line = serializers.CharField(max_length=255)
     note = serializers.CharField(allow_blank=True, required=False)
@@ -199,6 +200,7 @@ class DeliveryQuoteRequestSerializer(serializers.Serializer):
     source = serializers.ChoiceField(choices=("cart", "buy_now"))
     delivery_region_id = serializers.IntegerField(min_value=1)
     delivery_city_id = serializers.IntegerField(min_value=1)
+    delivery_service_slug = serializers.ChoiceField(choices=("standard", "fast"), required=False, default="standard")
 
     def validate(self, attrs):
         try:
@@ -610,6 +612,14 @@ class OrderLookupItemSerializer(serializers.ModelSerializer):
         return serialize_image_asset(snapshot, request=request)
 
 
+class DeliverySummaryMixin(serializers.Serializer):
+    delivery_summary = serializers.SerializerMethodField()
+
+    def get_delivery_summary(self, obj):
+        from .wingo_services import delivery_summary
+        return delivery_summary(obj)
+
+
 class RefundSummaryMixin(serializers.Serializer):
     refund_summary = serializers.SerializerMethodField()
 
@@ -631,7 +641,7 @@ class RefundSummaryMixin(serializers.Serializer):
                 "retained_return_fee": terms["retained_return_fee"] if terms else None}
 
 
-class OrderListSerializer(RefundSummaryMixin, serializers.ModelSerializer):
+class OrderListSerializer(DeliverySummaryMixin, RefundSummaryMixin, serializers.ModelSerializer):
     public_token = serializers.UUIDField(read_only=True)
     total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     item_count = serializers.IntegerField(read_only=True)
@@ -646,6 +656,7 @@ class OrderListSerializer(RefundSummaryMixin, serializers.ModelSerializer):
             "payment_method",
             "payment_status",
             "refund_summary",
+            "delivery_summary",
             "total",
             "created_at",
             "item_count",
@@ -659,7 +670,7 @@ class OrderListSummarySerializer(serializers.Serializer):
     last_order_at = serializers.DateTimeField(allow_null=True)
 
 
-class OrderSummarySerializer(RefundSummaryMixin, serializers.ModelSerializer):
+class OrderSummarySerializer(DeliverySummaryMixin, RefundSummaryMixin, serializers.ModelSerializer):
     public_token = serializers.UUIDField(read_only=True)
     subtotal = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
@@ -678,6 +689,7 @@ class OrderSummarySerializer(RefundSummaryMixin, serializers.ModelSerializer):
             "payment_method",
             "payment_status",
             "refund_summary",
+            "delivery_summary",
             "status",
             "subtotal",
             "delivery_price",
@@ -699,7 +711,7 @@ class OrderSummarySerializer(RefundSummaryMixin, serializers.ModelSerializer):
         )
 
 
-class PublicOrderSummarySerializer(RefundSummaryMixin, serializers.ModelSerializer):
+class PublicOrderSummarySerializer(DeliverySummaryMixin, RefundSummaryMixin, serializers.ModelSerializer):
     public_token = serializers.UUIDField(read_only=True)
     subtotal = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
@@ -713,6 +725,7 @@ class PublicOrderSummarySerializer(RefundSummaryMixin, serializers.ModelSerializ
             "payment_method",
             "payment_status",
             "refund_summary",
+            "delivery_summary",
             "status",
             "subtotal",
             "delivery_price",
@@ -722,7 +735,7 @@ class PublicOrderSummarySerializer(RefundSummaryMixin, serializers.ModelSerializ
         )
 
 
-class OrderLookupSummarySerializer(RefundSummaryMixin, serializers.ModelSerializer):
+class OrderLookupSummarySerializer(DeliverySummaryMixin, RefundSummaryMixin, serializers.ModelSerializer):
     total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     item_count = serializers.SerializerMethodField()
     total_quantity = serializers.SerializerMethodField()
@@ -735,6 +748,7 @@ class OrderLookupSummarySerializer(RefundSummaryMixin, serializers.ModelSerializ
             "status",
             "payment_status",
             "refund_summary",
+            "delivery_summary",
             "payment_method",
             "checkout_source",
             "total",

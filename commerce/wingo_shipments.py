@@ -6,12 +6,14 @@ from uuid import uuid4
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
 
 from .delivery_quote_data import DeliveryQuoteError
 from .models import Order, OrderReturn, WingoShipment
 from .wingo import WingoClient, WingoConfigurationError, WingoError
 from .wingo_locations import resolve_delivery_location
 from .wingo_webhook_urls import build_webhook_url
+from .wingo_services import SERVICES, TBILISI, booking_deadline
 
 
 class WingoShipmentError(WingoError):
@@ -41,7 +43,7 @@ def _phone(value):
     return "+995" + value
 
 
-def build_order_payload(order, *, parcel_count, client):
+def build_order_payload(order, *, parcel_count, client, late_delivery_confirmed=False):
     if type(parcel_count) is not int or not 1 <= parcel_count <= 1000:
         raise WingoShipmentError("შეფუთვების რაოდენობა უნდა იყოს 1–1000.")
     merchant = settings.WINGO_MERCHANT_USER_ID
@@ -61,9 +63,21 @@ def build_order_payload(order, *, parcel_count, client):
     frozen = order.delivery_provider_data
     if (not isinstance(frozen, dict) or frozen.get("region_id") != location.provider_region_id
             or frozen.get("locality_id") != location.provider_city_id
-            or type(frozen.get("delivery_type_id")) is not int or frozen["delivery_type_id"] != 1
-            or order.delivery_service_slug != "standard"):
-        raise WingoShipmentError("შეკვეთის მიწოდების მონაცემები სტანდარტულ Wingo მომსახურებას არ შეესაბამება.")
+            or type(frozen.get("delivery_type_id")) is not int
+            or SERVICES.get(order.delivery_service_slug, (None,))[0] != frozen["delivery_type_id"]
+            or (order.delivery_service_slug == "fast" and location.group_type != "tbilisi")):
+        raise WingoShipmentError("შეკვეთის მიწოდების მონაცემები Wingo-ს არჩეულ მომსახურებას არ შეესაბამება.")
+    try:
+        deadline = booking_deadline(order)
+    except DeliveryQuoteError as exc:
+        raise WingoShipmentError(exc.detail) from None
+    if order.delivery_service_slug == "fast" and deadline is None:
+        raise WingoShipmentError("სწრაფი მიტანის შეთანხმებული ვადა შეკვეთაზე არ არის შენახული. გადაამოწმეთ შეკვეთა.")
+    if deadline and timezone.now() >= deadline:
+        if order.delivery_service_slug == "fast":
+            raise WingoShipmentError("შეკვეთაზე შეთანხმებული სწრაფი მიტანის გაგზავნის ვადა გასულია. მოთხოვნის გაგზავნამდე შეთანხმდით მომხმარებელთან და Wingo-სთან.")
+        if late_delivery_confirmed is not True:
+            raise WingoShipmentError("შეკვეთაზე ნაჩვენები მიტანის ვადა გადაიწია. დაადასტურეთ მომხმარებელთან ახალი ვადის შეთანხმება.")
     band_id = frozen.get("weight_range_id")
     band = next((row for row in snapshot.weight_ranges if type(band_id) is int and row["id"] == band_id), None)
     weight = order.shipping_weight_kg
@@ -83,9 +97,21 @@ def build_order_payload(order, *, parcel_count, client):
         "deliveryAddress": f"{order.city.strip()}, {order.address_line.strip()}",
         "pickupTitle": pickup_title, "pickupAddress": pickup_address,
         "pickupContactPhone": _phone(settings.WINGO_PICKUP_PHONE),
-        "deliveryTypeId": 1, "weightRangeId": band_id, "recipientPaymentDue": 0,
+        "deliveryTypeId": frozen["delivery_type_id"], "weightRangeId": band_id, "recipientPaymentDue": 0,
         "packageCount": parcel_count, "products": products, "courierComment": (order.note or "")[:1000],
     }
+    # An afternoon purchase can be prepared before 13:00. Explicitly request its
+    # frozen next-working-day date instead of letting Wingo default to today.
+    if order.delivery_service_slug == "fast":
+        delivery_day = frozen.get("schedule", {}).get("estimated_delivery_date")
+        if delivery_day is not None:
+            try:
+                valid_day = parse_date(delivery_day)
+            except (ValueError, TypeError):
+                valid_day = None
+            if valid_day is None or valid_day != deadline.astimezone(TBILISI).date():
+                raise WingoShipmentError("სწრაფი მიტანის შენახული თარიღი შესამოწმებელია.")
+            payload["deliveryDate"] = valid_day.isoformat()
     callback_url = build_webhook_url(order)
     if callback_url:
         payload["callback_url"] = callback_url
@@ -103,6 +129,17 @@ def _validate_identity(result, payload):
         raise WingoShipmentError("გზავნილის პასუხი შესამოწმებელია.")
     for key in ("id", "orderNumber"):
         WingoClient._reference(result.get(key))
+    if "deliveryDate" in payload:
+        # Wingo may serialize a date as a full ISO timestamp (UTC or UTC+4).
+        value = result.get("deliveryDate")
+        try:
+            parsed = parse_datetime(value) if isinstance(value, str) and "T" in value else None
+            day = (timezone.localtime(parsed, TBILISI).date()
+                   if parsed and timezone.is_aware(parsed) else parse_date(value))
+        except (ValueError, TypeError):
+            day = None
+        if day is None or day.isoformat() != payload["deliveryDate"]:
+            raise WingoShipmentError("Wingo-ს მიტანის თარიღი შეკვეთაზე შეთანხმებულ თარიღს არ ემთხვევა.")
     # Recovery never trusts list filters (the provider currently ignores them).
     for key in ("userId", "supplierOrderId", "recipientName", "regionId", "localityId",
                 "deliveryAddress", "pickupAddress", "deliveryTypeId", "packageCount"):
@@ -153,7 +190,7 @@ def _accept_created(order, shipment, result):
     return shipment
 
 
-def submit_shipment(order_id, *, parcel_count, prepared, client=None):
+def submit_shipment(order_id, *, parcel_count, prepared, client=None, late_delivery_confirmed=False):
     if prepared is not True:
         raise WingoShipmentError("დაადასტურეთ, რომ ნივთები შემოწმებულია, შეფუთულია და მზადაა კურიერისთვის.")
     token = uuid4()
@@ -162,7 +199,8 @@ def submit_shipment(order_id, *, parcel_count, prepared, client=None):
         if not can_submit(order):
             raise WingoShipmentError("გაგზავნა შეუძლებელია. გადაამოწმეთ გადახდა და უკვე გაგზავნილი მოთხოვნის შედეგი.")
         carrier = client or WingoClient.from_settings()
-        payload = build_order_payload(order, parcel_count=parcel_count, client=carrier)
+        payload = build_order_payload(order, parcel_count=parcel_count, client=carrier,
+                                      late_delivery_confirmed=late_delivery_confirmed)
         shipment, _ = WingoShipment.objects.get_or_create(order=order)
         shipment.state = WingoShipment.State.SUBMITTING
         shipment.operation_token = token

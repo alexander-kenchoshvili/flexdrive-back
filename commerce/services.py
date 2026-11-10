@@ -249,6 +249,9 @@ def build_checkout_request_fingerprint(*, source, validated_data):
     # Preserve fingerprints for existing requests without a declared VAT status.
     if validated_data.get("company_is_vat_registered") is not None:
         payload["company_is_vat_registered"] = validated_data["company_is_vat_registered"]
+    # Keep historical standard fingerprints stable; fast is a distinct purchase.
+    if validated_data.get("delivery_service_slug") == "fast":
+        payload["delivery_service_slug"] = "fast"
     canonical_payload = json.dumps(
         payload,
         ensure_ascii=False,

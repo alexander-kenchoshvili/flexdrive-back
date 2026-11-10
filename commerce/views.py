@@ -565,6 +565,7 @@ class DeliveryQuoteAPIView(APIView):
                 items=items,
                 region=serializer.validated_data["region"],
                 city=serializer.validated_data["city"],
+                service_slug=serializer.validated_data["delivery_service_slug"],
             )
         except DeliveryQuoteError as error:
             return Response(

@@ -164,7 +164,7 @@ class WingoCheckoutTests(TestCase):
         fields = delivery_order_fields(quote)
         self.assertEqual(fields["delivery_price"], Decimal(46))
         self.assertEqual(fields["delivery_provider_data"], {"region_id": "Tbilisi", "locality_id": self.location.provider_city_id,
-                                                          "delivery_type_id": 1, "weight_range_id": 6})
+                                                      "delivery_type_id": 1, "weight_range_id": 6, "schedule": quote["schedule"]})
 
     def test_expired_and_tampered_quotes_cannot_be_used(self):
         for token in ("garbage", self.quote()["quote_token"] + "tampered", ""):

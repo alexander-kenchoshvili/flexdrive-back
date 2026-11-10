@@ -38,11 +38,13 @@ def contents_fingerprint(items):
 
 def delivery_order_fields(payload):
     """Decode already-verified, frozen payment data without current tariff lookups."""
-    if not isinstance(payload, dict) or payload.get("version") not in {1, 2, 3}:
+    if not isinstance(payload, dict) or payload.get("version") not in {1, 2, 3, 4}:
         raise DeliveryQuoteError("მიწოდების მონაცემების ვერსია არასწორია.", code="delivery_quote_invalid")
-    if payload["version"] == 3:
+    if payload["version"] in {3, 4}:
+        service_types = {"standard": 1} if payload["version"] == 3 else {"standard": 1, "fast": 2}
         if (payload.get("provider") != "wingo" or type(payload.get("delivery_type_id")) is not int
-                or payload["delivery_type_id"] != 1 or payload.get("service_slug") != "standard"
+                or service_types.get(payload.get("service_slug")) != payload["delivery_type_id"]
+                or (payload.get("service_slug") == "fast" and payload.get("group_type") != "tbilisi")
                 or type(payload.get("weight_range_id")) is not int or payload["weight_range_id"] <= 0
                 or any(not isinstance(payload.get(key), str) or not payload[key] or len(payload[key]) > 200
                        for key in ("provider_region_id", "provider_city_id"))):
@@ -58,12 +60,16 @@ def delivery_order_fields(payload):
         **{f"shipping_{key}_cm": Decimal(measurements[key]) if measurements.get(key) is not None else None
            for key in ("length", "width", "height")},
     }
-    if payload["version"] in {2, 3}:
+    if payload["version"] in {2, 3, 4}:
         result["delivery_service_slug"] = payload["service_slug"]
         result["delivery_tariff_revision"] = payload["tariff_revision"]
-    if payload["version"] == 3:
+    if payload["version"] in {3, 4}:
         result["delivery_provider_data"] = {
             "region_id": payload["provider_region_id"], "locality_id": payload["provider_city_id"],
-            "delivery_type_id": 1, "weight_range_id": payload["weight_range_id"],
+            "delivery_type_id": payload["delivery_type_id"], "weight_range_id": payload["weight_range_id"],
         }
+        if payload["version"] == 4:
+            if not isinstance(payload.get("schedule"), dict):
+                raise DeliveryQuoteError("მიწოდების ვადა არასწორია.", code="delivery_quote_invalid")
+            result["delivery_provider_data"]["schedule"] = dict(payload["schedule"])
     return result

@@ -1,5 +1,74 @@
 # Project Instructions
 
+## Wingo Next Working Day Fast And Complete Public Copy - 2026-11-10
+
+- User explicitly authorized fast remaining selectable after12:30 for next working
+  day, weekend->Monday. Same-day remains workdays before12:30, provider cutoff13.
+  Standard public estimate1–2 working days; region3–5. Summary no longer duplicates
+  the card estimate. Backend price/service binding and delayed-bank snapshots remain.
+- Fast booking now submits documented deliveryDate from the frozen schedule, also
+  for12:30–13:00 early booking. Response date is verified in creation/recovery/GET;
+  ignored/missing date leaves unknown and prevents duplicate POST. Expired frozen
+  fast deadline still blocks; no silent date/price/payment change. No live POST.
+- Added pages0084 after0083: prior update missed compact description timing variants.
+  Updated description/editor/intros/FAQ/subtitle, preserved unrelated copy and accepted
+  terms snapshots. Applied ONLY locally after backup:4 items/1 component changed,
+  63 other tables unchanged; no old13/14 promise in public shipping CMS. Local content
+  cache group invalidated. Production0083/0084 need user's deploy/request later.
+- 162 Wingo/CMS +340 financial/courier tests and39 frontend checks pass; typecheck,
+  scoped lint, migration drift and whitespace pass. Regression details and unrelated
+  broad-pages fixture failures are documented in
+  docs/WINGO_DELIVERY_CHOICES.md. No browser/server, production/env, provider/bank
+  mutation, commit/push/deploy. Prior same-day-only fast notes below are historical.
+
+## Wingo Standard And Fast Checkout Choices - 2026-11-10
+
+- User authorized backend first then paired frontend; selected12:30 fast checkout
+  cutoff with30min preparation. New WINGO_PREPARATION_MINUTES default30. Only true
+  Tbilisi fastID2 uses fastTbilisi; other localities standardID1. Weekdays/UTC+4,
+  processing/cutoff/weekends give estimates; late fast next-day remains unconfirmed
+  and unavailable. Regional estimate3–5 working days, no invented exact date.
+- Signedv4 quote binds service/price/location/weight/revision/schedule/expiry.
+  Legacyv3 standard validation and v1-v3 paid-snapshot decoding preserved.
+  Fast changes idempotency fingerprint; standard historical hash stays unchanged.
+  Frozen service/deadline goes in existing Order JSON; no commerce schema migration.
+  Booking passes saved1/2; overdue/missing fast deadline blocks, overdue standard
+  requires explicit customer-agreement checkbox logged by admin. No automatic refund.
+- Shared frontend BaseChoiceCard/native radio supports delivery and existing payment
+  wrapper using current Tailwind tokens. Both checkouts show options/prices/estimates;
+  summary/success/profile show saved service and actual delivery fee (fixed preexisting
+  hardcoded free labels). Draft service only, synchronous race invalidation, relative
+  server expiry, and no silent switch from expired fast to standard. Frontend is paired.
+- New pages0083 updates only known legacy delivery timing copy, delivery subtitle
+  and specific shipping FAQ. Accepted order terms remain frozen. Applied locally
+  after backup:3 ContentItems/1 Component changed;63 other tables unchanged.
+- 152 Wingo/CMS +340 prior financial/courier tests +2 shipping/terms endpoint tests
+  pass on disposable SQLite with network disabled.37 relevant frontend tests,
+  typecheck/scoped ESLint/migration drift/whitespace checked. No live viewport;
+  user will review. No server/browser, real provider/bank action, production write,
+  env edit, commit/push/deploy. Production pages0083 awaits user's deployment/request.
+  See docs/WINGO_DELIVERY_CHOICES.md; prior standard-only notes are historical.
+
+## Wingo Tracking Production Migration Applied - 2026-11-10
+
+- User explicitly requested production0043 after discussing the runtime webhook
+  URL. Verified the supplied DigitalOcean target over read-only SSL; only0043 pending.
+- Applied0043_wingo_tracking in one guarded transaction: exactly nine tracking
+  columns on commerce_wingoshipment. PostgreSQL18 also creates two expected
+  NOT NULL metadata constraints for tracking_error/history. First strict preview
+  rolled back on these additional constraints; verified them in an always-rollback
+  preview, then committed with an exact allowlist. No application migration edit.
+- All64 original table schemas checked: original columns/constraints/indexes
+  unchanged. Original-column fingerprints of63 data tables match before/after,
+  including a fresh read-only postcommit connection at03:35:02 Tbilisi. Pending0,
+  shipment rows0; Wingo references/region/locality mappings remain0 as planned.
+- No production env, provider/bank action, public webhook test, app change,
+  browser/server, push/deploy performed. Real public callback activation/delivery
+  still requires runtime/account setup and later operational verification.
+  Credential-free evidence is ignored under
+  tmp/measurements-20261015/wingo-tracking-20261110/production-0043-*.json and
+  production-before-0043.json. Earlier production-pending notes are historical.
+
 ## Wingo Webhook And Canonical Tracking - 2026-11-10
 
 - User authorized explaining/implementing the next status stage. Added private
