@@ -15,6 +15,7 @@ venv/
 
 # DB
 db.sqlite3
+/tmp/backups/
 
 # Media
 media/

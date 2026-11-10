@@ -64,7 +64,12 @@ class CustomerReturnTests(TestCase):
         self.assertNotContains(page, self.receive_url)
         self.assertNotContains(self.admin_client.get(self.refund_url), "მომწოდებლისგან ეს შეკვეთა უკვე შეძენილია?")
         with patch("commerce.bog_refunds.BogPaymentsClient.from_settings", return_value=self.client):
-            self.assertEqual(self.admin_client.post(self.refund_url, {"confirm": "on"}).status_code, 302)
+            fields = {"confirm": "on", "return_delivery_payer": "merchant", "return_delivery_cost": "0"}
+            preview = self.admin_client.post(self.refund_url, fields)
+            self.assertEqual(preview.status_code, 200)
+            self.client.refund_full.assert_not_called()
+            self.assertEqual(self.admin_client.post(self.refund_url, {**fields, "execute": "yes",
+                "preview_token": preview.context_data["preview_token"]}).status_code, 302)
         details = fixtures.BogRefundFlowTests._details(self, status="refunded", refund_amount=Decimal("100"))
         for _ in range(2):
             reconcile_bog_refund_details(self.sale, details, provider_reference={"source": "payment_details"})

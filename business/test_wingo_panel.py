@@ -1,4 +1,4 @@
-"""Cross-report RedCap money and operations regressions, with no live providers."""
+"""Cross-report Wingo money and operations regressions, with no live providers."""
 from datetime import date, datetime, timezone as utc
 from decimal import Decimal as D
 from io import BytesIO
@@ -17,10 +17,11 @@ from commerce.accounting_export import export_response
 from commerce.accounting_ledger import build_ledger
 from commerce.accounting_reports import ReportPeriod, build_cash_report
 from commerce.bog_payments import BogResponseError, BogTransportError
-from commerce.models import Order, OrderItem, OrderReturn, PaymentTransaction, RedcapShipment
+from commerce.models import Order, OrderItem, OrderReturn, PaymentTransaction, WingoShipment
 from commerce.refund_terms import build_settlement
 from commerce.return_costs import return_cost_report
 from commerce.courier_reporting import booking_report, shipment_report
+from commerce.test_courier_fixtures import create_shipment
 from .operations import build_operations_report
 from .reports import build_dashboard_report
 
@@ -31,7 +32,7 @@ def stamp(value):
 
 @override_settings(STORAGES={"default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
-class RedcapBusinessPanelTests(TestCase):
+class WingoBusinessPanelTests(TestCase):
     _details = fixtures.PartialRefundTests._details
     request = fixtures.PartialRefundTests.request
     confirm = fixtures.PartialRefundTests.confirm
@@ -44,7 +45,7 @@ class RedcapBusinessPanelTests(TestCase):
         PaymentTransaction.objects.filter(pk=self.sale.pk).update(captured_at=stamp("2026-09-01T10:00"))
 
     def paid_order(self, number, *, state=None, price=D(12), when="2026-09-15T10:00", buffer=D(0)):
-        order = Order.objects.create(order_number=number, delivery_provider="redcap", payment_status="paid",
+        order = Order.objects.create(order_number=number, delivery_provider="wingo", payment_status="paid",
             payment_method="card", subtotal=100, total=112+buffer, delivery_price=12+buffer,
             carrier_delivery_cost=12, delivery_margin=buffer, phone="PRIVATE-PHONE", address_line="PRIVATE-ADDRESS")
         OrderItem.objects.create(order=order, product=self.product, product_name="სატესტო ნაწილი", internal_sku=number,
@@ -52,7 +53,7 @@ class RedcapBusinessPanelTests(TestCase):
         PaymentTransaction.objects.create(order=order, provider="bog", action="sale", status="paid", amount=order.total,
             captured_at=stamp("2026-09-01T10:00"))
         if state:
-            RedcapShipment.objects.create(order=order, state=state, service_slug="same_day", booked_price=price,
+            create_shipment(order=order, state=state, booked_price=price,
                 tracking_number=number if state not in {"unknown", "submitting"} else None,
                 submitted_at=stamp(when) if state not in {"unknown", "submitting", "failed"} else None,
                 last_error="PRIVATE-PROVIDER-ERROR" if state == "unknown" else "")
@@ -115,11 +116,11 @@ class RedcapBusinessPanelTests(TestCase):
     def test_shipment_filters_pagination_and_counts_are_global(self):
         for index in range(23):
             self.paid_order(f"PANEL-{index}", state="created")
-        orders = Order.objects.filter(delivery_provider="redcap").order_by("pk")
+        orders = Order.objects.filter(delivery_provider="wingo").order_by("pk")
         first = orders.first()
-        RedcapShipment.objects.filter(order=first).update(carrier_status="picked_up")
+        WingoShipment.objects.filter(order=first).update(carrier_status=3)
         delivered = orders[1]
-        RedcapShipment.objects.filter(order=delivered).update(carrier_status="delivered")
+        WingoShipment.objects.filter(order=delivered).update(carrier_status=9)
         with connection.execute_wrapper(self.read_only), CaptureQueriesContext(connection) as queries:
             page = shipment_report({"shipments_page": 2})
         self.assertLessEqual(len(queries), 3)
@@ -127,6 +128,25 @@ class RedcapBusinessPanelTests(TestCase):
         self.assertEqual((page["summary"]["shipped"], page["summary"]["delivered"]), (1, 1))
         self.assertEqual(shipment_report({"shipments": "shipped"})["items"][0]["order_number"], first.order_number)
         self.assertNotIn("PRIVATE", str(page))
+
+    def test_numeric_statuses_and_unverified_webhook_are_reported_from_stored_facts_only(self):
+        order = self.paid_order("CANONICAL", state="created")
+        for status, stage in ((1, "created"), (2, "created"), (3, "shipped"), (5, "shipped"),
+                              (6, "shipped"), (7, "shipped"), (9, "delivered"), (10, "cancelled")):
+            with self.subTest(status=status):
+                WingoShipment.objects.filter(order=order).update(carrier_status=status)
+                report = shipment_report({"shipments": stage})
+                self.assertEqual((report["total"], report["items"][0]["stage"]), (1, stage))
+                self.assertEqual(report["summary"][stage], 1)
+        WingoShipment.objects.filter(order=order).update(carrier_status=1, webhook_received_at=stamp("2026-09-15T12:00"))
+        report = shipment_report({"shipments": "review"})
+        self.assertEqual(report["total"], 1)
+        self.assertIn("ჯერ არ გადამოწმებულა", str(report["items"][0]["issues"]))
+        case = OrderReturn.objects.create(order=order, disposition="from_customer", receipt_status="awaiting",
+            wingo_return_tracking_number="999-RETURN-1")
+        report = shipment_report({"shipments": "returning"})
+        self.assertEqual(report["items"][0]["return_tracking_number"], case.wingo_return_tracking_number)
+        self.assertNotIn("PRIVATE", str(report))
 
     @staticmethod
     def read_only(execute, sql, params, many, context):

@@ -1,3 +1,5 @@
+> Current courier/reporting state: [Wingo reporting and retirement](WINGO_REPORTING_CLEANUP.md). Earlier phase/pending notes below are historical.
+
 # Wingo — სატესტო API-ის რეალური შედეგები
 
 2026-11-09. წყარო: Desktop/API_DOCUMENTATION.md, TEST Merchant პანელის წინა

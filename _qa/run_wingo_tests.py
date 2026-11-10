@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("labels", nargs="*", default=["commerce.test_wingo", "commerce.test_wingo_checkout", "commerce.test_wingo_shipments", "commerce.test_wingo_tracking", "commerce.test_wingo_services", "pages.test_wingo_delivery_copy"])
+parser.add_argument("labels", nargs="*", default=["commerce.test_wingo", "commerce.test_wingo_checkout", "commerce.test_wingo_shipments", "commerce.test_wingo_tracking", "commerce.test_wingo_platform_returns", "commerce.test_wingo_retirement", "commerce.test_wingo_services", "commerce.test_customer_returns", "commerce.test_predispatch_returns", "pages.test_wingo_delivery_copy"])
 parser.add_argument("--migration-name", default="wingo_reference_data")
 mode = parser.add_mutually_exclusive_group()
 mode.add_argument("--make-migrations", action="store_true")

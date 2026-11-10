@@ -1,5 +1,86 @@
 # Project Instructions
 
+## Wingo Reporting And Retired Courier Removal - 2026-11-10
+
+- User explicitly authorized removing the retired courier after choosing Wingo's
+  panel for cancellations/returns. Migrated shared stored courier facts, business
+  operations/finance, accountant HTML and XLSX to WingoShipment and numeric statuses.
+  Customer price/quote/buffer/booked price/difference remain separate; booking period,
+  unknown-price handling and cancelled possible-charge review remain explicit.
+  Private reverse tracking number appears in business shipments. Reads stay SELECT-only.
+- Removed old client/reference/quote/booking/tracking/admin modules, commands,
+  settings, templates, sync-report UI and obsolete provider-only transport tests.
+  Preserved/transferred shared money/report tests to Wingo. New test runner is
+  _qa/run_finance_tests.py; historical migrations and frozen payment decoders remain.
+  Two legacy provider string checks/types remain read-only compatibility, no API.
+  Supplier sync remains; Wingo uses existing webhook/manual checks, no invented cron.
+- New0045 guards against nonempty old shipments BEFORE any DDL, then drops three
+  retired tables and their content types/permissions. Local backup confirmed all
+  three empty. Applied ONLY0045:62 remaining data tables verified against exact
+  expected original rows;3 obsolete content types/12 permissions removed, no other
+  schema/data changes. Evidence ignored in
+  tmp/measurements-20261015/wingo-cleanup-20261110/. Unrelated business0001/catalog0031
+  remain pending locally. Prior0044 already applied locally; production0044/0045 pending.
+- Final185 Wingo/CMS/receipt/migration +283 bank/refund/report/business tests pass
+  on disposable SQLite with network blocked.53 frontend business tests pass (changed
+  six rerun with reverse-number assertion), typecheck/scoped ESLint/migration drift/
+  whitespace pass. No browser/server, real bank/provider action or production/env
+  mutation. User owns BOTH backend/frontend push/deploy. Do not push for them.
+  Real panel-cancellation->GET/webhook verification remains operational work.
+- Current setup/limits: docs/WINGO_REPORTING_CLEANUP.md. Removed old courier env
+  keys are no longer consumed; deployed env/jobs were not inspected or modified.
+
+## Wingo Platform Cancellation And Manual Reverse Returns - 2026-11-10
+
+- User chose Wingo's own panel for cancellation and reverse booking and authorized
+  our admin/financial cycle. No speculative cancel/reverse API or provider mutation.
+- Authenticated exact canonical10 before physical dispatch records a verification
+  timestamp and releases the existing pre-dispatch refund guard. Status4, unknown
+  creation, stale/conflicting/foreign reads, failed checks, in-flight checks and
+  unverified pending callbacks cannot release it. Picked/delivered goods still
+  require a physical return. No automatic refund/order cancellation/stock action.
+- Wingo return-start requires the panel-created NEW return number and explicit
+  confirmation. Number is unique, immutable through the action, private and shown
+  on order/return admin/search/history. Same-number replay is idempotent. Existing
+  historical return cases/pending money terms remain valid without backfilling it.
+- Actual return cost stays in the existing signed refund preview (blank initial
+  Wingo cost, explicit0 allowed); no second expense ledger/source. Shared accounting
+  now recognizes Wingo for allocations:110 paid /10 outbound /10 return =>90 customer
+  refund, or110 merchant-pays with10 separate expense. Full booked-price/shipment
+  reporting conversion and RedCap removal remain a later stage.
+- New0044 adds only OrderReturn.wingo_return_tracking_number and WingoShipment.
+  cancellation_verified_at. Applied locally after consistent SQLite backup:
+  65 data tables' original column values unchanged,66 original tables retained.
+  Unrelated pre-existing business0001/catalog0031 pending migrations untouched.
+  Evidence ignored under tmp/measurements-20261015/wingo-platform-returns-20261110/.
+- 184 network-blocked Wingo/CMS/return tests and340 financial regressions cover actual
+  admin HTML, CSRF/permissions, verified cancellation,90/110 bank scenarios,
+  accountant/business/XLSX parity and one stock receipt. Migration drift checked.
+  See docs/WINGO_PLATFORM_RETURNS.md. No frontend/env/production/browser/server,
+  real provider/bank action, commit/push/deploy. Production0044 awaits user deploy
+  and explicit migration request; real panel-cancellation->GET10 still needs an
+  operational check. Return labels/tracking remain in Wingo's panel.
+
+## Wingo Public Copy Production Migrations Applied - 2026-11-10
+
+- User explicitly requested production migrations after the push/deploy sequence.
+  Read-only SSL preflight verified the supplied DigitalOcean target; exactly pages
+  0083_wingo_delivery_choices_copy and0084_wingo_delivery_copy_complete were pending.
+- Applied only those two data migrations in one guarded PostgreSQL transaction.
+  Schema unchanged across64 tables. Four public CMS items21/22/23/112 changed only
+  description/editor/updated_at; component5 changed only subtitle/updated_at.
+  Two migration records added; all61 other data table fingerprints unchanged,
+  including products/orders/payments and accepted order terms snapshots.
+- Fresh read-only SSL verification at18:29:34 Tbilisi confirms commit, zero pending
+  migrations and the exact same guards. Credential-free CMS before/after backups,
+  fingerprints and verification are ignored in
+  tmp/measurements-20261015/wingo-services-20261110/production-*-pages-0083-0084.json
+  and production-pages-0083-0084-*.json. Production item IDs differ from local IDs;
+  target identity was checked by content grouping/title, never assumed from local.
+- No provider/bank/env/cache edit, app push/deploy, browser/server or public HTTP
+  verification. Existing production CMS cache can retain old copy for its15min TTL.
+  Earlier production-pending notes below are historical.
+
 ## Wingo Next Working Day Fast And Complete Public Copy - 2026-11-10
 
 - User explicitly authorized fast remaining selectable after12:30 for next working

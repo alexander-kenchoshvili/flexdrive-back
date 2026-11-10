@@ -1,9 +1,0 @@
-{% extends "admin/base_site.html" %}
-{% block content %}
-<p>RedCap-დან ჩამოიტვირთება ტარიფები, ზონები, სტატუსები და გადახდის ცნობარი.
-გზავნილი არ შეიქმნება. შეცდომის შემთხვევაში არსებული ცხრილი შენარჩუნდება.</p>
-<form method="post">{% csrf_token %}
-<input type="submit" value="ტარიფების განახლება">
-<a href="{{ cancel_url }}">დაბრუნება</a>
-</form>
-{% endblock %}

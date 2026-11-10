@@ -183,9 +183,9 @@ def export_response(report):
             Decimal(row["quoted_price"]), Decimal(row["booked_price"]) if row["booked_price"] is not None else None,
             Decimal(row["buffer"]), Decimal(row["difference"]) if row["difference"] is not None else None] for row in bookings["rows"]]
         booking_rows.append(["სულ — გაუქმებულის გარეშე", None, None, None, None, bookings["total"], None, bookings["difference"]])
-        sheets.append(("RedCap გზავნილები", ["შექმნის თარიღი", "შეკვეთა", "მდგომარეობა", "მომხმარებლის მიტანის თანხა ₾",
-            "ჩექაუთის ტარიფი ₾", "RedCap-ის ფასი ₾", "ბუფერი ₾", "ფასთა სხვაობა ₾"], booking_rows))
-        introductions["RedCap გზავნილები"] = ["FlexDrive — RedCap-ის გზავნილების ფასები", introduction[1],
+        sheets.append(("Wingo გზავნილები", ["შექმნის თარიღი", "შეკვეთა", "მდგომარეობა", "მომხმარებლის მიტანის თანხა ₾",
+            "ჩექაუთის ტარიფი ₾", "Wingo-ს ფასი ₾", "ბუფერი ₾", "ფასთა სხვაობა ₾"], booking_rows))
+        introductions["Wingo გზავნილები"] = ["FlexDrive — Wingo-ს გზავნილების ფასები", introduction[1],
             "გზავნილის შექმნის თარიღით; ინვოისის ნაშთს ან ხარჯის გადახდას არ ადასტურებს.",
             "გაუქმებული გზავნილები ჯამში არ შედის; შესაძლო საკურიერო ხარჯი ცალკე შესაჯერებელია.",
             "უცნობი ფასი ცარიელია და სრულ ჯამს უცნობს ტოვებს."]

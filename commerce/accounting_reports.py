@@ -142,7 +142,7 @@ def order_row(order, *, tax_rates=None):
         issues.append("order_total_mismatch")
     if any("line_total_mismatch" in line["issues"] for line in lines):
         issues.append("line_total_mismatch")
-    if order.delivery_provider in {"easyway", "redcap"}:
+    if order.delivery_provider in {"easyway", "redcap", "wingo"}:
         if order.carrier_delivery_cost + order.delivery_margin != order.delivery_price:
             issues.append("delivery_total_mismatch")
         buffer = order.delivery_margin

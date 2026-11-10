@@ -5,7 +5,7 @@ state or external Product.stock_qty. Receipts now credit the owned balance.
 """
 
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from catalog.models import Product
@@ -64,7 +64,7 @@ def _validate_actor(actor):
 
 
 @transaction.atomic
-def prepare_order_return(*, order, disposition, actor):
+def prepare_order_return(*, order, disposition, actor, wingo_return_tracking_number=None):
     """Record full-order intent; on-hand means explicitly confirmed saleable receipt.
 
     The eventual action endpoint must additionally enforce its action permission,
@@ -75,9 +75,23 @@ def prepare_order_return(*, order, disposition, actor):
         raise ValidationError("აირჩიეთ ნივთების მდგომარეობა.")
     locked_order = Order.objects.select_for_update().get(pk=order.pk)
     existing = OrderReturn.objects.filter(order=locked_order).first()
+    wingo_return = locked_order.delivery_provider == "wingo" and disposition == ReturnDisposition.FROM_CUSTOMER
+    if wingo_return_tracking_number is not None and not wingo_return:
+        raise ValidationError("უკუგზავნილის ნომერი მხოლოდ Wingo-ს მომხმარებლის დაბრუნებას ეხება.")
+    if wingo_return and (not existing or wingo_return_tracking_number is not None):
+        from .wingo import WingoClient, WingoError
+        from .models import WingoShipment
+        try:
+            WingoClient._reference(wingo_return_tracking_number)
+        except WingoError:
+            raise ValidationError("მიუთითეთ Wingo-ს პანელში შექმნილი უკუგზავნილის სწორი ნომერი.") from None
+        if WingoShipment.objects.filter(tracking_number=wingo_return_tracking_number).exists():
+            raise ValidationError("უკუგზავნილს თავისი ახალი ნომერი უნდა ჰქონდეს; მიტანის გზავნილის ნომერს ვერ გამოიყენებთ.")
     if existing:
         if existing.disposition != disposition:
             raise ValidationError("დაბრუნება უკვე სხვა მდგომარეობით არის დაფიქსირებული.")
+        if wingo_return_tracking_number is not None and existing.wingo_return_tracking_number != wingo_return_tracking_number:
+            raise ValidationError("დაბრუნება უკვე სხვა უკუგზავნილის ნომრით არის დაფიქსირებული.")
         return existing
     if locked_order.payment_status != OrderPaymentStatus.PAID or locked_order.stock_restored_at:
         raise ValidationError("დაბრუნებისთვის საჭიროა გადახდილი, ჯერ დაუბრუნებელი შეკვეთა.")
@@ -106,11 +120,18 @@ def prepare_order_return(*, order, disposition, actor):
         ReturnReceiptStatus.NOT_REQUIRED if disposition == ReturnDisposition.NOT_PURCHASED else
         ReturnReceiptStatus.AWAITING
     )
-    case = OrderReturn.objects.create(
-        order=locked_order, disposition=disposition, receipt_status=receipt_status,
-        requested_by=actor, received_by=actor if on_hand else None,
-        received_at=now if on_hand else None,
-    )
+    try:
+        with transaction.atomic():
+            case = OrderReturn.objects.create(
+                order=locked_order, disposition=disposition, receipt_status=receipt_status,
+                requested_by=actor, received_by=actor if on_hand else None,
+                received_at=now if on_hand else None,
+                wingo_return_tracking_number=wingo_return_tracking_number,
+            )
+    except IntegrityError:
+        if wingo_return and OrderReturn.objects.filter(wingo_return_tracking_number=wingo_return_tracking_number).exists():
+            raise ValidationError("ეს უკუგზავნილის ნომერი უკვე სხვა შეკვეთას უკავშირდება.") from None
+        raise
     for item in items:
         line = OrderReturnLine(
             return_case=case, order_item=item, expected_quantity=item.quantity,

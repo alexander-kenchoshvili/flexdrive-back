@@ -14,6 +14,7 @@ from .wingo_shipments import can_submit, get_shipment_label, recover_submission,
 from .wingo_tracking import STATUS_LABELS, sync_shipment
 from .wingo_services import booking_deadline, delivery_summary
 from .delivery_quote_data import DeliveryQuoteError
+from .courier_state import wingo_cancellation_verified
 
 
 class WingoPrepareForm(forms.Form):
@@ -51,8 +52,10 @@ class OrderWingoAdminMixin:
             shipment = WingoShipment.objects.filter(order=order).first()
             context["show_wingo_submit"] = can_submit(order)
             context["show_wingo_recover"] = bool(shipment and shipment.state in {"unknown", "submitting"})
-            context["show_wingo_label"] = bool(shipment and shipment.state == "created" and shipment.provider_order_id)
-            context["show_wingo_tracking"] = context["show_wingo_label"]
+            context["show_wingo_tracking"] = bool(shipment and shipment.state == "created" and shipment.provider_order_id)
+            context["show_wingo_label"] = context["show_wingo_tracking"] and shipment.carrier_status not in {10, 11}
+            context["wingo_platform_actions"] = context["show_wingo_tracking"]
+            context["wingo_cancellation_verified"] = wingo_cancellation_verified(shipment)
             for action in ("submit", "recover", "label", "tracking"):
                 context[f"wingo_{action}_url"] = reverse(f"admin:commerce_order_wingo_{action}", args=[order.pk])
         return super().changeform_view(request, object_id, form_url, context)
@@ -83,12 +86,13 @@ class OrderWingoAdminMixin:
             "{}<p><strong>{}</strong></p><p>გზავნილის ნომერი: {}<br>შეფუთვები: {}<br>"
             "მომხმარებლის მიერ გადახდილი მიტანა: {} ₾<br>შენახული საკურიერო ტარიფი: {} ₾<br>"
             "Wingo-ში დაფიქსირებული ფასი: {}<br>სხვაობა ტარიფთან: {}<br>"
-            "გზავნილის დადასტურების დრო: {}<br>Wingo-ს სტატუსი: {}<br>"
+            "გზავნილის დადასტურების დრო: {}<br>Wingo-ს სტატუსი: {}<br>გაუქმების დადასტურება: {}<br>"
             "ბოლო წარმატებული შემოწმება: {}</p><p>{}</p><p>{}</p><p>{}</p><p>{}</p>"
             "<p>ბოლო 20 დაკვირვება (შემოწმების დრო):</p><ul>{}</ul>",
             intro, shipment.get_state_display(), shipment.tracking_number or "—", shipment.parcel_count,
             obj.delivery_price, obj.carrier_delivery_cost, price, difference,
             shipment.submitted_at or "—", STATUS_LABELS.get(shipment.carrier_status, "ჯერ არ დადასტურებულა"),
+            shipment.cancellation_verified_at if wingo_cancellation_verified(shipment) else "ჯერ არ დადასტურებულა",
             shipment.tracking_checked_at or "—", shipment.last_error, shipment.tracking_error,
             pending, automatic, history)
 

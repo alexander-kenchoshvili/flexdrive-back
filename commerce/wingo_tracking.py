@@ -93,6 +93,10 @@ def _apply(shipment, token, result, *, client):
         _validate_identity(result, locked.request_payload)
         _account_matches(locked, client)
         previous = locked.carrier_status
+        # Any contradictory accepted/current observation invalidates the release.
+        # A stale read alone cannot revoke a newer verified cancellation.
+        if not locked.carrier_updated_at or updated_at >= locked.carrier_updated_at:
+            locked.cancellation_verified_at = None
         outcome, issue = "synced", ""
         if locked.carrier_updated_at and updated_at < locked.carrier_updated_at:
             outcome, issue = "stale", locked.tracking_error
@@ -105,7 +109,12 @@ def _apply(shipment, token, result, *, client):
                 _accept_created(order, locked, result)
             locked.carrier_status = status
             locked.carrier_updated_at = updated_at
-            if status in ATTENTION:
+            if (status == 10 and order.status in {"new", "confirmed", "processing"}
+                    and not OrderReturn.objects.filter(order=order, disposition="from_customer").exists()
+                    and not any(row.get("status") in {3, 5, 6, 7, 9, 11}
+                                and row.get("result") != "stale" for row in locked.tracking_history)):
+                locked.cancellation_verified_at = timezone.now()
+            elif status in ATTENTION:
                 outcome, issue = "review", "გზავნილს ყურადღება სჭირდება. გადაამოწმეთ Wingo-სთან; თანხა და მარაგი არ შეცვლილა."
             elif (order.status not in ORDER_RANK or order.payment_status != "paid"
                   or OrderReturn.objects.filter(order=order).exists()):
@@ -127,7 +136,8 @@ def _apply(shipment, token, result, *, client):
         # A notification arriving during this GET stays pending, even if retries overlap.
         locked.webhook_checked_at = shipment.webhook_received_at
         locked.save(update_fields=["carrier_status", "carrier_updated_at", "tracking_history",
-                                   "tracking_checked_at", "tracking_error", "webhook_checked_at"])
+                                   "tracking_checked_at", "tracking_error", "webhook_checked_at",
+                                   "cancellation_verified_at"])
         return outcome
 
 

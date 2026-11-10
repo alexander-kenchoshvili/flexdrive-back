@@ -12,7 +12,7 @@ from django.db import IntegrityError, transaction
 from django.test import Client, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
-from .models import RedcapReferenceData, WingoReferenceData
+from .models import WingoReferenceData
 from .wingo import (
     MAX_REFERENCE_BYTES, WingoClient, WingoConfigurationError, WingoError,
     WingoResponseError, WingoTransportError,
@@ -319,15 +319,12 @@ class WingoReferenceTests(TestCase):
             refresh_wingo_references(client=self.carrier)
         self.assertEqual(WingoReferenceData.objects.count(), 1)
 
-    def test_only_reference_fields_are_persisted_and_redcap_is_untouched(self):
-        old = RedcapReferenceData.objects.create(category="existing", synced_at="2026-11-01T12:00:00Z", revision="old")
+    def test_only_reference_fields_are_persisted_without_sensitive_extra_fields(self):
         self.data["tariffs"][0]["apiKey"] = "private-echo"
         self.data["regions"]["regions"][0]["recipientPhone"] = "private-echo"
         self.data["localities"]["თბილისი"][0]["password"] = "private-echo"
         refresh_wingo_references(client=self.carrier)
         self.assertNotIn("private-echo", json.dumps(self.stored(), default=str))
-        old.refresh_from_db()
-        self.assertEqual((old.category, old.revision), ("existing", "old"))
 
     def test_singleton_constraint_rejects_another_id(self):
         refresh_wingo_references(client=self.carrier)

@@ -7,7 +7,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from catalog.models import SupplierSyncReport
-from commerce.models import RedcapSyncReport, OrderReturn, OrderReturnLine, OwnedStockAllocation, OwnedStockLot, PaymentTransaction
+from commerce.models import OrderReturn, OrderReturnLine, OwnedStockAllocation, OwnedStockLot, PaymentTransaction
 from commerce.refund_terms import settlement_for_refund
 from django.core.exceptions import ValidationError
 from commerce.courier_reporting import shipment_report
@@ -38,10 +38,7 @@ SUPPLIER_COUNTS = {
     "back_in_stock": "მარაგში დაბრუნდა", "archived": "დაარქივდა",
     "restored": "არქივიდან გამოქვეყნდა", "supplier_price": "შესყიდვის ფასი შეიცვალა",
 }
-TRACKING_COUNTS = {
-    "checked": "შემოწმდა", "changed": "შეიცვალა", "review": "გადასამოწმებელია",
-    "failed": "შეცდომა", "skipped": "გამოტოვებულია",
-}
+
 PENDING = Q(status__in=("pending", "authorized", "refund_pending"))
 ISSUES = ~Q(reconciliation_issue="") | ~Q(error_code="") | Q(status="paid", order__isnull=True)
 
@@ -168,22 +165,20 @@ def _count(value):
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
-def _sync(model, key, label, counters):
-    latest = model.objects.order_by("-finished_at", "-pk").first()
-    success = model.objects.filter(status="success").order_by("-finished_at", "-pk").values_list("finished_at", flat=True).first()
-    result = {"key": key, "label": label, "latest": None, "last_success_at": success.isoformat() if success else None}
+def _supplier_sync():
+    latest = SupplierSyncReport.objects.order_by("-finished_at", "-pk").first()
+    success = SupplierSyncReport.objects.filter(status="success").order_by("-finished_at", "-pk").values_list("finished_at", flat=True).first()
+    result = {"key": "supplier", "label": "Cross Motors", "latest": None,
+              "last_success_at": success.isoformat() if success else None}
     if latest:
-        payload = latest.changes if key == "supplier" else latest.details
-        payload = payload if isinstance(payload, dict) else {}
-        counts = payload if key == "supplier" else payload.get("counts", {})
-        counts = counts if isinstance(counts, dict) else {}
+        counts = latest.changes if isinstance(latest.changes, dict) else {}
         result["latest"] = {
             "status": latest.status, "status_label": latest.get_status_display(),
             "started_at": latest.started_at.isoformat(), "finished_at": latest.finished_at.isoformat(),
-            "source_label": latest.get_source_display() if key == "carrier" else None,
-            "counts": [{"key": name, "label": text, "value": _count(
-                counts.get(name, {}).get("count") if key == "supplier" and isinstance(counts.get(name), dict) else counts.get(name) if key == "carrier" else None,
-            )} for name, text in counters.items()],
+            "source_label": None,
+            "counts": [{"key": name, "label": label,
+                        "value": _count(counts.get(name, {}).get("count") if isinstance(counts.get(name), dict) else None)}
+                       for name, label in SUPPLIER_COUNTS.items()],
         }
     return result
 
@@ -194,5 +189,4 @@ def build_operations_report(options=None):
     return {"generated_at": now.isoformat(), "timezone": "Asia/Tbilisi",
             "returns": _returns(options, now), "stock": _stock(options, now), "payments": _payments(options),
             "shipments": shipment_report(options),
-            "syncs": [_sync(SupplierSyncReport, "supplier", "Cross Motors", SUPPLIER_COUNTS),
-                      _sync(RedcapSyncReport, "carrier", "RedCap", TRACKING_COUNTS)]}
+            "syncs": [_supplier_sync()]}

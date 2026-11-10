@@ -1,4 +1,4 @@
-> 2026-11-03: საკურიერო ნაწილისთვის ამ ფაილის ძველი EasyWay მითითებები ჩანაცვლებულია [RedCap-ის ინსტრუქციით](REDCAP_INTEGRATION.md). კოდი შეცვლილია ადგილობრივად; გარემოში ჩართვა/deployment ჯერ არ შესრულებულა.
+> Historical courier instructions below are retired. Current setup: [Wingo](WINGO_REPORTING_CLEANUP.md).
 
 # FlexDrive — კონტექსტი შემდეგი ასისტენტისთვის
 

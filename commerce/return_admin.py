@@ -3,7 +3,7 @@ from django import forms
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core import signing
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseNotAllowed, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import reverse
 
@@ -11,7 +11,7 @@ from .bog_payments import BogPaymentError
 from .bog_refunds import can_request_bog_full_refund, request_bog_full_refund
 from .models import OrderReturn, ReturnDisposition, ReturnReceiptStatus
 from .returns import has_external_items, prepare_order_return, receive_order_return
-from .redcap_shipments import has_unsettled_redcap_shipment
+from .courier_state import has_unsettled_courier_shipment
 from .refund_terms import build_settlement
 
 
@@ -40,10 +40,15 @@ class PredispatchRefundForm(forms.Form):
 
 
 def predispatched_refund_view(model_admin, request, order):
+    if request.method not in {"GET", "POST"}:
+        return HttpResponseNotAllowed(["GET", "POST"])
     cancel_url = reverse("admin:commerce_order_change", args=[order.pk])
     customer_return = OrderReturn.objects.filter(order=order, disposition=ReturnDisposition.FROM_CUSTOMER).exists()
     data = request.POST if request.method == "POST" else None
     form = CustomerRefundForm(data) if customer_return else PredispatchRefundForm(data, order=order)
+    if customer_return and order.delivery_provider == "wingo":
+        # The carrier-panel charge is operator-entered, never assumed to be zero.
+        form.fields["return_delivery_cost"].initial = None
     frozen = None
     if customer_return:
         pending = order.payment_transactions.filter(action="refund", status="refund_pending").order_by("-pk").first()
@@ -114,7 +119,7 @@ def predispatched_refund_view(model_admin, request, order):
         "allowed": allowed, "customer_return": customer_return,
         "settlement": settlement, "preview": preview,
         "preview_token": preview_token,
-        "courier_cancellation_required": not customer_return and has_unsettled_redcap_shipment(order),
+        "courier_cancellation_required": not customer_return and has_unsettled_courier_shipment(order),
     })
 
 
@@ -127,6 +132,18 @@ class ConfirmReturnForm(forms.Form):
 
 class RefundPreview(Exception):
     """A server-calculated preview makes the final money action explicit."""
+
+
+class WingoReturnForm(ConfirmReturnForm):
+    wingo_return_tracking_number = forms.CharField(
+        label="Wingo-ს უკუგზავნილის ნომერი", max_length=200,
+        help_text="Wingo-ს პანელში შექმნილი ახალი უკუგზავნილის ნომერი, და არა პირველი მიტანის ნომერი.",
+        error_messages={"required": "მიუთითეთ უკუგზავნილის ნომერი.", "max_length": "ნომერი ზედმეტად გრძელია."},
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["confirm"].label = "ვადასტურებ, რომ უკუგზავნილი Wingo-ს პანელში უკვე გავაფორმე."
 
 
 class CustomerRefundForm(ConfirmReturnForm):
@@ -162,11 +179,14 @@ class ReceiveReturnForm(ConfirmReturnForm):
 
 
 def customer_return_view(model_admin, request, order, *, receiving=False):
+    if request.method not in {"GET", "POST"}:
+        return HttpResponseNotAllowed(["GET", "POST"])
     cancel_url = reverse("admin:commerce_order_change", args=[order.pk])
     case = OrderReturn.objects.filter(order=order, disposition=ReturnDisposition.FROM_CUSTOMER).first()
     lines = list(case.lines.select_related("order_item").order_by("pk")) if case else []
     data = request.POST if request.method == "POST" else None
-    form = ReceiveReturnForm(data, lines=lines) if receiving else ConfirmReturnForm(data)
+    form = (ReceiveReturnForm(data, lines=lines) if receiving else
+            WingoReturnForm(data) if order.delivery_provider == "wingo" else ConfirmReturnForm(data))
     title = "მიღება და შემოწმება" if receiving else "დაბრუნების დაწყება"
     allowed = bool(case and case.receipt_status == ReturnReceiptStatus.AWAITING) if receiving else bool(
         order.status in {"shipped", "delivered"} and order.payment_status == "paid" and not case
@@ -182,15 +202,21 @@ def customer_return_view(model_admin, request, order, *, receiving=False):
                 })
                 note = "მიღება დაფიქსირებულია. მხოლოდ ვარგისი ნივთები დაემატა FlexDrive-ის მარაგს. თანხის დაბრუნება ცალკე მოქმედებით შეასრულეთ."
             else:
-                prepare_order_return(order=order, disposition=ReturnDisposition.FROM_CUSTOMER, actor=request.user)
+                prepare_order_return(order=order, disposition=ReturnDisposition.FROM_CUSTOMER, actor=request.user,
+                    **({"wingo_return_tracking_number": form.cleaned_data["wingo_return_tracking_number"]}
+                       if order.delivery_provider == "wingo" else {}))
                 note = "დაბრუნება დაწყებულია — ველოდებით ნივთებს. თანხა ჯერ არ დაბრუნებულა."
         except ValidationError as error:
             form.add_error(None, error.messages[0])
         else:
+            model_admin.log_change(request, order, "ნივთების მიღება და შემოწმება დადასტურდა." if receiving else
+                (f"Wingo-ს პანელში გაფორმებული უკუგზავნილი: {form.cleaned_data['wingo_return_tracking_number']}."
+                 if order.delivery_provider == "wingo" else "ნივთების დაბრუნება დაიწყო."))
             model_admin.message_user(request, note, level=messages.SUCCESS)
             return HttpResponseRedirect(cancel_url)
     return TemplateResponse(request, "admin/commerce/customer_return.html", {
         **model_admin.admin_site.each_context(request), "opts": model_admin.model._meta,
         "original": order, "order": order, "title": title, "form": form,
         "receiving": receiving, "allowed": allowed, "cancel_url": cancel_url, "items": order.items.all(),
+        "return_case": case,
     })

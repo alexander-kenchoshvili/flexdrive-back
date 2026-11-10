@@ -95,7 +95,7 @@ class WingoTrackingTests(WingoTrackingFixture):
     def test_delays_cancel_and_return_never_refund_restock_or_cancel_order(self):
         before = Order.objects.values().get(pk=self.order.pk)
         for i, status in enumerate((8, 4, 10, 11)):
-            self.assertEqual(self.sync(status, i), "review")
+            self.assertEqual(self.sync(status, i), "synced" if status == 10 else "review")
             self.assertEqual(before, Order.objects.values().get(pk=self.order.pk))
             self.assertEqual(self.shipment.state, "created")
         self.assertFalse(OrderReturn.objects.exists())
@@ -450,7 +450,8 @@ class WingoTrackingMigrationTests(TransactionTestCase):
                 booked_price=46, request_payload=payload, operation_token=uuid4(), attempted_at=timezone.now())
             before = OldShipment.objects.values().get(pk=shipment.pk)
             MigrationExecutor(connection).migrate([("commerce", "0043_wingo_tracking")])
-            after = WingoShipment.objects.values().get(pk=shipment.pk)
+            apps = MigrationExecutor(connection).loader.project_state([("commerce", "0043_wingo_tracking")]).apps
+            after = apps.get_model("commerce", "WingoShipment").objects.values().get(pk=shipment.pk)
             self.assertEqual(before, {key: after[key] for key in before})
             self.assertEqual(after["tracking_history"], [])
             self.assertEqual(after["tracking_error"], "")

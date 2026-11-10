@@ -1,3 +1,4 @@
+from commerce.test_courier_fixtures import create_shipment
 from datetime import date, datetime, timezone as utc
 from decimal import Decimal as D
 from unittest.mock import patch
@@ -23,8 +24,8 @@ class DashboardReportTests(TestCase):
         self.september = ReportPeriod(date(2026, 9, 1), date(2026, 9, 30))
         self.october = ReportPeriod(date(2026, 10, 1), date(2026, 10, 31))
 
-    def sale(self, *, number="REPORT-1", provider="redcap", cost="59", when="2026-09-15T10:00", quantity=1, unit_price="118"):
-        delivery, carrier, buffer = (D(15), D(12), D(3)) if provider in {"easyway", "redcap"} else (D(10), D(0), D(0))
+    def sale(self, *, number="REPORT-1", provider="wingo", cost="59", when="2026-09-15T10:00", quantity=1, unit_price="118"):
+        delivery, carrier, buffer = (D(15), D(12), D(3)) if provider in {"easyway", "wingo"} else (D(10), D(0), D(0))
         order = Order.objects.create(order_number=number, subtotal=D(unit_price) * quantity,
                                      total=D(unit_price) * quantity + delivery, delivery_provider=provider,
                                      delivery_price=delivery, carrier_delivery_cost=carrier, delivery_margin=buffer,
@@ -34,10 +35,9 @@ class DashboardReportTests(TestCase):
                                         line_total=D(unit_price) * quantity, purchase_unit_gross=None if cost is None else D(cost))
         payment = PaymentTransaction.objects.create(order=order, provider="bog", action="sale", status="paid",
                                                     amount=order.total, captured_at=stamp(when))
-        if provider == "redcap":
-            from commerce.models import RedcapShipment
-            RedcapShipment.objects.create(order=order, state="created", tracking_number=f"REPORT-{order.pk}",
-                service_slug="same_day", booked_price=carrier, submitted_at=stamp(when))
+        if provider == "wingo":
+            create_shipment(order=order, state="created", tracking_number=f"REPORT-{order.pk}",
+                booked_price=carrier, submitted_at=stamp(when))
         return order, item, payment
 
     def refund(self, sale, when="2026-10-02T10:00", amount=None):
@@ -45,13 +45,12 @@ class DashboardReportTests(TestCase):
                                                  amount=sale.amount if amount is None else D(amount), refunded_at=stamp(when),
                                                  provider_reference={"refund_request": {"sale_payment_id": sale.pk}})
 
-    def test_redcap_delivery_has_one_carrier_charge_and_zero_buffer(self):
-        from commerce.models import RedcapShipment
+    def test_wingo_delivery_has_one_carrier_charge_and_zero_buffer(self):
         order, _, sale = self.sale(provider="easyway")
-        Order.objects.filter(pk=order.pk).update(delivery_provider="redcap", delivery_price=D(12),
+        Order.objects.filter(pk=order.pk).update(delivery_provider="wingo", delivery_price=D(12),
                                                 delivery_margin=D(0), total=order.subtotal + D(12))
         PaymentTransaction.objects.filter(pk=sale.pk).update(amount=order.subtotal + D(12))
-        RedcapShipment.objects.create(order=order, tracking_number="000999", state="created", service_slug="same_day", booked_price=D(12), submitted_at=sale.captured_at)
+        create_shipment(order=order, tracking_number="000999", state="created", booked_price=D(12), submitted_at=sale.captured_at)
         with self.assertNumQueries(10):
             report = build_dashboard_report(self.september)
         self.assertEqual(report["summary"]["courier_payable"], "12.00")

@@ -100,7 +100,7 @@ class WingoReferenceDataAdmin(admin.ModelAdmin):
             '<div style="overflow-x:auto"><table><thead><tr><th>წონა</th>{}'
             '<th>ტარიფის წყარო</th><th>Wingo-ში ჩვენება</th></tr></thead><tbody>{}</tbody></table></div>'
             '<p>ფასები მიღებულია Wingo-ს ანგარიშიდან. მომსახურების სახელები ჩაბარების '
-            'კონკრეტულ თარიღს არ ნიშნავს. ეს ცხრილი ჩექაუთზე ჯერ არ არის გადართული.</p>', headers, rows)
+            'კონკრეტულ თარიღს არ ნიშნავს. ჩექაუთის ფასი ამ შენახული ტარიფებით ითვლება.</p>', headers, rows)
 
     @admin.display(description="შენახული ცნობარები")
     def reference_summary(self, obj):

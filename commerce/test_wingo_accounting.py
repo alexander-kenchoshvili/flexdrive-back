@@ -1,4 +1,4 @@
-"""The actual accountant ledger, HTML and XLSX use frozen RedCap order amounts."""
+"""The actual accountant ledger, HTML and XLSX use frozen Wingo order amounts."""
 
 from datetime import date, datetime, timezone
 from decimal import Decimal as D
@@ -20,15 +20,15 @@ from .models import Order, OrderItem, PaymentTransaction
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 })
-class RedcapAccountingTests(TestCase):
+class WingoAccountingTests(TestCase):
     def setUp(self):
         self.period = ReportPeriod(date(2026, 11, 1), date(2026, 11, 30))
         self.params = {"start": "2026-11-01", "end": "2026-11-30"}
         self.url = reverse("accounting-report")
-        self.user = get_user_model().objects.create_superuser("redcap-accounting", "accounting@example.test", "Test-only-123")
+        self.user = get_user_model().objects.create_superuser("wingo-accounting", "accounting@example.test", "Test-only-123")
         self.client.force_login(self.user)
 
-    def sale(self, number="RC-ACC-1", *, city="თბილისი", carrier="10", provider="redcap", margin="0"):
+    def sale(self, number="RC-ACC-1", *, city="თბილისი", carrier="10", provider="wingo", margin="0"):
         delivery = D(carrier) + D(margin) if provider != "internal" else D(5)
         order = Order.objects.create(order_number=number, city=city, subtotal=200,
             total=D(200) + delivery, delivery_provider=provider, delivery_price=delivery,
@@ -45,19 +45,19 @@ class RedcapAccountingTests(TestCase):
     def test_tbilisi_and_region_count_carrier_fee_once_per_order_without_http(self):
         self.sale()
         self.sale("RC-ACC-2", city="ბათუმი", carrier="12")
-        with patch("commerce.redcap.RedcapClient.from_settings", side_effect=AssertionError("Accounting must stay local")):
+        with patch("commerce.wingo.WingoClient.from_settings", side_effect=AssertionError("Accounting must stay local")):
             report = build_ledger(self.period, "paid")
         self.assertEqual([row[12] for row in report["rows"]], [D(10), None, D(12), None])
         self.assertEqual(report["totals"][11:15], [D(0), D(22), D(0), D(422)])
-        self.assertEqual([group["delivery_provider"] for group in report["groups"]], ["redcap", "redcap"])
+        self.assertEqual([group["delivery_provider"] for group in report["groups"]], ["wingo", "wingo"])
 
-    def test_html_names_redcap_and_does_not_display_a_second_tbilisi_charge(self):
+    def test_html_names_wingo_and_does_not_display_a_second_tbilisi_charge(self):
         self.sale()
         response = self.client.get(self.url, self.params)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["groups"][0]["delivery"], [
             ("ჩექაუთის საკურიერო ტარიფი", "10.00"), ("ბუფერი", "0.00"), ("შეკვეთის სრული თანხა", "210.00"),
-            ("RedCap-ის ფასი — საინფორმაციო", "—"), ("ფასთა სხვაობა", "—")])
+            ("Wingo-ს ფასი — საინფორმაციო", "—"), ("ფასთა სხვაობა", "—")])
         self.assertNotContains(response, "რეგიონის მიტანა")
         self.assertNotContains(response, "თბილისის მიტანა")
         self.assertContains(response, "ჩექაუთის საკურიერო ტარიფი ₾")

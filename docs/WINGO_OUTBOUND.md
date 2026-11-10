@@ -1,3 +1,5 @@
+> Current courier/reporting state: [Wingo reporting and retirement](WINGO_REPORTING_CLEANUP.md). Earlier phase/pending notes below are historical.
+
 # Wingo — ადმინიდან გაგზავნა და სტიკერი
 
 შემდეგი დასრულებული ეტაპი: [ავტომატური სტატუსები და გადამოწმება](WINGO_TRACKING.md).

@@ -70,6 +70,7 @@ class WingoShipment(models.Model):
     booked_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     carrier_status = models.PositiveSmallIntegerField(null=True, blank=True)
     carrier_updated_at = models.DateTimeField(null=True, blank=True)
+    cancellation_verified_at = models.DateTimeField(null=True, editable=False)
     tracking_history = models.JSONField(default=list, blank=True, editable=False)
     tracking_checked_at = models.DateTimeField(null=True, blank=True)
     tracking_attempted_at = models.DateTimeField(null=True, blank=True)
@@ -99,76 +100,6 @@ class WingoShipment(models.Model):
                 Q(provider_order_id__isnull=False, tracking_number__isnull=False, submitted_at__isnull=False)
                 & ~Q(provider_order_id="") & ~Q(tracking_number="")), name="wingo_created_identity"),
         ]
-
-
-class RedcapReferenceData(models.Model):
-    """One atomically refreshed, private snapshot; no credentials or order PII."""
-
-    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
-    category = models.CharField("საფასო კატეგორია", max_length=200)
-    weights = models.JSONField(default=list, editable=False)
-    locations = models.JSONField(default=list, editable=False)
-    statuses = models.JSONField(default=list, editable=False)
-    payment_options = models.JSONField(default=dict, editable=False)
-    revision = models.CharField(max_length=64, editable=False)
-    synced_at = models.DateTimeField("ბოლო წარმატებული განახლება")
-
-    class Meta:
-        verbose_name = "RedCap ტარიფები"
-        verbose_name_plural = "RedCap ტარიფები"
-        constraints = [models.CheckConstraint(condition=Q(id=1), name="redcap_reference_singleton")]
-
-    def __str__(self):
-        return f"RedCap — {self.category}"
-
-
-class RedcapShipment(models.Model):
-    class State(models.TextChoices):
-        NOT_SENT = "not_sent", "არ არის გაგზავნილი"
-        SUBMITTING = "submitting", "იგზავნება — გადაამოწმეთ შედეგი"
-        CREATED = "created", "გზავნილი შექმნილია"
-        FAILED = "failed", "მოთხოვნა უარყოფილია"
-        UNKNOWN = "unknown", "შედეგი გაურკვეველია — გადაამოწმეთ"
-        CANCELLING = "cancelling", "უქმდება — გადაამოწმეთ შედეგი"
-        CANCELLED = "cancelled", "გზავნილი გაუქმებულია"
-        CANCEL_UNKNOWN = "cancel_unknown", "გაუქმების შედეგი გაურკვეველია"
-
-    order = models.OneToOneField("Order", on_delete=models.PROTECT, related_name="redcap_shipment")
-    state = models.CharField(max_length=24, choices=State.choices, default=State.NOT_SENT, db_index=True)
-    tracking_number = models.CharField(max_length=150, null=True, blank=True, unique=True)
-    service_slug = models.CharField(max_length=80)
-    parcel_count = models.PositiveSmallIntegerField(default=1)
-    booked_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
-    submitted_at = models.DateTimeField(null=True, blank=True)
-    attempted_at = models.DateTimeField(null=True, blank=True)
-    last_error = models.TextField(blank=True, default="")
-    operation_token = models.UUIDField(null=True, blank=True, editable=False)
-    carrier_status = models.CharField(max_length=80, blank=True, default="")
-    tracking_history = models.JSONField(default=list, blank=True)
-    tracking_checked_at = models.DateTimeField(null=True, blank=True)
-    tracking_attempted_at = models.DateTimeField(null=True, blank=True)
-    tracking_error = models.TextField(blank=True, default="")
-    tracking_token = models.UUIDField(null=True, blank=True, editable=False)
-    tracking_lock_until = models.DateTimeField(null=True, blank=True, editable=False)
-
-    class Meta:
-        verbose_name = "RedCap გზავნილი"
-        verbose_name_plural = "RedCap გზავნილები"
-        constraints = [models.CheckConstraint(condition=Q(parcel_count__gte=1), name="redcap_positive_parcels")]
-
-
-class RedcapSyncReport(models.Model):
-    started_at = models.DateTimeField()
-    finished_at = models.DateTimeField()
-    source = models.CharField(max_length=16, choices=(("manual", "ხელით"), ("scheduled", "პერიოდული")))
-    status = models.CharField(max_length=16, choices=(("success", "წარმატებული"), ("review", "შესამოწმებელი"), ("failed", "შეცდომა")))
-    summary = models.TextField()
-    details = models.JSONField(default=dict)
-
-    class Meta:
-        ordering = ("-finished_at", "-pk")
-        verbose_name = "RedCap სინქრონიზაციის ანგარიში"
-        verbose_name_plural = "RedCap სინქრონიზაციის ანგარიშები"
 
 
 class EasywaySyncReport(models.Model):
@@ -1258,6 +1189,9 @@ class OrderReturn(ReturnHistoryModel):
         related_name="received_order_returns", verbose_name="მიიღო და შეამოწმა",
     )
     received_at = models.DateTimeField("მიღებისა და შემოწმების დრო", null=True, blank=True)
+    wingo_return_tracking_number = models.CharField(
+        "Wingo-ს უკუგზავნილის ნომერი", max_length=200, unique=True, null=True, blank=True, editable=False,
+    )
 
     class Meta:
         verbose_name = "დაბრუნება"

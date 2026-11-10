@@ -1,3 +1,5 @@
+> Current courier/reporting state: [Wingo reporting and retirement](WINGO_REPORTING_CLEANUP.md). Earlier phase/pending notes below are historical.
+
 # Wingo — ავტომატური სტატუსები და ხელით გადამოწმება
 
 2026-11-10. შესრულებულია ბექენდის ეტაპი: webhook მიმღები, უსაფრთხო API გადამოწმება,

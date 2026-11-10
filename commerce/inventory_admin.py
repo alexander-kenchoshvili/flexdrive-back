@@ -98,9 +98,9 @@ class OrderReturnAdmin(ReadOnlyHistoryAdmin):
     list_display = ("return_order", "products_summary", "receipt_status", "expected_units", "payment_state", "started_at", "received_at")
     list_display_links = ("return_order",)
     list_filter = (ReceiptFilter,)
-    search_fields = ("order__order_number", "lines__order_item__product_name", "lines__order_item__internal_sku")
+    search_fields = ("order__order_number", "wingo_return_tracking_number", "lines__order_item__product_name", "lines__order_item__internal_sku")
     search_help_text = "მოძებნეთ შეკვეთის ნომრით, პროდუქტის სახელით ან FlexDrive-ის კოდით."
-    fields = readonly_fields = ("linked_order", "disposition", "receipt_status", "payment_state", "started_at", "requested_by", "received_at", "received_by")
+    fields = readonly_fields = ("linked_order", "disposition", "receipt_status", "wingo_return_tracking_number", "payment_state", "started_at", "requested_by", "received_at", "received_by")
     inlines = (ReturnLineInline,)
     change_form_template = "admin/commerce/orderreturn/change_form.html"
     change_list_template = "admin/commerce/orderreturn/change_list.html"
@@ -143,7 +143,7 @@ class OrderReturnAdmin(ReadOnlyHistoryAdmin):
     @admin.display(description="თანხის მდგომარეობა")
     def payment_state(self, obj):
         return {"paid": "თანხა ჯერ არ დაბრუნებულა", "refund_pending": "ბანკის დადასტურების მოლოდინში",
-                "refunded": "თანხა დაბრუნებულია"}.get(obj.order.payment_status, "შეამოწმეთ შეკვეთა")
+                "refunded": "თანხა დაბრუნებულია", "partially_refunded": "თანხა ნაწილობრივ დაბრუნებულია"}.get(obj.order.payment_status, "შეამოწმეთ შეკვეთა")
 
     @admin.display(description="დაფიქსირების დრო", ordering="created_at")
     def started_at(self, obj):

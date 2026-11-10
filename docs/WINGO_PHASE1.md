@@ -1,3 +1,5 @@
+> Current courier/reporting state: [Wingo reporting and retirement](WINGO_REPORTING_CLEANUP.md). Earlier phase/pending notes below are historical.
+
 # Wingo — პირველი ეტაპი
 
 2026-11-10. განხორციელებულია მხოლოდ API-ის ცნობარები, მათი ადგილობრივი შენახვა

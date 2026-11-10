@@ -1,4 +1,4 @@
-> Retired on 2026-11-03. This is historical documentation. EasyWay commands no longer connect to the carrier. Use [RedCap integration](REDCAP_INTEGRATION.md) for current setup.
+> Historical courier instructions below are retired. Current setup: [Wingo](WINGO_REPORTING_CLEANUP.md).
 
 # EasyWay delivery tracking
 

@@ -9,6 +9,16 @@
   {% if show_wingo_tracking %}<a class="button" href="{{ wingo_tracking_url }}">Wingo-ს სტატუსის განახლება</a>{% endif %}
 </div>
 {% endif %}
+{% if wingo_platform_actions %}
+<div class="module" style="padding:12px">
+  {% if wingo_cancellation_verified %}
+  <p>Wingo-ს გზავნილის გაუქმება დადასტურებულია. მომხმარებლისთვის თანხა ცალკე მოქმედებით დააბრუნეთ.</p>
+  {% else %}
+  <p><strong>გზავნილის გაუქმება:</strong> ჯერ გააუქმეთ Wingo-ს პანელში, შემდეგ აქ დააჭირეთ „Wingo-ს სტატუსის განახლება“. თუ გაუქმება აღარ არის შესაძლებელი, Wingo-სთან შეათანხმეთ ნივთების უკან წამოღება.</p>
+  {% endif %}
+  <p><strong>ნივთების უკან დაბრუნება:</strong> უკუგზავნილი გააფორმეთ Wingo-ს პანელში. შემდეგ აქ აირჩიეთ „დაბრუნების დაწყება“ და შეინახეთ ახალი გზავნილის ნომერი.</p>
+</div>
+{% endif %}
 {% if show_wingo_label %}
 <div class="submit-row">
   <a class="button" href="{{ wingo_label_url }}?size=a4" target="_blank" rel="noopener">სტიკერის გახსნა / ბეჭდვა — A4</a>
@@ -16,23 +26,8 @@
   <a class="button" href="{{ wingo_label_url }}?size=a4&amp;download=1">PDF ჩამოტვირთვა — A4</a>
 </div>
 {% endif %}
-{% if show_redcap_submit or show_redcap_recover or show_redcap_tracking or show_redcap_cancel or show_redcap_label %}
-<div class="submit-row">
-  {% if show_redcap_submit %}<a class="button" href="{{ redcap_submit_url }}">RedCap-ში გზავნილის შექმნა</a>{% endif %}
-  {% if show_redcap_recover %}<a class="button" href="{{ redcap_recover_url }}">გაგზავნის შედეგის გადამოწმება</a>{% endif %}
-  {% if show_redcap_tracking %}<a class="button" href="{{ redcap_tracking_url }}">RedCap სტატუსის განახლება</a>{% endif %}
-  {% if show_redcap_cancel %}<a class="button" href="{{ redcap_cancel_url }}">RedCap გზავნილის გაუქმება</a>{% endif %}
-</div>
-{% endif %}
-{% if show_redcap_label %}
-<div class="submit-row">
-  <a class="button" href="{{ redcap_label_url }}?size=a4" target="_blank" rel="noopener">სტიკერის გახსნა / ბეჭდვა — A4</a>
-  <a class="button" href="{{ redcap_label_url }}?size=a5" target="_blank" rel="noopener">A5</a>
-  <a class="button" href="{{ redcap_label_url }}?size=zebra" target="_blank" rel="noopener">ეტიკეტი 100×50 მმ</a>
-  <a class="button" href="{{ redcap_label_url }}?size=a4&amp;download=1">PDF ჩამოტვირთვა</a>
-</div>
-{% endif %}
 {% if return_case_url %}<p><a href="{{ return_case_url }}">დაბრუნების ჩანაწერის ნახვა</a></p>{% endif %}
+{% if wingo_return_tracking_number %}<p><strong>Wingo-ს უკუგზავნილის ნომერი:</strong> {{ wingo_return_tracking_number }}</p>{% endif %}
 {% if return_flow_status %}<div class="module" style="padding:12px"><strong>{{ return_flow_status }}</strong>{% if return_flow_note %}<p>{{ return_flow_note }}</p>{% endif %}</div>{% endif %}
 {% if show_return_start or show_return_receive %}
 <div class="submit-row">

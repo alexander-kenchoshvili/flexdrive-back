@@ -14,11 +14,12 @@ from rest_framework.test import APIClient
 
 from . import test_partial_refunds as fixtures
 from .accounting_export import export_response
+from .test_courier_fixtures import create_shipment
 from .accounting_ledger import build_ledger
 from .accounting_reports import ReportPeriod, build_cash_report
 from .bog_payments import BogTransportError, BogResponseError
 from .bog_refunds import reconcile_bog_refund_details
-from .models import OwnedStockLot, PaymentTransaction, RedcapShipment
+from .models import OwnedStockLot, PaymentTransaction, WingoShipment
 from .refund_terms import build_settlement, settlement_for_refund, validate_settlement
 from .return_costs import return_cost_report
 from business.operations import build_operations_report
@@ -34,12 +35,12 @@ class DeliveryDeductionTests(TestCase):
     def setUp(self):
         fixtures.PartialRefundTests.setUp(self)
         self.set_delivery(10)
-        self.shipment = RedcapShipment.objects.create(order=self.order, service_slug="same_day", state="created",
-            carrier_status="delivered", tracking_number="OUTBOUND-1", booked_price=10, submitted_at=timezone.now())
+        self.shipment = create_shipment(order=self.order, state="created",
+            carrier_status=9, tracking_number="OUTBOUND-1", booked_price=10, submitted_at=timezone.now())
         self.terms = self.terms_for()
 
     def set_delivery(self, amount, *, buffer=0):
-        self.order.delivery_provider = "redcap"
+        self.order.delivery_provider = "wingo"
         self.order.delivery_price = D(amount)
         self.order.carrier_delivery_cost = D(amount) - D(buffer)
         self.order.delivery_margin = D(buffer)
@@ -69,7 +70,7 @@ class DeliveryDeductionTests(TestCase):
         self.order.refresh_from_db()
         self.shipment.refresh_from_db()
         self.assertEqual((self.order.total, self.order.delivery_price, self.sale.amount), (D(110), D(10), D(110)))
-        self.assertEqual((self.shipment.tracking_number, self.shipment.carrier_status), ("OUTBOUND-1", "delivered"))
+        self.assertEqual((self.shipment.tracking_number, self.shipment.carrier_status), ("OUTBOUND-1", 9))
         self.assertEqual(OwnedStockLot.objects.count(), 1)
 
     def test_merchant_pays_refunds_110_and_retains_no_delivery_fees(self):
@@ -103,7 +104,7 @@ class DeliveryDeductionTests(TestCase):
 
     def test_paid_delivery_including_buffer_is_frozen_not_replaced_by_booked_price(self):
         self.set_delivery(13, buffer=3)
-        RedcapShipment.objects.filter(pk=self.shipment.pk).update(booked_price=15)
+        WingoShipment.objects.filter(pk=self.shipment.pk).update(booked_price=15)
         self.request(self.terms_for())
         self.confirm(90)
         report = build_dashboard_report(self.period)["summary"]

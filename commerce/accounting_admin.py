@@ -64,8 +64,8 @@ def order_block(group, columns):
                     ("პირველი მიტანისთვის დაქვითული — მიტანის ნაშთში შედის", display(first[22])),
                     ("უკუმიტანისთვის დაქვითული", display(first[18])), ("უკუმიტანის ხარჯი", display(first[19]))]
                    if group.get("refund") else [])
-                + ([("RedCap-ის ფასი — საინფორმაციო", display(first[20])), ("ფასთა სხვაობა", display(first[21]))]
-                   if provider == "redcap" else [])}
+                + ([("Wingo-ს ფასი — საინფორმაციო", display(first[20])), ("ფასთა სხვაობა", display(first[21]))]
+                   if provider == "wingo" else [])}
 
 
 @require_GET

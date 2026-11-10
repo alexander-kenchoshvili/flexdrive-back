@@ -92,7 +92,7 @@ def _collect(period):
     products, deliveries, losses, rows = {}, [], [], {}
     paid_ids, refund_ids, internal_ids = set(), set(), set()
     daily_orders = {key: {"paid": set(), "refunded": set()} for key in daily}
-    events = _bounded(event_queryset(period).filter(currency="GEL").select_related("order__return_case", "order__redcap_shipment"), MAX_REPORT_ROWS)
+    events = _bounded(event_queryset(period).filter(currency="GEL").select_related("order__return_case", "order__wingo_shipment"), MAX_REPORT_ROWS)
     for payment in events:
         refund = payment.action == "refund"
         occurred = payment.refunded_at if refund else payment.captured_at

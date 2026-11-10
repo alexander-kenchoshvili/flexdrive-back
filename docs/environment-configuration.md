@@ -106,41 +106,38 @@ The protection window can be tuned after measuring the real Cross Motors update
 delay. Do not reduce it below the observed worst-case delay without retaining an
 appropriate safety margin.
 
-## RedCap delivery
+## Wingo delivery
 
-RedCap replaces EasyWay and internal Tbilisi delivery for new checkouts.
-Customer fees are calculated from the locally stored tariff table using summed
-packaged product weight. Parcel count does not multiply the tariff; dimensions
-and volumetric weight do not affect pricing. There is no customer margin yet.
+Wingo is the active courier. Checkout reads local reference data; refresh it manually
+from the Wingo tariffs admin after configuring the account. No tariff polling job.
 
 ```env
-REDCAP_API_KEY=<backend-only secret>
-REDCAP_API_BASE_URL=https://redcap.ge/api/v1
-REDCAP_HTTP_CONNECT_TIMEOUT_SECONDS=5
-REDCAP_HTTP_READ_TIMEOUT_SECONDS=15
-REDCAP_SENDER_NAME=<company name>
-REDCAP_SENDER_PHONE=<pickup phone>
-REDCAP_SENDER_CITY=<exact RedCap location name>
-REDCAP_SENDER_ADDRESS=<actual pickup address>
+WINGO_API_KEY=<backend-only encrypted secret>
+WINGO_ACCOUNT_MODE=test
+WINGO_API_BASE_URL=https://www.apiwingo.com/api/v1
+WINGO_MERCHANT_USER_ID=<merchant internal ID>
+WINGO_PICKUP_TITLE=<company name>
+WINGO_PICKUP_ADDRESS=<pickup address>
+WINGO_PICKUP_PHONE=<pickup phone>
+WINGO_WEBHOOK_PUBLIC_URL=<public backend Wingo webhook prefix>
+WINGO_PREPARATION_MINUTES=30
 DELIVERY_QUOTE_MAX_AGE_SECONDS=900
 ```
 
-Apply commerce migrations 0037/0038 and initially refresh references from admin
-or `python manage.py refresh_redcap_references`. Checkout never contacts RedCap
-for an address selection. Subsequent tariff refreshes are manual after notice;
-no daily tariff cron. A missing product weight or tariff blocks the quote.
-Existing category measurement defaults are not used.
+Use the real merchant key/ID and `production` mode for launch, then refresh references
+again. Account mode is an operator label; the key selects the provider account.
+`WINGO_WEBHOOK_PUBLIC_URL` must end in `/api/commerce/wingo/webhook/` on the public
+HTTPS backend. Each order gets a private authenticated callback URL. Canonical GET
+verification and the manual admin status button share the same tracking flow.
+There is no courier cron job. Remove retired courier jobs and unused old credentials
+from deployment settings; this source change does not edit the deployed environment.
 
-Only a staff operator creates a shipment after payment and packaging. Credentials
-remain on the backend. Configure receipt seller data explicitly through
-`ORDER_RECEIPT_SELLER_*`; there is no EasyWay sender fallback.
-
-Disable the old EasyWay job. RedCap tracking uses
-`python manage.py sync_redcap_tracking --limit 100 --min-age-minutes 10`
-in the existing appropriate scheduled execution environment. No infrastructure
-or runtime environment was changed by the source implementation.
-See [REDCAP_INTEGRATION.md](REDCAP_INTEGRATION.md) for coordinated frontend/backend
-activation, operator printing and remaining live verification.
+Only a staff operator books paid/prepared shipments. Cancellation and reverse booking
+happen in Wingo's panel, bank refunds stay in our admin after verification/receipt.
+Receipt seller data remains configured through `ORDER_RECEIPT_SELLER_*`.
+See [Wingo checkout](WINGO_CHECKOUT.md), [outbound labels](WINGO_OUTBOUND.md),
+[tracking](WINGO_TRACKING.md), [manual returns](WINGO_PLATFORM_RETURNS.md), and
+[retirement/reporting](WINGO_REPORTING_CLEANUP.md).
 
 ## Meta Purchase delivery
 

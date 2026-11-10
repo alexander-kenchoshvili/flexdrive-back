@@ -44,9 +44,7 @@ admin.site.index_template = "admin/commerce/accounting/index.html"
 
 # Register the two read-only return/inventory sections alongside order actions.
 from . import inventory_admin  # noqa: F401, E402
-from . import redcap_admin  # noqa: F401, E402
 from . import wingo_admin  # noqa: F401, E402
-from .redcap_order_admin import OrderRedcapAdminMixin
 from .wingo_order_admin import OrderWingoAdminMixin
 
 
@@ -163,7 +161,7 @@ class OrderAdminForm(forms.ModelForm):
 
 
 @admin.register(Order)
-class OrderAdmin(OrderWingoAdminMixin, OrderRedcapAdminMixin, admin.ModelAdmin):
+class OrderAdmin(OrderWingoAdminMixin, admin.ModelAdmin):
     @admin.display(description="დღგ-ის გადამხდელი (მყიდველის მითითებით)", ordering="company_is_vat_registered")
     def company_vat_status(self, obj):
         if obj.buyer_type != "legal_entity":
@@ -207,7 +205,6 @@ class OrderAdmin(OrderWingoAdminMixin, OrderRedcapAdminMixin, admin.ModelAdmin):
     )
     readonly_fields = (
         "company_vat_status",
-        "redcap_overview",
         "wingo_overview",
         "order_number",
         "public_token",
@@ -290,7 +287,6 @@ class OrderAdmin(OrderWingoAdminMixin, OrderRedcapAdminMixin, admin.ModelAdmin):
             },
         ),
         ("Totals", {"fields": ("subtotal", "delivery_price", "total")}),
-        ("RedCap მიწოდება", {"fields": ("redcap_overview",)}),
         ("Wingo მიწოდება", {"fields": ("wingo_overview",)}),
         (
             "Legal acceptance",
@@ -402,7 +398,7 @@ class OrderAdmin(OrderWingoAdminMixin, OrderRedcapAdminMixin, admin.ModelAdmin):
                 extra_context["return_flow_status"] = {
                     "refund_pending": "თანხის დაბრუნება მუშავდება — ველოდებით ბანკის დადასტურებას.",
                     "refunded": "თანხა დაბრუნებულია.",
-                    "partially_refunded": "თანხა ნაწილობრივ დაბრუნებულია — უკუმიტანის შეთანხმებული საფასური დაქვითულია.",
+                    "partially_refunded": "თანხა ნაწილობრივ დაბრუნებულია — შეთანხმებული საკურიერო საფასური დაქვითულია.",
                     "paid": "დაბრუნება დაფიქსირებულია — თანხა ჯერ არ დაბრუნებულა.",
                 }.get(order.payment_status, "დაბრუნება დაფიქსირებულია.")
                 extra_context["return_flow_note"] = (
@@ -410,6 +406,7 @@ class OrderAdmin(OrderWingoAdminMixin, OrderRedcapAdminMixin, admin.ModelAdmin):
                     else ("რეზერვაცია გათავისუფლებულია." if order.payment_status == "refunded" else "მომწოდებლის რეზერვაცია თანხის დაბრუნების დადასტურების შემდეგ გათავისუფლდება.")
                 )
                 if case.disposition == "from_customer":
+                    extra_context["wingo_return_tracking_number"] = case.wingo_return_tracking_number
                     extra_context["return_flow_note"] = (
                         "ველოდებით ნივთების მიღებასა და შემოწმებას. მიღებამდე თანხა ვერ დაბრუნდება."
                         if case.receipt_status == "awaiting" else

@@ -38,10 +38,10 @@
 </tbody></table></div><p>პირველი 20 ჩანაწერი; სრული სია Excel-ის ცალკე ფურცელზეა.</p></section>
 {% endif %}
 {% if courier_bookings != None %}
-<section class="accounting-period-total" aria-label="RedCap გზავნილების ფასები"><h2>RedCap — პერიოდში შექმნილი გზავნილები</h2>
+<section class="accounting-period-total" aria-label="Wingo გზავნილების ფასები"><h2>Wingo — პერიოდში შექმნილი გზავნილები</h2>
 <p>ჯამი: <strong>{{ courier_bookings.total|default_if_none:"—" }} ₾</strong> · ფასთა სხვაობა: {{ courier_bookings.difference|default_if_none:"—" }} ₾.
 გზავნილის შექმნის თარიღით; ინვოისის ნაშთი არ არის. {{ courier_bookings.cancelled }} გაუქმებული გზავნილი ჯამში არ შედის — მათი შესაძლო ხარჯი შესაჯერებელია.</p>
-<p>შეკვეთის ქვეშ მოცემული RedCap-ის ფასი საინფორმაციოა; ამ პერიოდის სრული სია Excel-ის „RedCap გზავნილები“ ფურცელზეა.</p></section>
+<p>შეკვეთის ქვეშ მოცემული Wingo-ს ფასი საინფორმაციოა; ამ პერიოდის სრული სია Excel-ის „Wingo გზავნილები“ ფურცელზეა.</p></section>
 {% endif %}
 <nav class="accounting-pagination" aria-label="გვერდები">{% if previous_url %}<a href="{{ previous_url }}">← წინა</a>{% endif %}<span>{{ page.number }} / {{ page.paginator.num_pages }}</span>{% if next_url %}<a href="{{ next_url }}">შემდეგი →</a>{% endif %}</nav>
 {% endif %}</div><script src="{% static 'commerce/accounting.js' %}" defer></script>{% endblock %}

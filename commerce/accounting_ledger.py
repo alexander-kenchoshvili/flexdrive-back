@@ -11,7 +11,7 @@ HEADERS = ["თარიღი", "შეკვეთა", "პროდუქტ
            "თვითღირებულება დღგ-ის გარეშე ₾", "პროდუქტის მოგება დღგ-ის გარეშე ₾", "შიდა მიტანა (ძველი) ₾",
            "ჩექაუთის საკურიერო ტარიფი ₾", "ბუფერი ₾", "გადახდილი / დაბრუნებული თანხა ₾", "გადახდა", "მყიდველის ტიპი", "მყიდველი კომპანია დღგ-ის გადამხდელია",
            "უკუმიტანისთვის დაქვითული ₾", "უკუმიტანის ხარჯი (საინფორმაციო) ₾",
-           "RedCap-ის ფასი (საინფორმაციო) ₾", "ფასთა სხვაობა (საინფორმაციო) ₾",
+           "Wingo-ს ფასი (საინფორმაციო) ₾", "ფასთა სხვაობა (საინფორმაციო) ₾",
            "პირველი მიტანისთვის დაქვითული (მიტანის ნაშთში შედის) ₾"]
 
 
@@ -22,7 +22,7 @@ def visible_columns(show_purchase=False):
 def build_ledger(period, status, sku=""):
     if status not in ("paid", "refunded", "all"):
         raise ValueError("Invalid financial status")
-    qs = event_queryset(period).filter(order__isnull=False, currency="GEL").select_related("order__redcap_shipment")
+    qs = event_queryset(period).filter(order__isnull=False, currency="GEL").select_related("order__wingo_shipment")
     if status == "paid":
         refunds = PaymentTransaction.objects.filter(order_id=OuterRef("order_id"), action="refund", status="refunded", refunded_at__isnull=False)
         qs = qs.exclude(action="refund").annotate(has_refund=Exists(refunds)).filter(has_refund=False)
@@ -40,7 +40,7 @@ def build_ledger(period, status, sku=""):
         order = order_row(payment.order, tax_rates=lambda item: (Decimal(18), Decimal(18)))
         allocation, _ = _allocation(payment, order)
         refund = payment.action == "refund"
-        shipment = getattr(payment.order, "redcap_shipment", None) if payment.order.delivery_provider == "redcap" else None
+        shipment = getattr(payment.order, "wingo_shipment", None) if payment.order.delivery_provider == "wingo" else None
         booked_price = shipment.booked_price if shipment else None
         difference = booked_price - payment.order.carrier_delivery_cost if booked_price is not None else None
         sign = -1 if refund and status == "all" else 1
@@ -53,7 +53,7 @@ def build_ledger(period, status, sku=""):
             purchase = a.purchase
             first = index == 0 and not sku
             internal = order["delivery_provider"] == "internal"
-            courier = order["delivery_provider"] in {"easyway", "redcap"}
+            courier = order["delivery_provider"] in {"easyway", "redcap", "wingo"}
             rows.append([
                 occurred.astimezone(TBILISI).strftime("%d.%m.%Y %H:%M"), order["order_number"],
                 line["name"], line["internal_sku"], line["quantity"] * sign,

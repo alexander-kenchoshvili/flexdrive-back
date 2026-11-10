@@ -3,10 +3,14 @@
 {% block content %}
 <div style="max-width:850px">
   <h2>შეკვეთა {{ order.order_number }}</h2>
+  {% if return_case.wingo_return_tracking_number %}<p><strong>Wingo-ს უკუგზავნილის ნომერი:</strong> {{ return_case.wingo_return_tracking_number }}</p>{% endif %}
   {% if receiving %}
   <p>მიუთითეთ მიღებული ნივთების მდგომარეობა. თითოეულ პროდუქტზე ორი რაოდენობის ჯამი დასაბრუნებელ რაოდენობას უნდა უდრიდეს. საჭირო ველში ჩაწერეთ 0.</p>
   <p>მხოლოდ გასაყიდად ვარგისი ნივთები დაემატება FlexDrive-ის მარაგს. ამ მოქმედებით თანხა არ დაბრუნდება.</p>
   {% else %}
+  {% if order.delivery_provider == "wingo" %}
+  <p>ჯერ Wingo-ს პანელში გააფორმეთ ნივთების უკან წამოღება. აქ შეინახეთ ახალი უკუგზავნილის ნომერი. ეს ფორმა Wingo-ში გზავნილს არ ქმნის.</p>
+  {% endif %}
   <p>შეკვეთის ნივთები აღირიცხება უკან მოსალოდნელად. მათი მიღებისა და შემოწმების შემდეგ შეძლებთ თანხის დაბრუნებას.</p>
   <table><thead><tr><th>პროდუქტი</th><th>დასაბრუნებელი რაოდენობა</th></tr></thead><tbody>{% for item in items %}<tr><td>{{ item.product_name }}</td><td>{{ item.quantity }}</td></tr>{% endfor %}</tbody></table>
   <p>დაბრუნების დაწყება თანხას არ აბრუნებს და გასაყიდ მარაგს არ ზრდის.</p>
@@ -14,6 +18,7 @@
   {{ form.non_field_errors }}
   {% if allowed %}
   <form method="post">{% csrf_token %}
+    {% if form.wingo_return_tracking_number %}<p>{{ form.wingo_return_tracking_number.errors }}{{ form.wingo_return_tracking_number.label_tag }} {{ form.wingo_return_tracking_number }}<br>{{ form.wingo_return_tracking_number.help_text }}</p>{% endif %}
     {% if receiving %}
     <div style="overflow-x:auto"><table><thead><tr><th>პროდუქტი</th><th>დასაბრუნებელი</th><th>გასაყიდად ვარგისი</th><th>გასაყიდად უვარგისი</th></tr></thead><tbody>
     {% for line, saleable, unsaleable in form.rows %}<tr><td>{{ line.order_item.product_name }}</td><td>{{ line.expected_quantity }}</td><td>{{ saleable.errors }}{{ saleable }}</td><td>{{ unsaleable.errors }}{{ unsaleable }}</td></tr>{% endfor %}

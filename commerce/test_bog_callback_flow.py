@@ -969,7 +969,8 @@ class BogCallbackFlowTests(APITransactionTestCase):
         order.status = "delivered"
         order.save(update_fields=["status"])
         actor = get_user_model().objects.create_user(username="partial-return-staff", is_staff=True, is_active=True)
-        case = prepare_order_return(order=order, disposition="from_customer", actor=actor)
+        case = prepare_order_return(order=order, disposition="from_customer", actor=actor,
+            wingo_return_tracking_number="999-2000001")
         receive_order_return(return_case=case, actor=actor,
             inspection={line.pk: {"saleable": 1, "unsaleable": 0} for line in case.lines.all()})
         bank = Mock()

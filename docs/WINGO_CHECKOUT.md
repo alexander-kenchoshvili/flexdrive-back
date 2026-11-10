@@ -1,3 +1,5 @@
+> Current courier/reporting state: [Wingo reporting and retirement](WINGO_REPORTING_CLEANUP.md). Earlier phase/pending notes below are historical.
+
 # Wingo — სტანდარტული ფასი და ორივე ჩექაუთი
 
 განახლება: [სტანდარტულისა და სწრაფის არჩევანი](WINGO_DELIVERY_CHOICES.md) უკვე დამატებულია.
