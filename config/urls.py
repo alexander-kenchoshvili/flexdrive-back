@@ -18,9 +18,11 @@ from django.conf import settings
 from django.conf.urls.static import static
 from commerce.accounting_admin import accounting_view
 from common.storefront_access import launch_status
+from pages.public_information import public_legal_information
 
 urlpatterns = [
     path('api/launch/status/', launch_status, name='launch-status'),
+    path('api/launch/information/<slug:slug>/', public_legal_information, name='launch-legal-information'),
     path('manager-fd/accounting/', admin.site.admin_view(accounting_view), name='accounting-report'),
     path('manager-fd/', admin.site.urls),
     path('api/catalog/', include('catalog.urls')),  

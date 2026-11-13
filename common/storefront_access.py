@@ -1,6 +1,6 @@
 """Temporary storefront access, shared by the API and the Nuxt server.
 
-A read-only access verdict is the only new public endpoint. Preview codes are signed,
+Access verdicts and the two legal documents are public reads. Preview codes are signed,
 expire after 24 hours and never grant account/admin/payment permissions.
 """
 
@@ -70,6 +70,13 @@ def _is_required_exception(request):
     if "admin" in match.namespaces or match.url_name == "accounting-report":
         return True  # Each view retains its existing admin/session permission checks.
     if match.func is launch_status:
+        return True
+    from pages.public_information import PUBLIC_LEGAL_PAGES, public_legal_information
+    if (
+        match.func is public_legal_information
+        and request.method in {"GET", "HEAD"}
+        and match.kwargs.get("slug") in PUBLIC_LEGAL_PAGES
+    ):
         return True
     if request.method != "POST":
         return False

@@ -1,5 +1,79 @@
 # Project Instructions
 
+## Public Legal Pages For Google Branding Prepared - 2026-11-14
+
+- User authorized preparing public information pages and proceeding toward Google
+  brand verification while the shop stays closed. Prepared paired backend/frontend
+  source changes only; user owns BOTH pushes/deployments, backend first. No migration.
+- New safe-only api/launch/information/{privacy-policy|terms}/ projection exposes
+  only enabled matching legal component text and matching policy_section/terms_section
+  items, sanitized with existing CMS sanitizer. General CMS/catalog/auth APIs remain
+  blocked. No unlock cookie or LaunchControl mutation. No policy text/DB/env edit.
+- Front closed holding page describes FlexDrive and links both documents/contact.
+  Only GET/HEAD exact legal paths render script-free HTML from the dedicated API;
+  query params cannot select data; no auth/cookies forwarded for legal projection.
+  Existing preview/public behavior, noindex, private/no-store and fail-closed remain.
+-24 backend launch/legal/sanitization tests and18 front guard HTTP tests pass,
+  plus scoped lint/typecheck/production build and built-Nitro local mock smoke.
+  Evidence ignored in tmp/measurements-20261015/api-domain-20261114/public-information/.
+  No production action,
+  Google submission, browser session, commit or push occurred in this stage.
+- Next: user deploys both, verify homepage/privacy/terms anonymously and shop still
+  closed; then check Google brand-verification prerequisites (domain ownership,
+  actual policy coverage/authorized domains) and submit when ready. Do not claim
+  Google verification complete or start unrelated launch tasks.
+
+## Google Branding Links Saved Only - 2026-11-14
+
+- User explicitly requested one step at a time and stopping after this task.
+  Scoped to Google Auth Platform Branding/App domain in project flexdrive-494109.
+  Filled only three formerly empty URLs: https://flexdrive.ge,
+  https://flexdrive.ge/privacy-policy, https://flexdrive.ge/terms.
+  Native console displayed "Branding changes saved." and disabled Save afterward.
+- flexdrive.ge already present in authorised domains; domain list/name/contact/logo
+  unchanged. Console still says branding needs verification; Verify branding was
+  not clicked. No callback/client/env/audience/scopes/login/reCAPTCHA action.
+  Computer Use completed/reset. D07 partial progress recorded; STOP here pending
+  user's confirmation, do not advance to another task automatically.
+
+## Bank Domain Environment URLs Live - 2026-11-14
+
+- User requested ONLY bank env review/fix through Computer Use, then stop; real
+  payment explicitly deferred until tomorrow. Changed backend component only:
+  BOG_FRONTEND_SUCCESS_URL=https://flexdrive.ge/checkout/payment/success and
+  BOG_FRONTEND_FAIL_URL=https://flexdrive.ge/checkout/payment/fail.
+- Callback already correct on api.flexdrive.ge/api/commerce/payments/bog/callback/.
+  Reviewed other BOG component settings and app-level reconciliation alert email.
+  All188 component UI fields compared: exactly two URL values changed; all other
+  values/scopes/encryption preserved. No app-level edit, credential change, source,
+  DB, bank/provider request or real transaction. Frontend result routes exist.
+- Config deployment9123394c-ce5a-4669-8c2f-841a424f907b Success/Live, app Healthy.
+  Evidence ignored in tmp/measurements-20261015/api-domain-20261114/bank-env-urls.json.
+  Bank account restrictions and actual payment/callback/return flow remain untested.
+  No user push/deploy needed. Computer Use completed/reset; do not start other tasks.
+
+## API Subdomain Live - 2026-11-14
+
+- User explicitly chose api.flexdrive.ge for the existing backend. Added external-DNS
+  custom domain to DigitalOcean backend and one Namespace CNAME to the old backend
+  starter hostname, TTL300. Both authoritative NS snapshots preserve all29 earlier
+  query groups except SOA serial; mail/root/www records unchanged. API domain Active.
+- Updated only backend app-level ALLOWED_HOSTS/CSRF_TRUSTED_ORIGINS/Wingo callback,
+  backend component BOG_CALLBACK_PUBLIC_URL and frontend NUXT_INTERNAL_API_URL.
+  Full before/after UI field comparisons preserve all other values/scopes/encryption.
+  Old backend hostname stays allowed. Both config deployments completed; no source
+  code, DB/migration, provider/bank call, commit/push or public opening.
+- Admin is https://api.flexdrive.ge/manager-fd/ using the same account, fresh login
+  on the new hostname. Launch control appends pages/launchcontrol/. API TLS validates
+  on both ingress IPs; status200/guard true/public false, root403, login/static200,
+  empty login CSRF POST200 verified. After frontend deployment, user's existing
+  preview cookie opens homepage and populated catalog; unauthenticated guard remains.
+- Front config deployment a4d121ce-2f43-40ef-96cb-922775b9bfe5 Success/Live;
+  backend b96be326-851a-4708-845d-58beb6852a9c healthy. Evidence ignored under
+  tmp/measurements-20261015/api-domain-20261114/. Plan updated in cutover docs.
+  Provider account/callback operational checks, OAuth/BOG frontend URLs and other
+  launch checklist items remain separate. Computer Use completed and reset.
+
 ## Launch Form Referrer Policy CSRF Fix Prepared - 2026-11-13
 
 - User's repeated preview-code POST403 was caused by our launch admin response's
