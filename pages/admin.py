@@ -12,6 +12,7 @@ from .models import (
     SiteSettings,
 )
 from .svg_safety import sanitize_editor_html, sanitize_svg_markup
+from . import launch_admin  # noqa: F401 -- registers the private launch control.
 
 class ComponentInline(admin.TabularInline):
     model = Component

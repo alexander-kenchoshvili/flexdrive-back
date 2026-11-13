@@ -1,0 +1,37 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div style="max-width: 780px">
+  {% if not guard_enabled %}
+    <p><strong>დროებითი დაცვა ჯერ არ არის ჩართული.</strong></p>
+    <p>ამ გვერდის გამოყენებამდე საჭიროა სერვერებზე დაცვის გააქტიურება და შემოწმება.</p>
+  {% else %}
+    {% if control.public_open %}
+      <h2>საიტი საჯაროდ გახსნილია</h2>
+      <p>მაღაზია ყველა სტუმრისთვის ხელმისაწვდომია.</p>
+      <form method="post">{% csrf_token %}
+        <button class="button" type="submit" name="action" value="close">დაცულ რეჟიმში დაბრუნება</button>
+      </form>
+    {% else %}
+      <h2>საიტი დაცულ რეჟიმშია</h2>
+      <p>მაღაზიაში შესვლა შესაძლებელია სატესტო კოდით. სხვა სტუმრებს გახსნის მოლოდინის გვერდი ხვდებათ.</p>
+      <p>როცა დომენზე შემოწმებებს დაასრულებთ და საჯარო გაშვებისთვის მზად იქნებით, დააჭირეთ ქვემოთ მოცემულ ღილაკს.</p>
+      <form method="post">{% csrf_token %}
+        <button class="button default" type="submit" name="action" value="open">საიტის საჯაროდ გახსნა</button>
+      </form>
+    {% endif %}
+    <hr>
+    <h2>სატესტო შესვლა</h2>
+    <p>შექმნილი კოდი მოქმედებს 24 საათი. ის მხოლოდ საიტზე შესვლის საშუალებას იძლევა; ანგარიშში ავტორიზაცია ცალკე ხდება.</p>
+    <form method="post">{% csrf_token %}
+      <button class="button" type="submit" name="action" value="preview">სატესტო კოდის შექმნა</button>
+      <button class="button" type="submit" name="action" value="revoke">ძველი სატესტო კოდების გაუქმება</button>
+    </form>
+    {% if preview_code %}
+      <p><label for="preview-code">დააკოპირეთ კოდი და საიტის „სატესტო შესვლის“ ველში ჩასვით:</label></p>
+      <textarea id="preview-code" readonly rows="4" style="width: 100%; box-sizing: border-box; font-family: monospace" autocomplete="off" spellcheck="false">{{ preview_code }}</textarea>
+      <p>კოდი მხოლოდ ამ პასუხში ჩანს. შეინახეთ პირადად და გაუზიარეთ მხოლოდ შემმოწმებელს.</p>
+    {% endif %}
+  {% endif %}
+  <p>ბოლო ცვლილება: {{ control.updated_at }}</p>
+</div>
+{% endblock %}

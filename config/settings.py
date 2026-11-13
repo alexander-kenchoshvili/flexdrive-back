@@ -51,6 +51,18 @@ def _parse_csv_env(name, default=""):
     return [item.strip().rstrip("/") for item in raw_value.split(",") if item.strip()]
 
 
+def _parse_strict_bool_env(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ImproperlyConfigured(f"{name} must be true or false.")
+
+
 def _parse_int_env(name, default):
     raw_value = os.getenv(name)
     if raw_value is None:
@@ -564,12 +576,16 @@ INSTALLED_APPS = [
 
 ]
 
+# Activation is explicit per environment; the database control starts CLOSED.
+STOREFRONT_ACCESS_GUARD_ENABLED = _parse_strict_bool_env("STOREFRONT_ACCESS_GUARD_ENABLED", False)
+
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'common.storefront_access.StorefrontAccessMiddleware',
     'common.middleware.NoStorePrivateApiMiddleware',
     'common.middleware.ApiCsrfProtectionMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',

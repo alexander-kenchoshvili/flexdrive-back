@@ -100,6 +100,23 @@ class SiteSettings(models.Model):
 
 
 
+class LaunchControl(models.Model):
+    """Independent of cached public CMS settings; closed until explicitly opened."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    public_open = models.BooleanField(default=False)
+    preview_version = models.PositiveIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "საიტის საჯარო გახსნა"
+        verbose_name_plural = "საიტის საჯარო გახსნა"
+        constraints = [models.CheckConstraint(condition=models.Q(id=1), name="pages_launch_singleton")]
+
+    def __str__(self):
+        return "საიტის საჯარო გახსნა"
+
+
 class ContactInquiryStatus(models.TextChoices):
     NEW = "new", "New"
     IN_PROGRESS = "in_progress", "In Progress"

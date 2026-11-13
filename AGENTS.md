@@ -1,5 +1,86 @@
 # Project Instructions
 
+## Restricted Storefront And Launch Button Prepared - 2026-11-13
+
+- User requested preparing the restricted domain cutover and evening public opening.
+  Added pages.LaunchControl singleton and0085 migration with public_open defaultFalse.
+  Superuser-only admin /manager-fd/pages/launchcontrol/ generates24h signed tester
+  codes, revokes them, and has explicit CSRF-protected audited open/close buttons.
+  Codes never enter DB/admin logs and do not grant user/admin/payment permissions.
+- Backend guard protects direct API routes with the preview cookie. Existing admin
+  authentication and exact registered BOG/Wingo POST callbacks retain their checks.
+  New GET/HEAD /api/launch/status/ exposes only the access verdict. Missing state or
+  DB failures deny access. Separate CMS caches cannot control public access.
+- Paired frontend guards all storefront hostnames, provides the holding/code page,
+  forwards preview cookies through SSR/API/OAuth, and forces private/no-store after
+  SSR and streaming proxy responses. Strict same-origin form POST, bounded body,
+  production Secure/HttpOnly/host-only/SameSite=Lax cookie,24h verification/revocation.
+- Activation flags defaultFalse: backend STOREFRONT_ACCESS_GUARD_ENABLED and frontend
+  NUXT_STOREFRONT_ACCESS_GUARD_ENABLED. Malformed activation cannot silently disable
+  protection. Both deployments,0085 application and live gate checks precede webDNS.
+  The final public opening then uses one DB button without another deployment.
+- Verified221 backend tests in isolated network-blocked SQLite (162 launch/auth/
+  business/Wingo/accounting +59 BOG separately),17 frontend HTTP/SSR/redirect tests,
+  migration drift, Nuxt typecheck, scoped ESLint and production build. Built Nitro
+  loopback smoke confirms two closed hostnames, secure-cookie access, API privacy,
+  dynamic opening/closing and outage denial. Evidence is ignored under
+  tmp/measurements-20261015/launch-access-20261113/.
+- Local implementation is ready. No business DB migration, production env change,
+  commit/push/deploy or webDNS cutover was performed in this implementation step.
+  User's deployment workflow is the next handoff. Apply only pages0085 after the
+  backend is deployed and the DB target/backup/pending list have been verified.
+  Full rollout steps are in docs/STOREFRONT_LAUNCH_ACCESS.md.
+
+## Domain Mail DNS Separated - 2026-11-13
+
+- User explicitly authorized the two prepared mail DNS changes. Namespace confirmed
+  mail IP136.243.25.146 and temporarily enabled full cPanel Zone Editor for this
+  mail-only hosting package. Changed mail.flexdrive.ge from root-CNAME to A at that
+  IP, then root MX to mail.flexdrive.ge/priority0; both TTL14400. cPanel success and
+  exact28-row before/after comparison confirm only these two edits.
+- Both authoritative ns1/ns2.namespace.life independently verify final mail A/MX.
+  All26 other queried record groups match; SOA serial changed normally. DNS answer
+  ordering normalized for TXT/NS comparison. Before/after JSON snapshots cover all
+  28 editor records plus NS/SOA under ignored
+  tmp/measurements-20261015/domain-cutover-20261113/.
+- Root website A still136.243.25.146; actual inbound/outbound mail test remains.
+  Temporary full DNS access is still needed for the coming website DNS edits.
+  User owns support communication. CUA completed
+  and js_reset clears the persistent yellow capture border.
+- Current companion plan docs/FLEXDRIVE_GE_CUTOVER_2026-11-13.md. Original D01-D21
+  audit remains outputs/production-cutover-audit-20261102/. Restricted-access gate
+  must precede website DNS exposure, including direct hosting URLs/callback needs.
+
+## Production Hood Courier Weights - 2026-11-13
+
+- User authorized51kg for published actual hoods only. Reviewed seven exact hood
+  names and applied a frozen73-ID allowlist. Hinges, locks, rods, moldings,
+  brackets and six unpublished actual hoods remain unchanged.
+- Old weights backed up; rollback preview, guarded transaction and independent
+  read-only SSL postcommit verification passed. Only shipping_weight_kg changed;
+  all2202 product rows otherwise match and61 table fingerprints excluding that
+  field match. Prior31kg product updates are preserved. No app/deploy action.
+- Evidence is ignored under
+  tmp/measurements-20261015/production-hood-weights-20261113/.
+  One-off helper removed and transient connection store cleared after verification.
+
+## Production Bulky Product Courier Weights - 2026-11-13
+
+- User authorized31kg for published doors/fenders/bumpers, explicitly including
+  lower bumpers and excluding unpublished products/accessories. Reviewed names,
+  SKUs/categories and ambiguous photos. Applied an exact257-ID allowlist:18 doors,
+  128 fenders,111 bumpers.256 weights changed,1 was already31kg. Bumper corners,
+  grilles, slides, moldings/brackets and draft/archived products remain excluded.
+- Read-only SSL identity check, old-weight backup, full rollback preview, guarded
+  single PostgreSQL transaction and fresh read-only postcommit verification passed.
+  Only catalog_product.shipping_weight_kg changed; all2202 product rows otherwise
+  match and61 table fingerprints excluding only that field match. No order,
+  payment, price, inventory, application/env/provider or deployment action.
+- Credential-free selection, photos, before-preview/before-apply weights and
+  committed/postcommit evidence are ignored under
+  tmp/measurements-20261015/production-courier-weights-20261113/.
+  One-off helper removed and transient connection store cleared after verification.
+
 ## Local Wingo Reverse Demo Preparation - 2026-11-12
 
 - User requested a fresh attempt: Order82/TEST-WINGO-20261112-03 is now the active
