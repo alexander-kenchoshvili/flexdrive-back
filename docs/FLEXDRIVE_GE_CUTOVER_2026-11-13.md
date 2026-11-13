@@ -5,10 +5,12 @@
 ## დადასტურებული მიმდინარე მდგომარეობა
 
 - Namespace-ის აქტიური nameserver-ებია `ns1.namespace.life` და `ns2.namespace.life`.
-- ფოსტის გამიჯვნის შემდეგ ავტორიტეტულ DNS-ში `flexdrive.ge` A = `136.243.25.146`, MX = `mail.flexdrive.ge` priority 0, `mail.flexdrive.ge` A = `136.243.25.146` (სამივე TTL 14400). SPF შეიცავს `a`, `mx` და იმავე IP-ს.
+- ვებგადართვა შესრულებულია. `flexdrive.ge`-ის A ჩანაწერებია `162.159.140.98` და `172.66.0.96`, TTL 300. `www.flexdrive.ge` CNAME მიუთითებს `flexdrive-prod-front-pdzcv.ondigitalocean.app`-ზე, TTL 300. ორივე ავტორიტეტული NS-ის ზუსტი შედარება შენახულია.
+- MX არის `mail.flexdrive.ge`, priority 0. `mail.flexdrive.ge` A არის `136.243.25.146`, TTL 14400. SPF გახდა `v=spf1 +mx +ip4:136.243.25.146 ~all`. ოთხი CalDAV/CardDAV SRV სამიზნე გადავიდა იმავე პროვაიდერის `cp4.de.namespace.life`-ზე, მისამართი და TLS 2080 შემოწმებულია. DKIM/DMARC/Brevo/MX/mail და დანარჩენი 21 query ჯგუფი შენარჩუნებულია. მომხმარებელმა ვებგადართვამდე წერილების მიღება დაადასტურა, გადართვისშემდგომი საფოსტო ტესტი ჯერ დასადასტურებელია.
 - Namespace-ის cPanel-ში ფოსტა არის `Local Mail Exchanger`-ზე. ელფოსტის SSL/TLS კლიენტის პარამეტრებში შემომავალი IMAP 993 და გამავალი SMTP 465 სერვერად მითითებულია `cp4.de.namespace.life`; მისი მიმდინარე A-ც `136.243.25.146`-ია. ეს **არ ადასტურებს**, რომ ის MX-ის რეკომენდებული მუდმივი სამიზნეა.
-- Namespace-მა დროებით ჩართო სრული cPanel Zone Editor; ჩანს 28 ჩანაწერი და DNS-ის before/after ასლები შენახულია. ვებდომენის გადასართავად წვდომა კიდევ გვჭირდება; მხარდაჭერისთვის გამორთვის შეტყობინება ჯერ არ გაგზავნილა.
-- DigitalOcean-ის `flexdrive-prod-front` აპზე ჯერ მხოლოდ `flexdrive-prod-front-pdzcv.ondigitalocean.app` starter domain არის. `flexdrive.ge`/`www` და საჯარო წვდომის ჩამრთველი ჯერ არ არის გამართული.
+- Namespace-ის დროებით ჩართული სრული Zone Editor-ით ცვლილებები შენახულია. ორივე NS-ის before/after ასლები და ზუსტი შედარება ignored `tmp/measurements-20261015/domain-cutover-20261113/`-შია. წვდომის ისევ შეზღუდვის შეტყობინება მომხმარებელმა სატესტო შესვლისა და გადართვისშემდგომი ფოსტის შემოწმების შემდეგ უნდა გაგზავნოს.
+- `flexdrive.ge` და `www.flexdrive.ge` მიბმულია DigitalOcean-ზე და ორივე IP-ზე მოქმედი HTTPS გადამოწმებულია. `www` GET პასუხი 308-ით ინარჩუნებს გზას და გადადის root-ზე. root და `/__preview` არის 200 private/no-store/noindex, პირდაპირი API კოდის გარეშე 403-ია. `public_open=False`. სრული საიტის რეალური კოდით შემოწმება მომხმარებლის შემდეგი ნაბიჯია. შედეგი `production-domain-live.json`-შია.
+- frontend კომპონენტზე `NUXT_PUBLIC_SITE_URL=https://flexdrive.ge` შენახულია, მხოლოდ ერთი ველი შეიცვალა. backend app-level `FRONTEND_BASE_URL` გადავიდა root-ზე, `CORS_ALLOWED_ORIGINS` და `CSRF_TRUSTED_ORIGINS` შეიცავს ძველ starter-სა და ახალ root/www origins-ს. 37 app-level ცვლადიდან მხოლოდ ეს სამი შეიცვალა. ახალ origins-ზე CORS live პასუხი დადასტურებულია. ბანკის, OAuth-ისა და კურიერის საბოლოო runtime/account პარამეტრების სრული შემოწმება შემდგომი სამუშაოა.
 
 ## პირველი ეტაპი — ფოსტის დამოუკიდებლობა
 
@@ -41,8 +43,8 @@ Namespace-სთვის გაგზავნილი თავდაპი�
 
 ## მომზადება საბოლოო გახსნამდე
 
-1. ორივე აპში დროებითი დაცვისა და საჯარო გახსნის ღილაკის კოდი მომზადებულია. deployment, `pages.0085` მიგრაცია, გარემოს გააქტიურება და live შემოწმება წინ უნდა უსწრებდეს ვებ DNS ცვლილებას. ზუსტი ნაბიჯები: `docs/STOREFRONT_LAUNCH_ACCESS.md`. `noindex` წვდომის დაცვას ვერ ცვლის.
-2. მოქმედი დაცვის დადასტურების შემდეგ DigitalOcean-ში მივაბათ `flexdrive.ge`/`www`, ზუსტი DNS სამიზნეებით და მოქმედი HTTPS-ით. საჭიროებისამებრ `api.flexdrive.ge` ცალკე გადაწყდეს.
+1. ორივე deployment, `pages.0085` production მიგრაცია, გარემოს გააქტიურება და დახურული რეჟიმის შემოწმება შესრულებულია. მომხმარებელმა admin-ში შექმნას სატესტო კოდი და გამოიყენოს `https://flexdrive.ge/__preview`-ზე. კოდის გარეშე ორივე hostname-ზე წვდომა უკვე შემოწმებულია. ზუსტი ნაბიჯები `docs/STOREFRONT_LAUNCH_ACCESS.md`-შია.
+2. `flexdrive.ge`/`www`, DNS და მოქმედი HTTPS გამართულია. backend/admin კვლავ არსებულ DigitalOcean მისამართზე მუშაობს, frontend API პროქსი იმავე backend-ს უკავშირდება.
 3. დავაყენოთ საბოლოო frontend/backend მისამართები, OAuth/reCAPTCHA, BOG/Wingo callback-ები და დავტესტოთ ყველა მნიშვნელოვანი ნაკადი **შეზღუდულ წვდომაში**. პირდაპირი `ondigitalocean.app` მისამართიც უნდა იყოს დაცული; provider/bank webhook-ებს მხოლოდ საჭირო გამონაკლისები მიეცეთ.
 4. საბოლოო საღამოს: ბოლო smoke check, შემდეგ საჯარო წვდომის ჩამრთველის გადართვა და დაუყოვნებელი გარედან შემოწმება. DNS-სა და HTTPS-ს ამ მომენტამდე მოვაგვარებთ; TTL/სერტიფიკატის ლოდინი ბოლო მოქმედებად არ უნდა დარჩეს. საძიებო ინდექსაცია ცალკე გააქტიურდება, როდესაც საჯარო გვერდები მზადაა.
 

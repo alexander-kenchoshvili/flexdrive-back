@@ -1,6 +1,14 @@
 # დროებითი დაცვა და საიტის საჯარო გახსნა
 
-მომზადებულია 2026-11-13, დაკავშირებულ backend/frontend პროექტებში. **კოდი მზადდება ცალკე გააქტიურებისთვის; production-ში დაცვა ჯერ ჩართული არ არის.**
+განახლებულია 2026-11-13, დაკავშირებულ backend/frontend პროექტებში. **Production-ში `pages.0085` გამოყენებულია, ორივე დაცვის flag ჩართულია, `flexdrive.ge`/`www` მიბმულია მოქმედი HTTPS-ით და `public_open=False`.**
+
+სატესტო კოდის შექმნის განმეორებითი 403-ის მიზეზი აღმოჩნდა launch admin-ის `Referrer-Policy:no-referrer`. ჩვეულებრივი browser form POST ამ პარამეტრით აგზავნის `Origin:null`-ს და CSRF შემოწმება უარყოფს მას. იგივე header ჰქონდა frontend კოდის ფორმას. ორივეგან მომზადებულია `same-origin` შესწორება. Chromium-ის იზოლირებული HTTPS ფორმით მიზეზი დადასტურდა. 18 backend და 17 frontend ტესტი და scoped ESLint გადის. **ორივე შესწორების push/deploy მომხმარებლის შემდეგი ნაბიჯია, შემდეგ უნდა გადამოწმდეს production კოდის შექმნა და შესვლა.**
+
+საბოლოო დომენის live შემოწმება წარმატებულია. root-ზე მოლოდინისა და კოდის ფორმა 200 private/no-store/noindex-ია, API კოდის გარეშე 403-ია. `www` 308-ით გადადის root-ზე გზის შენარჩუნებით. ორივე hostname-ის სერტიფიკატი ორივე ingress IP-ზე CA/hostname შემოწმებით დადასტურებულია. frontend site URL და backend frontend URL/CORS/CSRF მნიშვნელობები შენახულია. მომხმარებელმა შექმნას სატესტო კოდი admin-ში და გამოიყენოს `https://flexdrive.ge/__preview`-ზე. სრული მაღაზიის რეალური სატესტო შესვლა ჯერ დასადასტურებელია. DNS/runtime ზუსტი ცვლილებები და დარჩენილი provider სამუშაო `docs/FLEXDRIVE_GE_CUTOVER_2026-11-13.md`-შია.
+
+ორივე საწყისი deployment მომხმარებელმა შეასრულა. SSL კავშირით backup/rollback preview-ის შემდეგ გამოყენებულია მხოლოდ `pages.0085_launch_control`; ახალმა read-only კავშირმა დაადასტურა 61 თავდაპირველი ცხრილის სქემისა და მონაცემების შენარჩუნება, დახურული singleton და ნულოვანი pending migrations. დაემატა მხოლოდ ახალი ცხრილი, მიგრაციის ჩანაწერი, ერთი content type და ოთხი permission. სრული backup და შემოწმებები ignored `tmp/measurements-20261015/launch-access-20261113/production-*` არტეფაქტებშია.
+
+DigitalOcean-ის შესაბამის კომპონენტებზე ორივე ახალი flag runtime მნიშვნელობით `true` შენახულია; ძველი 8 frontend/46 backend კომპონენტური ცვლადი უცვლელია. Live GET ადასტურებს დახურულ backend-ს, პირდაპირი API-ის 403 პასუხს და ადმინისტრაციის შესვლის გვერდის მუშაობას. Frontend `/__preview` აბრუნებს 200 ფორმას. დახურული მთავარი გვერდის აპლიკაციის 503 პასუხს DigitalOcean ingress ცვლის თავისი 504 გვერდით (`x-do-orig-status:503`). ამიტომ ადგილობრივ frontend-ში დაგეგმილი დახურული გვერდი შეიცვალა 200-ზე, `private, no-store` და `noindex, nofollow` შენარჩუნებით; რეალური სერვერის შეცდომები ისევ 503-ია. **ეს შესწორება მომხმარებელმა დაადეპლოია და live მოლოდინის გვერდი გადამოწმებულია. დომენი/HTTPS გამართულია. კოდით სრული მაღაზიის რეალური სატესტო შესვლა მომხმარებელმა უნდა დაადასტუროს.**
 
 ## რას მიიღებს მფლობელი
 
@@ -26,7 +34,7 @@ Admin გვერდი: `/manager-fd/pages/launchcontrol/`. მართვა
 ## deployment და გააქტიურების რიგი
 
 1. მომხმარებელი push/deploy-ს აკეთებს ორივე პროექტში. თავდაპირველად ორივე ახალი guard flag გამორთულია; მიმდინარე საიტი ჩვეულებრივ მუშაობს. Domain DNS-ის ვებ ჩანაწერები ჯერ არ იცვლება.
-2. backend deployment-ის დადასტურების შემდეგ, production DB-ის იდენტობის/backup/pending migrations შემოწმებით ცალკე გამოიყენება **მხოლოდ `pages.0085_launch_control`**. ის ქმნის ერთ ახალ ცხრილს/დახურულ row-ს და ჩვეულებრივ content type/permissions-ს; მოქმედი ბიზნეს ცხრილების შეცვლას არ ითხოვს. ეს მიგრაცია ამ მომზადებისას არც local ბიზნეს ბაზაში და არც production-ში არ გამოყენებულა.
+2. backend deployment-ის დადასტურების შემდეგ, production DB-ის იდენტობის/backup/pending migrations შემოწმებით ცალკე გამოიყენება **მხოლოდ `pages.0085_launch_control`**. ის ქმნის ერთ ახალ ცხრილს/დახურულ row-ს და ჩვეულებრივ content type/permissions-ს; მოქმედი ბიზნეს ცხრილების შეცვლას არ ითხოვს. **Production-ში შესრულებულია 2026-11-13; local ბიზნეს ბაზაში არ გამოყენებულა.**
 3. frontend კომპონენტზე განთავსდეს `NUXT_STOREFRONT_ACCESS_GUARD_ENABLED=true` runtime ცვლადი და დაელოდეთ deployment-ს. სანამ backend-ის დაცვა ჩაირთვება, frontend განზრახ მიუწვდომლობის გვერდს აჩვენებს.
 4. backend-ზე ჩაირთოს `STOREFRONT_ACCESS_GUARD_ENABLED=true` და დაელოდეთ deployment-ს. `/api/launch/status/` უნდა აჩვენებდეს `guard_enabled:true`, `public_open:false`. პირდაპირი catalog/checkout API შემმოწმებლის cookie-ს გარეშე უნდა უარყოს მოთხოვნა.
 5. admin-ში შექმენით preview code; დროებით frontend hostname-ზე დახურული/სატესტო შესვლა და private/no-store პასუხები გადაამოწმეთ. ინკოგნიტო სტუმარს მაღაზია არ უნდა გამოუჩნდეს. ჯანმრთელობის HTTP probe-ის არსებობისას იგი read-only `/api/launch/status/`-ზე მოარგეთ; TCP probe-ს ცვლილება არ სჭირდება.
@@ -36,6 +44,8 @@ Admin გვერდი: `/manager-fd/pages/launchcontrol/`. მართვა
 გარემოს ცვლადები წვდომის დაცვის *მექანიზმს* რთავს; საბოლოო საჯარო გახსნას ბაზის ღილაკი მართავს. საბოლოო დომენზე გადართვამდე ორივე ფენის მოქმედება უნდა შემოწმდეს.
 
 ## შემოწმება
+
+Production ingress-ისთვის 200-პასუხიანი შესწორების შემდეგ ხელახლა წარმატებით გავიდა 17 frontend ტესტი, scoped ESLint, Nuxt typecheck, production build და აწყობილი Nitro smoke. ამ შემოწმებებში დაგეგმილი დახურული გვერდი 200-ია, API უარყოფილია, კოდი/გახსნა/დახურვა მუშაობს და რეალური სერვერის შეცდომა წვდომას ისევ კეტავს. Live შედეგი frontend-ის ახალი deployment-ის შემდეგ უნდა დადასტურდეს.
 
 Backend-ის disposable SQLite runner ბლოკავს outbound ქსელს და არ ეხება სამუშაო ბაზას:
 

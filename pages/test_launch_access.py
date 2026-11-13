@@ -1,3 +1,4 @@
+import re
 import time
 from urllib.parse import quote
 from unittest.mock import patch
@@ -161,6 +162,20 @@ class LaunchAccessTests(TestCase):
         self.assertTrue(self.client.get(self.status_url).json()["preview_allowed"])
         self.client.post(self.admin_url, {"action": "revoke"})
         self.assertFalse(self.client.get(self.status_url).json()["preview_allowed"])
+
+    def test_preview_form_preserves_same_origin_csrf_and_rejects_null_origin(self):
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.owner)
+        response = client.get(self.admin_url, secure=True)
+        self.assertEqual(response["Referrer-Policy"], "same-origin")
+        token = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', response.content.decode())[1]
+        data = {"action": "preview", "csrfmiddlewaretoken": token}
+        self.assertEqual(client.post(self.admin_url, data, secure=True, HTTP_ORIGIN="null").status_code, 403)
+        response = client.post(self.admin_url, data, secure=True, HTTP_ORIGIN="https://testserver")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context_data["preview_code"])
+        self.assertEqual(response["Referrer-Policy"], "same-origin")
+        self.assertFalse(LaunchControl.objects.get(pk=1).public_open)
 
     @override_settings(STOREFRONT_ACCESS_GUARD_ENABLED=False)
     def test_disabled_environment_keeps_existing_site_and_refuses_launch_actions(self):

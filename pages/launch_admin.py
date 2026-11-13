@@ -74,5 +74,6 @@ class LaunchControlAdmin(admin.ModelAdmin):
             "preview_code": preview_code,
         }
         response = TemplateResponse(request, "admin/pages/launch_control.html", context)
-        response["Referrer-Policy"] = "no-referrer"
+        # Browser form POSTs need their same-origin Origin/Referer for CSRF checks.
+        response["Referrer-Policy"] = "same-origin"
         return response

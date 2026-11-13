@@ -1,5 +1,65 @@
 # Project Instructions
 
+## Launch Form Referrer Policy CSRF Fix Prepared - 2026-11-13
+
+- User's repeated preview-code POST403 was caused by our launch admin response's
+  Referrer-Policy:no-referrer. Native browser form POSTs then send Origin:null,
+  which Django correctly rejects. The same header affected the front preview form.
+  Earlier advice to reopen the page did not address this cause.
+- Changed both pages to same-origin. Explicit CSRF token/origin verification stays
+  active.18 backend launch tests and17 frontend HTTP/SSR/redirect tests pass,
+  including secure rendered-form token submission/null-origin rejection and the
+  front form response policy. Scoped ESLint passes. Isolated Chromium mocked HTTPS
+  form test confirms old policy sends null Origin, fixed policy sends real origin.
+- User owns BOTH source pushes/deployments. Real production code generation and
+  entry must be rechecked after those deployments. No migration/env/DB changes.
+  Storefront remains closed. CUA log inspection ended and reset.
+
+## Restricted Domain Cutover And HTTPS Verified - 2026-11-13
+
+- Added flexdrive.ge primary and www to the front DO app using external DNS.
+  Root A now162.159.140.98/172.66.0.96 TTL300; www CNAME points directly to the
+  starter front hostname TTL300. Both NS exact diffs verified, ignored evidence
+  under tmp/measurements-20261015/domain-cutover-20261113/web-*.
+- Removed root SPF +a, retained mx/mail IP. Four CalDAV/CardDAV SRVs now target
+  cp4.de.namespace.life, the same136.243.25.146 server with verified TLS2080.
+  The existing cpcontacts/cpcalendars hosts failed certificate verification.
+ 21 other query groups including MX/mail/DKIM/DMARC/Brevo preserved. User reported
+  mail delivery before web cutover; postcutover mail flow still needs confirmation.
+- Front component NUXT_PUBLIC_SITE_URL changed to https://flexdrive.ge only.
+  Back app-level FRONTEND_BASE_URL changed, CORS/CSRF origins append root/www
+  while retaining the starter. All37 app rows preserved except these3 values.
+  New origins confirmed in live CORS headers. Config deployments saved in DO.
+- Live root/preview200 private/no-store/noindex, API403 without code, www308
+  preserves paths to root. Valid certificates verified on both ingress IPs for
+  both names. Backend status enabled/closed/no-preview. public_open remainsFalse.
+  Evidence production-domain-live.json. User owns real code creation/entry next.
+- CUA ended/reset. Several earlier CUA URL-detection stops required new turns.
+  Do not treat those as a permanent blocker. No new source change or push.
+  Provider/bank/OAuth final account/runtime checks remain later work. Update
+  docs reflect DNS/HTTPS completion. Do not publicly open without user direction.
+
+## Production Launch Guard Applied, Frontend Holding Fix Pending - 2026-11-13
+
+- User confirmed both deployments and supplied the production DB. Verified SSL
+  identity, backup and rollback preview; applied only pages0085. Fresh read-only
+  verification confirms61 original tables' schemas/data preserved, closed row,
+  one migration/content type and four permissions added, zero pending migrations.
+  Full logical backup/evidence is ignored under
+  tmp/measurements-20261015/launch-access-20261113/production-*.
+- Enabled paired runtime guard flags through DigitalOcean UI, preserving all
+  original8 frontend/46 backend component env rows. Live backend status confirms
+  enabled/closed/no-preview; direct API403 and admin login200 private/no-store.
+  Front preview form200, but DO replaces our planned503 holding page with504
+  (x-do-orig-status503). Fixed LOCAL frontend planned holding response to200,
+  retaining no-store/noindex and all API/cookie guards. Genuine failures stay503.
+- Follow-up17 frontend tests, scoped ESLint, typecheck, production build and built
+  Nitro loopback smoke all pass, including dynamic open/close and outage denial.
+- User owns frontend push/deploy for this small follow-up; recheck live holding
+  page and real preview access afterward. WebDNS/custom domains/public opening,
+  mail flow test and final provider settings remain pending. No bank/provider
+  mutation. Public_open remainsFalse. CUA completed and reset to remove frame.
+
 ## Restricted Storefront And Launch Button Prepared - 2026-11-13
 
 - User requested preparing the restricted domain cutover and evening public opening.
