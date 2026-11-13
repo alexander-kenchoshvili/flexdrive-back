@@ -7,7 +7,7 @@ from uuid import uuid4
 from django.contrib.auth import get_user_model
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -68,6 +68,38 @@ class WingoCheckoutTests(TestCase):
             self.assertEqual((quote["measurements"]["weight"], quote["customer_delivery_price"]), ("6.00", "11.00"))
             self.assertIsNone(quote["measurements"]["length"])
         self.assertEqual(self.quote(items=[item("3"), item("3", pk=2)])["measurements"]["weight"], "6.00")
+
+    def test_fixed_buffer_is_added_once_to_all_services_locations_and_sources(self):
+        for external_id in ("oayK3wTbTlSTuvTHkTHc", "CEYo2KMYqhlrU5nrVohQ", "TPJtXj8vtQefzbiRytWY", "gjFtxS8HEeuyq7o6YrUQ"):
+            location = self.location_for(external_id)
+            for source in ("cart", "buy_now"):
+                with self.subTest(locality=external_id, source=source):
+                    items = [item("3", quantity=2)]
+                    base = self.quote(location=location, items=items, source=source)
+                    with self.settings(WINGO_DELIVERY_BUFFER_GEL=Decimal("2.50")):
+                        quote = self.quote(location=location, items=items, source=source)
+                    self.assertEqual(quote["carrier_delivery_cost"], base["carrier_delivery_cost"])
+                    self.assertEqual(quote["delivery_margin"], "2.50")
+                    self.assertEqual(Decimal(quote["customer_delivery_price"]), Decimal(base["customer_delivery_price"]) + Decimal("2.50"))
+                    for original, option in zip(base["options"], quote["options"]):
+                        self.assertEqual(Decimal(option["price"]), Decimal(original["price"]) + Decimal("2.50"))
+
+    def test_changed_buffer_requires_new_quote_but_frozen_order_values_keep_old_buffer(self):
+        with self.settings(WINGO_DELIVERY_BUFFER_GEL=Decimal("2.50")):
+            quote = self.quote()
+            fields = delivery_order_fields(quote)
+        with self.assertRaises(DeliveryQuoteError) as caught:
+            validate_delivery_quote(quote_token=quote["quote_token"], source="cart", items=[item()], region=self.location, city=self.location)
+        self.assertEqual(caught.exception.code, "delivery_quote_stale")
+        self.assertEqual(delivery_order_fields(quote), fields)
+        self.assertEqual((fields["delivery_price"], fields["carrier_delivery_cost"], fields["delivery_margin"]),
+                         (Decimal("48.50"), Decimal("46.00"), Decimal("2.50")))
+
+    @override_settings(WINGO_DELIVERY_BUFFER_GEL=Decimal("9999999999.99"))
+    def test_buffer_cannot_overflow_supported_delivery_money(self):
+        with self.assertRaises(DeliveryQuoteError) as caught:
+            self.quote()
+        self.assertEqual(caught.exception.code, "delivery_tariff_unavailable")
 
     def test_missing_invalid_weight_or_quantity_never_creates_a_free_quote(self):
         for weight, quantity in ((None, 1), (0, 1), (True, 1), ("NaN", 1), ("Infinity", 1),
@@ -214,6 +246,22 @@ class WingoQuoteAPITests(TestCase):
                 self.assertEqual((response.data["provider"], response.data["delivery_type_id"], response.data["customer_delivery_price"]),
                                  ("wingo", 1, "46.00"))
                 self.assertNotIn("PRIVATE-SKU", str(response.data))
+
+    @override_settings(WINGO_DELIVERY_BUFFER_GEL=Decimal("3.00"))
+    def test_buffer_reaches_cart_buy_now_options_and_ignores_client_price_fields(self):
+        cart = Cart.objects.create(user=self.user)
+        CartItem.objects.create(cart=cart, product=self.product, quantity=1)
+        BuyNowSession.objects.create(user=self.user, product=self.product, quantity=1)
+        for source in ("cart", "buy_now"):
+            for service, carrier_price in (("standard", "46.00"), ("fast", "83.00")):
+                with self.subTest(source=source, service=service):
+                    response = self.api.post(reverse("commerce-delivery-quote"), {
+                        **self.payload(source), "delivery_service_slug": service, "delivery_margin": "0.00",
+                        "customer_delivery_price": "0.00"}, format="json")
+                    self.assertEqual(response.status_code, 200, response.data)
+                    self.assertEqual((response.data["carrier_delivery_cost"], response.data["delivery_margin"]), (carrier_price, "3.00"))
+                    self.assertEqual(Decimal(response.data["customer_delivery_price"]), Decimal(carrier_price) + Decimal("3.00"))
+                    self.assertEqual([row["price"] for row in response.data["options"]], ["49.00", "86.00"])
 
     def test_guest_quote_uses_only_the_guest_cart(self):
         token = uuid4()

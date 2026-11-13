@@ -9,7 +9,7 @@ os.environ.update({
     "APP_ENV": "development", "DJANGO_DEBUG": "False", "DATABASE_URL": "sqlite:///:memory:",
     "CACHE_ENABLED": "False", "USE_CLOUDINARY_MEDIA": "False", "BOG_PAYMENTS_ENABLED": "False",
     "META_CAPI_ENABLED": "False", "EMAIL_BACKEND": "django.core.mail.backends.locmem.EmailBackend",
-    "DJANGO_SETTINGS_MODULE": "config.settings", "WINGO_API_KEY": "",
+    "DJANGO_SETTINGS_MODULE": "config.settings", "WINGO_API_KEY": "", "WINGO_DELIVERY_BUFFER_GEL": "0.00",
 })
 import django
 django.setup()

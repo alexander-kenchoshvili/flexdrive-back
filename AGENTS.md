@@ -1,5 +1,100 @@
 # Project Instructions
 
+## Local Wingo Reverse Demo Preparation - 2026-11-12
+
+- User requested a fresh attempt: Order82/TEST-WINGO-20261112-03 is now the active
+  reverse demo to submit manually. Previous Order81 was already created in Wingo
+  as999-1000186/status1; left intact. Same TEST/local guards, backup, offline
+  payload/admin-form validation and63-table preservation passed for new Order82.
+  No provider/bank/inventory action. Evidence demo-03-created.json in the same
+  ignored directory below. Never execute a real bank refund on either demo.
+- User authorized one new LOCAL order for reverse-return testing: Order81,
+  TEST-WINGO-20261112-02, bumper3kg/160+9=169 GEL. TEST key/snapshot and local
+  SQLite identity verified; backup, rendered admin/prepare form and offline payload
+  checks pass. Original data in all63 tables unchanged except one new Order/Item.
+- No provider call/shipment, bank transaction/refund, stock decrement, production
+  or application code change. User will submit via admin and ask Wingo to mark
+  the test shipment delivered before panel reverse booking. No real bank refund
+  or inventory receipt on this synthetic order. Evidence ignored under
+  tmp/measurements-20261015/wingo-reverse-demo-20261112/.
+- Earlier cancellation demo999-1000185 was subsequently verified by authenticated
+  GET: canonical status10/Cancelled, no courier, matching frozen identity,
+  updatedAt2026-11-12T13:04:03.330Z. This supersedes the earlier status1 observation
+  for that shipment; public webhook delivery still untested. User owns manual sync.
+
+## Second Local Wingo Cancellation Demo - 2026-11-12
+
+- Provider asked user to repeat cancellation after investigating404. User authorized
+  one new LOCAL demo: Order80, TEST-WINGO-20261112-01, bumper3kg/160+9=169 GEL.
+  Verified TEST key/snapshot and SQLite identity; consistent backup before write.
+  Rendered admin/prepare form and frozen payload pass; existing63 tables' original
+  data unchanged except adding one Order/OrderItem. No WingoShipment created yet.
+- Simulated paid only: no PaymentTransaction, real charge/refund, stock decrement,
+  provider request, production/env/code/push/deploy action. User will submit via our
+  admin, cancel via Wingo panel, then POST manual status check. No local callback URL.
+  Evidence/backup ignored under tmp/measurements-20261015/wingo-demo-20261112/.
+  Do not assume provider fix works until authenticated canonical status is verified.
+
+## Wingo Uncertain Submission Admin Recovery - 2026-11-11
+
+- User authorized fixing confusing submission warnings after the local demo POST
+  created a provider order but lost its response. Admin now automatically attempts
+  GET-only recovery after uncertain submission: max2x100 list rows and canonical
+  detail,2/4s connect/read timeouts. Complete search, unique match and all frozen
+  identity checks remain mandatory; manual recovery retains its10-page bound.
+- Confirmed/recovered creation shows a green Georgian success message and existing
+  label controls. Still-unverified creation shows explicit possible-created/no-resend
+  wording plus a persistent admin recovery link. Known refusals remain retryable;
+  normal success does not search. Concurrent verified recovery cannot show failure.
+- All193 Wingo/CMS/return/migration tests pass on disposable SQLite with network
+  blocked, including8 new regressions. Migration drift/whitespace pass. Backend
+  only; no migration, frontend, business DB/env, real provider/bank operation,
+  browser/server, commit/push/deploy. User owns backend push/deployment.
+
+## Local Wingo Manual Demo Order - 2026-11-11
+
+- User authorized creating one visible LOCAL test order, leaving provider submission
+  to them. Created Order79, TEST-WINGO-20261111-01, one bumper/3kg,160+9=169 GEL.
+  Payment is simulated as paid; NO PaymentTransaction/bank call, inventory decrement,
+  provider submission or production write. Never execute a real bank refund for it.
+- Verified SQLite identity, test key matches Desktop test-key file, TEST snapshot,
+  payload without HTTP, actual rendered admin/send form and enabled submit button.
+  Existing data in all63 tables unchanged except the one added Order/OrderItem.
+  SQLite backup/evidence ignored under tmp/measurements-20261015/wingo-demo-20261111/.
+  Local public webhook URL is empty; use manual tracking check for this demo.
+- User subsequently submitted via admin: create call ended with unknown outcome,
+  but GET proved exactly one matching TEST shipment999-1000184/status1. Used existing
+  recover_submission with GET-only client after SQLite backup; identity verified,
+  state created, booked fee9, label/tracking buttons verified, no duplicate POST.
+  Original transport failure detail was not retained; exact cause unconfirmed.
+- After user clicked cancellation in Wingo's panel, authenticated GET for the same
+  shipment returns404 and complete orders list has94 instead of95 rows, with no
+  matching ID/number/supplier ID. No canonical status10 was received. Panel may
+  remove/hide cancelled orders; provider confirmation is needed. Do NOT interpret
+  404/absence as verified cancellation or release refund/stock guards. These were
+  GET-only observations; local shipment/payment/inventory were not changed.
+
+## Wingo Production Migrations 0044/0045 Applied - 2026-11-11
+
+- User confirmed both applications pushed/deployed and explicitly requested the
+  production migrations. Verified the DigitalOcean database identity and SSL;
+  only commerce0044 and0045 were pending. Old RedCap shipments and sync reports
+  were empty; one old tariff snapshot was backed up before its table was removed.
+- First preview stopped and rolled back on a JSON representation difference;
+  normalized the read-only comparison, then a full rollback preview succeeded.
+  Applied0044/0045 together in one guarded PostgreSQL transaction. Added the two
+  nullable return/cancellation fields, removed only the three retired courier tables
+  and their3 content types/12 permissions. Original values in60 retained data tables
+  matched through the transaction; no old admin log entries referenced those types.
+- A fresh read-only SSL connection independently verified both migration records,
+  new columns, absence of retired tables/permissions and no pending migrations.
+  All60 retained table fingerprints also matched the committed transaction.
+  Evidence/backed-up retired tariff data is ignored in
+  tmp/measurements-20261015/wingo-production-20261111/. Temporary scripts removed.
+- No provider/bank/env action, app push/deploy, browser or public HTTP check.
+  Real Wingo account credentials/reference refresh and live workflow verification
+  remain separate. Prior production-pending notes below are historical.
+
 ## Wingo Reporting And Retired Courier Removal - 2026-11-10
 
 - User explicitly authorized removing the retired courier after choosing Wingo's

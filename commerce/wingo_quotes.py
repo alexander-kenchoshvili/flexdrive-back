@@ -40,17 +40,21 @@ def build_delivery_quote(*, source, items, region, city, client=None, service_sl
     tariff = next((row for row in snapshot.tariffs if band and row["weight_range_id"] == band["id"]), None)
     now = timezone.now()
     options = []
+    carrier_prices = {}
+    buffer = settings.WINGO_DELIVERY_BUFFER_GEL
     for service in (["standard", "fast"] if location.group_type == "tbilisi" else ["standard"]):
         policy = service_policy(location.group_type, service, now=now)
         key = "fastTbilisi" if service == "fast" else STANDARD_TARIFF_BY_GROUP.get(location.group_type)
         try:
             amount = Decimal(tariff["prices"][key]) if tariff and not tariff["hidden"] and key else None
-            if amount is None or not amount.is_finite() or amount <= 0:
+            if (amount is None or not amount.is_finite() or amount <= 0
+                    or amount + buffer > Decimal("9999999999.99")):
                 raise ValueError
         except (KeyError, TypeError, ValueError, ArithmeticError):
             amount = None
             policy.update(available=False, unavailable_reason="ამ მომსახურების ტარიფი ჯერ ხელმისაწვდომი არ არის.")
-        options.append({**policy, "price": format(amount, ".2f") if amount is not None else None})
+        carrier_prices[service] = amount
+        options.append({**policy, "price": format(amount + buffer, ".2f") if amount is not None else None})
     selected = next((option for option in options if option["service_slug"] == service_slug), None)
     if selected is None or not selected["available"]:
         tariff_missing = selected is not None and selected["price"] is None
@@ -68,7 +72,7 @@ def build_delivery_quote(*, source, items, region, city, client=None, service_sl
         "provider_region_id": location.provider_region_id, "provider_city_id": location.provider_city_id,
         "delivery_type_id": selected["delivery_type_id"], "weight_range_id": band["id"],
         "service_slug": service_slug, "tariff_revision": snapshot.revision, "group_type": location.group_type,
-        "carrier_delivery_cost": selected["price"], "delivery_margin": "0.00",
+        "carrier_delivery_cost": format(carrier_prices[service_slug], ".2f"), "delivery_margin": format(buffer, ".2f"),
         "customer_delivery_price": selected["price"], "package_id": None,
         "measurements": {"weight": format(weight, ".2f"), "length": None, "width": None, "height": None},
         "contents_fingerprint": contents_fingerprint(normalized),

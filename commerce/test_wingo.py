@@ -1,6 +1,8 @@
 import copy
 from io import StringIO
 import json
+import os
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -9,6 +11,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.core.management import call_command, CommandError
 from django.db import IntegrityError, transaction
+from django.core.exceptions import ImproperlyConfigured
 from django.test import Client, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
@@ -18,6 +21,27 @@ from .wingo import (
     WingoResponseError, WingoTransportError,
 )
 from .wingo_references import refresh_wingo_references
+
+
+class WingoBufferConfigurationTests(SimpleTestCase):
+    def test_buffer_env_defaults_to_zero_and_accepts_decimal_gel(self):
+        from config.settings import _parse_money_env
+
+        with patch.dict(os.environ):
+            os.environ.pop("WINGO_DELIVERY_BUFFER_GEL", None)
+            self.assertEqual(_parse_money_env("WINGO_DELIVERY_BUFFER_GEL"), Decimal("0.00"))
+            for value, expected in (("0", "0.00"), ("2", "2.00"), (" 2.50 ", "2.50"), ("3.00", "3.00")):
+                with self.subTest(value=value):
+                    os.environ["WINGO_DELIVERY_BUFFER_GEL"] = value
+                    self.assertEqual(_parse_money_env("WINGO_DELIVERY_BUFFER_GEL"), Decimal(expected))
+
+    def test_invalid_buffer_env_rejects_startup_instead_of_mispricing(self):
+        from config.settings import _parse_money_env
+
+        for value in ("", "-1", "2.501", "NaN", "Infinity", "1e100", "10000000000", "2,50", "invalid"):
+            with self.subTest(value=value), patch.dict(os.environ, {"WINGO_DELIVERY_BUFFER_GEL": value}):
+                with self.assertRaisesMessage(ImproperlyConfigured, "WINGO_DELIVERY_BUFFER_GEL"):
+                    _parse_money_env("WINGO_DELIVERY_BUFFER_GEL")
 
 
 def sample():

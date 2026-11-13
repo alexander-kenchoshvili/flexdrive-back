@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 import os
 import sys
 from urllib.parse import parse_qs, unquote, urlparse
@@ -59,6 +60,17 @@ def _parse_int_env(name, default):
         return int(raw_value.strip())
     except ValueError:
         return default
+
+
+def _parse_money_env(name, default="0.00"):
+    try:
+        amount = Decimal(os.getenv(name, default).strip())
+        if (not amount.is_finite() or not Decimal("0.00") <= amount <= Decimal("9999999999.99")
+                or amount != amount.quantize(Decimal("0.01"))):
+            raise ValueError
+        return amount.quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError):
+        raise ImproperlyConfigured(f"{name} must be a non-negative GEL amount with at most two decimal places.") from None
 
 
 def _parse_samesite_env(name, default="Lax"):
@@ -438,6 +450,7 @@ WINGO_PICKUP_TITLE = os.getenv("WINGO_PICKUP_TITLE", "").strip()
 WINGO_PICKUP_ADDRESS = os.getenv("WINGO_PICKUP_ADDRESS", "").strip()
 WINGO_PICKUP_PHONE = os.getenv("WINGO_PICKUP_PHONE", "").strip()
 WINGO_PREPARATION_MINUTES = _parse_int_env("WINGO_PREPARATION_MINUTES", 30)
+WINGO_DELIVERY_BUFFER_GEL = _parse_money_env("WINGO_DELIVERY_BUFFER_GEL")
 WINGO_WEBHOOK_PUBLIC_URL = os.getenv("WINGO_WEBHOOK_PUBLIC_URL", "").strip().rstrip("/")
 WINGO_WEBHOOK_SECRET = os.getenv("WINGO_WEBHOOK_SECRET", "").strip()
 WINGO_HTTP_CONNECT_TIMEOUT_SECONDS = _parse_int_env("WINGO_HTTP_CONNECT_TIMEOUT_SECONDS", 5)

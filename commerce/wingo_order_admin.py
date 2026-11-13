@@ -9,8 +9,10 @@ from django.utils.html import format_html, format_html_join
 from django.utils import timezone
 
 from .models import WingoShipment
-from .wingo import WingoError
-from .wingo_shipments import can_submit, get_shipment_label, recover_submission, submit_shipment
+from .wingo import WingoClient, WingoError
+from .wingo_shipments import (
+    CREATION_UNCONFIRMED_MESSAGE, can_submit, get_shipment_label, recover_submission, submit_shipment,
+)
 from .wingo_tracking import STATUS_LABELS, sync_shipment
 from .wingo_services import booking_deadline, delivery_summary
 from .delivery_quote_data import DeliveryQuoteError
@@ -52,6 +54,7 @@ class OrderWingoAdminMixin:
             shipment = WingoShipment.objects.filter(order=order).first()
             context["show_wingo_submit"] = can_submit(order)
             context["show_wingo_recover"] = bool(shipment and shipment.state in {"unknown", "submitting"})
+            context["wingo_creation_pending_message"] = CREATION_UNCONFIRMED_MESSAGE
             context["show_wingo_tracking"] = bool(shipment and shipment.state == "created" and shipment.provider_order_id)
             context["show_wingo_label"] = context["show_wingo_tracking"] and shipment.carrier_status not in {10, 11}
             context["wingo_platform_actions"] = context["show_wingo_tracking"]
@@ -128,15 +131,32 @@ class OrderWingoAdminMixin:
                 shipment = submit_shipment(order.pk, **form.cleaned_data)
             except WingoError as exc:
                 if not can_submit(order):
-                    self.message_user(request, str(exc), messages.WARNING)
+                    shipment = WingoShipment.objects.filter(order=order).first()
+                    if shipment and shipment.state in {"unknown", "submitting"}:
+                        try:
+                            # No POST retry. Limit this inline check; the manual
+                            # action retains the full ten-page recovery search.
+                            recover_submission(order.pk, max_pages=2, client=WingoClient.from_settings(
+                                connect_timeout=2, read_timeout=4))
+                        except WingoError:
+                            pass  # Unverified creation remains blocked, not failed.
+                        shipment.refresh_from_db()
+                    if shipment and shipment.state == "created":
+                        return self._wingo_submission_success(request, order, shipment, late=late)
+                    message = (CREATION_UNCONFIRMED_MESSAGE if shipment and
+                               shipment.state in {"unknown", "submitting"} else str(exc))
+                    self.message_user(request, message, messages.WARNING)
                     return HttpResponseRedirect(reverse("admin:commerce_order_change", args=[order.pk]))
                 form.add_error(None, str(exc))
             else:
-                self.log_change(request, order, "Wingo-ს გზავნილი შექმნილია." +
-                                (" სტანდარტული მიტანის ვადის გადაწევა შეთანხმებულია მომხმარებელთან." if late else ""))
-                self.message_user(request, f"გზავნილი შექმნილია. ნომერი: {shipment.tracking_number}")
-                return HttpResponseRedirect(reverse("admin:commerce_order_change", args=[order.pk]))
+                return self._wingo_submission_success(request, order, shipment, late=late)
         return self._wingo_action(request, order, title="Wingo-ში გაგზავნა", action="Wingo-ში გაგზავნის დადასტურება", form=form)
+
+    def _wingo_submission_success(self, request, order, shipment, *, late):
+        self.log_change(request, order, "Wingo-ს გზავნილი შექმნილია." +
+                        (" სტანდარტული მიტანის ვადის გადაწევა შეთანხმებულია მომხმარებელთან." if late else ""))
+        self.message_user(request, f"გზავნილი წარმატებით შეიქმნა. ნომერი: {shipment.tracking_number}", messages.SUCCESS)
+        return HttpResponseRedirect(reverse("admin:commerce_order_change", args=[order.pk]))
 
     def wingo_recover_view(self, request, object_id):
         order = self._wingo_order(request, object_id)

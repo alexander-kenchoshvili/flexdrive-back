@@ -20,6 +20,12 @@ class WingoShipmentError(WingoError):
     pass
 
 
+CREATION_UNCONFIRMED_MESSAGE = (
+    "გზავნილის შექმნა ჯერ ვერ დადასტურდა. შესაძლოა Wingo-ში უკვე შექმნილია. "
+    "ხელახლა ნუ გაგზავნით — გამოიყენეთ „Wingo-ში გაგზავნის შედეგის გადამოწმება“."
+)
+
+
 def _eligible(order):
     return (order.delivery_provider == "wingo" and order.payment_status == "paid"
             and order.status in {"new", "confirmed", "processing"}
@@ -216,7 +222,7 @@ def submit_shipment(order_id, *, parcel_count, prepared, client=None, late_deliv
     except Exception as exc:
         # Once POST starts, any unclassified failure may have created a shipment.
         unknown = not isinstance(exc, WingoError) or exc.outcome_unknown
-        message = ("გაგზავნის შედეგი გაურკვეველია. ახალი გზავნილის ნაცვლად გამოიყენეთ შედეგის გადამოწმება."
+        message = (CREATION_UNCONFIRMED_MESSAGE
                    if unknown else "Wingo-მ მოთხოვნა უარყო. შეამოწმეთ API წვდომა და შეკვეთის მონაცემები.")
         WingoShipment.objects.filter(pk=shipment.pk, state="submitting", operation_token=token).update(
             state="unknown" if unknown else "failed", operation_token=None, last_error=message)
@@ -231,14 +237,14 @@ def submit_shipment(order_id, *, parcel_count, prepared, client=None, late_deliv
     except (WingoError, IntegrityError):
         WingoShipment.objects.filter(pk=shipment.pk, operation_token=token, state="submitting").update(
             state="unknown", operation_token=None,
-            last_error="Wingo-ს პასუხი ვერ დადასტურდა. ხელახლა გაგზავნის ნაცვლად გადაამოწმეთ არსებული გზავნილი.")
-        raise WingoShipmentError("Wingo-ს პასუხი შესამოწმებელია. ახალი მოთხოვნა არ გაიგზავნოს.") from None
+            last_error=CREATION_UNCONFIRMED_MESSAGE)
+        raise WingoShipmentError(CREATION_UNCONFIRMED_MESSAGE) from None
 
 
-def _find_existing(shipment, client):
+def _find_existing(shipment, client, *, max_pages):
     matches, seen = [], set()
     # Bounded full-page search: provider-side supplierOrderId/search filters are ignored.
-    for page in range(1, 11):
+    for page in range(1, max_pages + 1):
         body = client.get_orders(page=page, limit=100)
         rows = body.get("orders") if isinstance(body, dict) else None
         pagination = body.get("pagination") if isinstance(body, dict) else None
@@ -267,13 +273,15 @@ def _find_existing(shipment, client):
     raise WingoShipmentError("ძიების ზღვარი ამოიწურა. გადაამოწმეთ Wingo-ს პანელში; ახალი მოთხოვნა არ გაიგზავნოს.")
 
 
-def recover_submission(order_id, *, client=None):
+def recover_submission(order_id, *, client=None, max_pages=10):
+    if type(max_pages) is not int or not 1 <= max_pages <= 10:
+        raise WingoShipmentError("Wingo-ს ძიების გვერდების რაოდენობა არასწორია.")
     shipment = WingoShipment.objects.filter(order_id=order_id, state__in=["unknown", "submitting"]).first()
     if shipment is None or not shipment.request_payload or not shipment.attempted_at:
         raise WingoShipmentError("შესამოწმებელი გაგზავნის მოთხოვნა არ არის.")
     carrier = client or WingoClient.from_settings()
     _account_matches(shipment, carrier)
-    result = _find_existing(shipment, carrier)
+    result = _find_existing(shipment, carrier, max_pages=max_pages)
     try:
         with transaction.atomic():
             order = Order.objects.select_for_update().get(pk=order_id)

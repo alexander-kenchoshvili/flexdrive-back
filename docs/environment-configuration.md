@@ -121,11 +121,20 @@ WINGO_PICKUP_ADDRESS=<pickup address>
 WINGO_PICKUP_PHONE=<pickup phone>
 WINGO_WEBHOOK_PUBLIC_URL=<public backend Wingo webhook prefix>
 WINGO_PREPARATION_MINUTES=30
+WINGO_DELIVERY_BUFFER_GEL=0.00
 DELIVERY_QUOTE_MAX_AGE_SECONDS=900
 ```
 
 Use the real merchant key/ID and `production` mode for launch, then refresh references
 again. Account mode is an operator label; the key selects the provider account.
+`WINGO_DELIVERY_BUFFER_GEL` adds a fixed GEL amount once per new order to every
+available Wingo service, including Tbilisi standard/fast and regions. Use `2.00`
+or `3.00` to add that amount, or `0.00` to disable it. Set it on the backend with
+Runtime scope and redeploy/restart to load the value. Only non-negative amounts
+with up to two decimal places are accepted. Saved carrier tariffs remain the
+provider cost; the customer price includes the buffer. Open unpaid quotes must
+be refreshed after a change. Existing orders and frozen bank payment attempts
+retain their saved amounts, including any saved buffer used in refunds/reports.
 `WINGO_WEBHOOK_PUBLIC_URL` must end in `/api/commerce/wingo/webhook/` on the public
 HTTPS backend. Each order gets a private authenticated callback URL. Canonical GET
 verification and the manual admin status button share the same tracking flow.

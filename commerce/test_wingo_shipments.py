@@ -6,11 +6,13 @@ from unittest.mock import Mock, patch
 import requests
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
+from django.contrib.messages import SUCCESS
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import Client, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.text import capfirst
 
 from .courier_state import has_unsettled_courier_shipment
 from .models import Order, OrderItem, OrderReturn, WingoShipment
@@ -21,7 +23,8 @@ from .wingo_locations import WingoLocality, resolve_delivery_location
 from .wingo_quotes import build_delivery_quote, delivery_order_fields
 from .wingo_references import refresh_wingo_references
 from .wingo_shipments import (
-    WingoShipmentError, build_order_payload, can_submit, get_shipment_label, recover_submission, submit_shipment,
+    CREATION_UNCONFIRMED_MESSAGE, WingoShipmentError, build_order_payload, can_submit,
+    get_shipment_label, recover_submission, submit_shipment,
 )
 
 
@@ -145,6 +148,19 @@ class WingoShipmentFixture(TestCase):
 
 
 class WingoShipmentTests(WingoShipmentFixture):
+    @override_settings(WINGO_DELIVERY_BUFFER_GEL=Decimal("2.50"))
+    def test_buffer_stays_on_order_and_does_not_inflate_carrier_price_or_payload(self):
+        quote = build_delivery_quote(source="cart", items=[item()], region=self.location, city=self.location)
+        self.change_order(total=Decimal("148.50"), **delivery_order_fields(quote))
+        shipment = self.submit()
+        self.assertEqual((self.order.delivery_price, self.order.delivery_margin, self.order.carrier_delivery_cost),
+                         (Decimal("48.50"), Decimal("2.50"), Decimal("46.00")))
+        self.assertEqual(shipment.booked_price, Decimal("46.00"))
+        self.assertEqual(shipment.last_error, "")
+        self.assertNotIn("delivery_margin", shipment.request_payload)
+        self.assertNotIn("serviceFee", shipment.request_payload)
+        self.assertEqual(shipment.request_payload["recipientPaymentDue"], 0)
+
     def test_frozen_order_payload_standard_prepaid_products_and_packages(self):
         payload = self.payload()
         self.assertEqual((payload["deliveryTypeId"], payload["recipientPaymentDue"], payload["packageCount"]), (1, 0, 2))
@@ -373,6 +389,13 @@ class WingoShipmentTests(WingoShipmentFixture):
         self.carrier.get_order.assert_not_called()
         self.assertEqual(WingoShipment.objects.get().state, "unknown")
 
+    def test_recovery_page_limit_is_validated_before_network(self):
+        self.unknown()
+        for limit in (0, 11, True, 1.5, "2"):
+            with self.subTest(limit=limit), self.assertRaises(WingoShipmentError):
+                recover_submission(self.order.pk, client=self.carrier, max_pages=limit)
+        self.carrier.get_orders.assert_not_called()
+
     def test_recovery_winning_race_cannot_be_overwritten_by_late_post_response(self):
         def delayed_create(payload):
             result = self.result(payload)
@@ -467,6 +490,7 @@ class WingoOrderAdminTests(WingoShipmentFixture):
         self.assertContains(page, "Wingo-ში გაგზავნის შედეგის გადამოწმება")
         self.assertNotContains(page, ">Wingo-ში გაგზავნა</a>")
         self.assertNotContains(page, "სტიკერის გახსნა / ბეჭდვა — A4")
+        self.assertContains(page, CREATION_UNCONFIRMED_MESSAGE)
 
     def test_uncertain_post_redirects_to_recovery_instead_of_another_submit_form(self):
         self.carrier.create_order.side_effect = WingoTransportError()
@@ -474,7 +498,124 @@ class WingoOrderAdminTests(WingoShipmentFixture):
             response = self.client.post(self.url("submit"), {"parcel_count": 2, "prepared": "on"}, follow=True)
         self.assertContains(response, "Wingo-ში გაგზავნის შედეგის გადამოწმება")
         self.assertNotContains(response, ">Wingo-ში გაგზავნა</a>")
+        self.assertContains(response, CREATION_UNCONFIRMED_MESSAGE)
         self.carrier.create_order.assert_called_once()
+
+    def test_timeout_automatically_confirms_existing_shipment_without_second_post(self):
+        result = self.result()
+        self.carrier.create_order.side_effect = WingoTransportError()
+        self.carrier.get_orders.return_value = self.pages([result])
+        self.carrier.get_order.return_value = result
+        original = (self.order.total, self.order.delivery_price, self.order.payment_status, self.order.status)
+        with patch("commerce.wingo_order_admin.WingoClient.from_settings", return_value=self.carrier) as factory:
+            response = self.client.post(self.url("submit"), {"parcel_count": 2, "prepared": "on"}, follow=True)
+        self.assertContains(response, capfirst("გზავნილი წარმატებით შეიქმნა. ნომერი: 999-1000001"))
+        self.assertEqual([message.level for message in response.context["messages"]], [SUCCESS])
+        self.assertContains(response, "სტიკერის გახსნა / ბეჭდვა — A4")
+        self.assertNotContains(response, CREATION_UNCONFIRMED_MESSAGE)
+        self.assertNotContains(response, ">Wingo-ში გაგზავნა</a>")
+        shipment = WingoShipment.objects.get(order=self.order)
+        self.assertEqual((shipment.state, shipment.tracking_number, shipment.last_error), ("created", "999-1000001", ""))
+        self.order.refresh_from_db()
+        self.assertEqual((self.order.total, self.order.delivery_price, self.order.payment_status, self.order.status), original)
+        self.carrier.create_order.assert_called_once()
+        self.carrier.get_orders.assert_called_once_with(page=1, limit=100)
+        self.carrier.get_order.assert_called_once_with("internal-wingo-id")
+        factory.assert_any_call(connect_timeout=2, read_timeout=4)
+
+    def test_unverifiable_create_response_can_be_confirmed_by_canonical_get(self):
+        result = self.result()
+        self.carrier.create_order.side_effect = None
+        self.carrier.create_order.return_value = {"id": "incomplete"}
+        self.carrier.get_orders.return_value = self.pages([result])
+        self.carrier.get_order.return_value = result
+        with patch("commerce.wingo_order_admin.WingoClient.from_settings", return_value=self.carrier):
+            response = self.client.post(self.url("submit"), {"parcel_count": 2, "prepared": "on"}, follow=True)
+        self.assertContains(response, capfirst("გზავნილი წარმატებით შეიქმნა. ნომერი: 999-1000001"))
+        self.assertEqual(WingoShipment.objects.get().state, "created")
+        self.carrier.create_order.assert_called_once()
+
+    def test_failed_automatic_read_remains_blocked_and_does_not_expose_errors(self):
+        self.carrier.create_order.side_effect = WingoTransportError()
+        self.carrier.get_orders.side_effect = WingoTransportError()
+        with patch("commerce.wingo_order_admin.WingoClient.from_settings", return_value=self.carrier):
+            response = self.client.post(self.url("submit"), {"parcel_count": 2, "prepared": "on"}, follow=True)
+            # A second submit cannot create anything or repeat automatic reads.
+            self.client.post(self.url("submit"), {"parcel_count": 2, "prepared": "on"})
+        self.assertContains(response, CREATION_UNCONFIRMED_MESSAGE)
+        self.assertNotContains(response, "სტიკერის გახსნა / ბეჭდვა — A4")
+        self.assertNotContains(response, "წარმატებით შეიქმნა")
+        self.assertEqual(WingoShipment.objects.get().state, "unknown")
+        self.assertFalse(can_submit(self.order))
+        self.carrier.create_order.assert_called_once()
+        self.carrier.get_orders.assert_called_once()
+
+    def test_automatic_search_never_accepts_missing_duplicate_or_foreign_match(self):
+        result = self.result()
+        for rows, detail in (([], result),
+                             ([result, {**result, "id": "other-id"}], result),
+                             ([result], {**result, "userId": "foreign-merchant"})):
+            with self.subTest(rows=rows):
+                self.carrier.reset_mock(side_effect=True)
+                self.carrier.create_order.side_effect = WingoTransportError()
+                self.carrier.get_orders.return_value = self.pages(rows)
+                self.carrier.get_order.return_value = detail
+                with patch("commerce.wingo_order_admin.WingoClient.from_settings", return_value=self.carrier):
+                    response = self.client.post(self.url("submit"), {"parcel_count": 2, "prepared": "on"}, follow=True)
+                self.assertContains(response, CREATION_UNCONFIRMED_MESSAGE)
+                self.assertNotContains(response, "წარმატებით შეიქმნა")
+                self.assertEqual(WingoShipment.objects.get().state, "unknown")
+                self.assertFalse(can_submit(self.order))
+                self.carrier.create_order.assert_called_once()
+                WingoShipment.objects.all().delete()  # disposable fixture only
+
+    def test_automatic_search_is_bounded_and_manual_check_can_finish_search(self):
+        result = self.result()
+        pages = [self.pages([result], next_page=True),
+                 self.pages([{"id": "other", "supplierOrderId": "OTHER"}], next_page=True, page=2)]
+        self.carrier.create_order.side_effect = WingoTransportError()
+        self.carrier.get_orders.side_effect = pages
+        with patch("commerce.wingo_order_admin.WingoClient.from_settings", return_value=self.carrier):
+            response = self.client.post(self.url("submit"), {"parcel_count": 2, "prepared": "on"}, follow=True)
+            self.assertContains(response, CREATION_UNCONFIRMED_MESSAGE)
+            self.assertEqual(self.carrier.get_orders.call_count, 2)
+            self.carrier.get_order.assert_not_called()
+            self.assertEqual(WingoShipment.objects.get().state, "unknown")
+            self.carrier.get_orders.side_effect = pages + [self.pages([], page=3)]
+            self.carrier.get_order.return_value = result
+            self.assertEqual(self.client.post(self.url("recover")).status_code, 302)
+        self.assertEqual(WingoShipment.objects.get().state, "created")
+        self.assertEqual(self.carrier.get_orders.call_count, 5)
+        self.carrier.create_order.assert_called_once()
+
+    def test_normal_success_and_definite_refusal_do_not_start_recovery(self):
+        with patch("commerce.wingo_order_admin.WingoClient.from_settings", return_value=self.carrier):
+            self.client.post(self.url("submit"), {"parcel_count": 2, "prepared": "on"})
+            self.carrier.get_orders.assert_not_called()
+            WingoShipment.objects.all().delete()  # disposable fixture only
+            self.carrier.create_order.side_effect = WingoResponseError(status_code=401, outcome_unknown=False)
+            response = self.client.post(self.url("submit"), {"parcel_count": 2, "prepared": "on"})
+        self.assertContains(response, "Wingo-მ მოთხოვნა უარყო")
+        self.assertNotContains(response, CREATION_UNCONFIRMED_MESSAGE)
+        self.assertEqual(WingoShipment.objects.get().state, "failed")
+        self.carrier.get_orders.assert_not_called()
+
+    def test_concurrent_verified_recovery_is_not_reported_as_failed_submission(self):
+        def delayed_create(payload):
+            result = self.result(payload)
+            self.carrier.get_orders.return_value = self.pages([result])
+            self.carrier.get_order.return_value = result
+            recover_submission(self.order.pk, client=self.carrier)
+            raise WingoTransportError()
+
+        self.carrier.create_order.side_effect = delayed_create
+        with patch("commerce.wingo_order_admin.WingoClient.from_settings", return_value=self.carrier):
+            response = self.client.post(self.url("submit"), {"parcel_count": 2, "prepared": "on"}, follow=True)
+        self.assertContains(response, capfirst("გზავნილი წარმატებით შეიქმნა. ნომერი: 999-1000001"))
+        self.assertNotContains(response, CREATION_UNCONFIRMED_MESSAGE)
+        self.assertEqual(WingoShipment.objects.get().state, "created")
+        self.carrier.create_order.assert_called_once()
+        self.carrier.get_orders.assert_called_once()
 
     def test_recovery_get_is_read_only_and_post_never_creates(self):
         shipment = self.unknown()

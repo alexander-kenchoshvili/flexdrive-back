@@ -21,6 +21,7 @@ os.environ.update({
     "USE_CLOUDINARY_MEDIA": "False", "BOG_PAYMENTS_ENABLED": "False",
     "META_CAPI_ENABLED": "False", "EMAIL_BACKEND": "django.core.mail.backends.locmem.EmailBackend",
     "DJANGO_SETTINGS_MODULE": "config.settings", "WINGO_API_KEY": "", "WINGO_ACCOUNT_MODE": "test",
+    "WINGO_DELIVERY_BUFFER_GEL": "0.00",
 })
 
 import django

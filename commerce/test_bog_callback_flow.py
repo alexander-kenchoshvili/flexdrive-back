@@ -342,6 +342,22 @@ class BogCallbackFlowTests(APITransactionTestCase):
             HTTP_CALLBACK_SIGNATURE=signature,
         )
 
+    def test_bank_confirmation_preserves_buffer_after_runtime_price_change(self):
+        with self.settings(WINGO_DELIVERY_BUFFER_GEL=Decimal("2.50")):
+            _, response, payment = self._start_cart_payment()
+        self.assertEqual(response.status_code, 201, response.data)
+        frozen = payment.checkout_snapshot["delivery"]
+        self.assertEqual(frozen["delivery_margin"], "2.50")
+        self.assertEqual(Decimal(frozen["customer_delivery_price"]), Decimal(frozen["carrier_delivery_cost"]) + Decimal("2.50"))
+        with self.settings(WINGO_DELIVERY_BUFFER_GEL=Decimal("9.00")):
+            completed = self._signed_callback_request(self._callback_payload(payment))
+        self.assertEqual(completed.status_code, 200, completed.data)
+        payment.refresh_from_db()
+        self.assertEqual(payment.order.delivery_margin, Decimal("2.50"))
+        self.assertEqual(payment.order.delivery_price, Decimal(frozen["customer_delivery_price"]))
+        self.assertEqual(payment.order.carrier_delivery_cost, Decimal(frozen["carrier_delivery_cost"]))
+        self.assertEqual(payment.order.total, payment.amount)
+
     def test_fast_service_and_amount_survive_a_late_bank_confirmation_without_requote(self):
         from .models import WingoReferenceData
         from .test_wingo_services import moment
