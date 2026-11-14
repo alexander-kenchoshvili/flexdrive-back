@@ -1,9 +1,11 @@
 from django.urls import path
+from .views import BusinessDecisionView
 from .views import BusinessAccessView, BusinessLoginView, BusinessLogoutView, BusinessSessionView, BusinessReportView, BusinessOperationsView, BusinessAnalyticsView, BusinessMarketingView
 
 app_name = "business"
 
 urlpatterns = [
+    path("decisions/<str:source>/", BusinessDecisionView.as_view(), name="decisions"),
     path("session/", BusinessSessionView.as_view(), name="session"),
     path("login/", BusinessLoginView.as_view(), name="login"),
     path("access/", BusinessAccessView.as_view(), name="access"),

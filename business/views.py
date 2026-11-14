@@ -199,3 +199,19 @@ class BusinessAnalyticsView(BusinessAPIView):
 class BusinessMarketingView(BusinessAnalyticsView):
     def build_report(self, period):
         return build_marketing_report(period)
+
+
+class BusinessDecisionView(BusinessAnalyticsView):
+    def get(self, request, source):
+        if source not in ("all", "google", "meta"):
+            return Response({"detail": "აირჩიეთ ანგარიშის სწორი წყარო."}, status=400)
+        try:
+            return super().get(request)
+        except (ValueError, OverflowError):
+            return Response({"detail": "აირჩიეთ შედარებისთვის გამოსადეგი პერიოდი."}, status=400)
+
+    def build_report(self, period):
+        from .decisions import build_decision_report
+        from .reports import previous_period
+        previous_period(period)  # Validate comparison boundaries before any API call.
+        return build_decision_report(period, self.kwargs["source"])

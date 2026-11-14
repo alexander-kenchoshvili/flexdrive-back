@@ -162,11 +162,11 @@ def _instagram_activity(token, period):
         raise MetaUnavailable("invalid_response") from None
 
 
-def _action(row, key, *, money=False):
+def _action(row, key, *, money=False, action_type=PURCHASE):
     values = row.get(key, [])
     if not isinstance(values, list) or any(not isinstance(value, dict) for value in values):
         raise MetaUnavailable("invalid_response")
-    found = [value for value in values if value.get("action_type") == PURCHASE]
+    found = [value for value in values if value.get("action_type") == action_type]
     if len(found) > 1:
         raise MetaUnavailable("invalid_response")
     value = found[0].get("value") if found else 0
@@ -187,7 +187,9 @@ def _attributed_count(value):
 def _ad_values(row):
     return {"spend": _money(row.get("spend")), "impressions": _count(row.get("impressions")),
             "clicks": _count(row.get("clicks")), "reach": _count(row.get("reach")),
-            "website_purchases": _action(row, "actions"), "website_purchase_value": _action(row, "action_values", money=True)}
+            "website_purchases": _action(row, "actions"), "website_purchase_value": _action(row, "action_values", money=True),
+            "link_clicks": _action(row, "actions", action_type="link_click"),
+            "landing_page_views": _action(row, "actions", action_type="landing_page_view")}
 
 
 def _ads(token, period):
@@ -232,7 +234,8 @@ def _ads(token, period):
         day = period.start
         while day <= period.end:
             daily.append(daily_by_date.get(day.isoformat(), {"date": day.isoformat(), "spend": "0.00", "impressions": 0, "clicks": 0,
-                         "reach": 0, "website_purchases": "0", "website_purchase_value": "0.00"}))
+                         "reach": 0, "website_purchases": "0", "website_purchase_value": "0.00",
+                         "link_clicks": "0", "landing_page_views": "0"}))
             day += timedelta(days=1)
         campaigns, seen, cursors, limited = [], set(), set(), False
         campaign_params = {**params, "fields": "campaign_id,campaign_name," + fields, "level": "campaign", "limit": 100}

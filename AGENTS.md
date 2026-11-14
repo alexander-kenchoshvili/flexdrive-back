@@ -1,5 +1,171 @@
 # Project Instructions
 
+## Decision Reports Prepared Before Test Purchase - 2026-11-14
+
+- User requested preparing missing decision analytics before the real test sale.
+  Added private /api/business/decisions/{all|google|meta}/ with existing business
+  auth/date validation/no-store. Fixed GA4 reader/property/production-host scope;
+  new current/previous ecommerce totals, source+campaign purchases/revenue GEL,
+  closed ordered view_item/add_to_cart/begin_checkout/purchase active-user funnel.
+  Private business/admin/manager-fd events excluded. No ledger/event/DB writes.
+- Independent cached Google core/funnel and current/previous Meta Ads reads, max3
+  workers, bounded timeouts/backoff/dated stale snapshots. Existing Ads cache reused
+  without social rereads. Meta action parsing additionally exposes link_click and
+  landing_page_view, preserving purchase alias/fractional attribution handling.
+- Paired frontend BusinessDecisionPanel on overview(compact)/users/marketing:
+  comparison cards, sources/campaigns, ordered steps/drop-off, CPA/ROAS, campaign
+  revenue and clear Georgian explanations/status times. Never mix GEL and USD,
+  infer profit from ROAS, sum attributed sales into ledger, or divide by zero.
+  Stale/incompatible comparisons suppressed; unmount/period change cancels reads.
+-54 isolated network-blocked backend tests +36 frontend analytics/report tests,
+  scoped ESLint/typecheck and production build pass. Existing CKEditor/staticfiles/
+  Browserslist/Vue warnings only. No dev server/browser for this implementation.
+- Actual read-only API check Nov1-14: Google ready/1session1user0purchase/1 source;
+  funnel ready/valid empty; current/previous Ads valid empty USD/Asia-Tbilisi.
+  Google v1alpha returned duplicate activeUsers headers in its empty response;
+  parser supports exact shape, nonempty duplicate metrics require equal values.
+  Regression covers ambiguous differing values. Nonempty live purchase/campaign
+  and new UI desktop/mobile visual review remain after deployment/testing.
+- No ENV/credential/permission/migration/production config, provider mutation,
+  real payment, tracking event, ad, commit/push/deploy or public opening. User owns
+  BOTH pushes/deployments, backend first; no new ENV/migration needed. See
+  docs/BUSINESS_DECISION_REPORTS.md; ignored aggregate live-read evidence under
+  tmp/measurements-20261015/business-decisions-20261114/. One-off helper removed.
+
+## Business Analytics Production Read Verified - 2026-11-14
+
+- User requested a quick Google/Meta dashboard coverage audit and a path for
+  missing decision metrics, not implementation. Reviewed backend analytics.py/
+  marketing.py and frontend BusinessUsers/BusinessMarketing plus their contracts.
+- User personally logged into https://flexdrive.ge/business/users. Production
+  Google report for Nov1-14 fetched12:51 Tbilisi:1 session,1 user,0 search/zero-result
+  views; direct source1. Google connector and deployed UI work on the new domain.
+- Production /business/marketing fetched12:52: Ads USD/Asia-Tbilisi, valid empty
+  period ($0,0 impressions/clicks/purchases); Facebook3 followers/2 views/0
+  interactions; Instagram1 follower/0 reach/views/interactions/posts. No displayed
+  source errors. This proves reporting reads, not live Purchase event delivery.
+- Existing UI has period filters, daily charts/tables, source/search tables,
+  campaign results and Georgian summaries/status/update times. Missing priorities:
+  ordered ecommerce journey/drop-off; source/campaign-attributed purchases/revenue;
+  purchase CPA/ROAS and link/landing-page clicks; previous-period comparisons and
+  concise action-oriented overview. Ad purchase value exists in the API contract
+  but campaign table currently omits it. Do not mix USD spend and GEL revenue or
+  add attributed purchases to financial ledger totals. No code/env/provider/DB
+  changes, login automation, purchase or advertising action. CUA completed/reset.
+
+## Pixel Connected To Existing Ad Account - 2026-11-14
+
+- User requested connecting the existing advertising account now to prepare for
+  later ads. In their Chrome, selected FlexDrive Web Pixel1020718363721235,
+  owned by flexdrive.ge/business1761419678356905. Connect assets search by exact
+  ad account1462913205812039 returned FlexDrive; selected only that account.
+- Add succeeded: "Assigned business assets — 1 ad account has been added to the
+  dataset." Connected assets visibly shows one connected asset, Ad account
+  FlexDrive, with Disconnect control. No person/partner/token grant, campaign,
+  ad publication, budget, payment, ENV/source/DB or storefront-opening action.
+- Browser event delivery, direct CAPI Purchase and browser/server deduplication
+  remain untested as previously deferred. CUA completed/reset. Stop after task.
+
+## GTM And Pixel Domain Configuration Reviewed - 2026-11-14
+
+- User requested GTM/Pixel checks after domain cutover, then selected settings-only
+  when the browser blocked fbevents.js with ERR_BLOCKED_BY_CLIENT. Later resumed
+  this exact review through their Chrome. Real payment/Purchase remains deferred.
+- Live root after cookie acceptance loads GTM-MVNFL9TH and GA4 G-CKQC30CKYJ with
+  HTTP200; actual page_view to google-analytics.com/g/collect returned204 with
+  dl=https://flexdrive.ge/ and tt=internal. GTM workspace has0 pending changes.
+  Added ONLY flexdrive.ge to diagnostics Monitored domains; saved table confirmed.
+  Container diagnostics became Good; remaining advice is another administrator.
+- GTM Meta Pixel Base uses1020718363721235 with PageView/Initialization-All Pages.
+  Meta owner and dataset ID match. Current Traffic permissions has Create allow
+  list, no configured domain restriction list. Connected assets explicitly says
+  "You don't have any connected assets"; advertising account link remains needed.
+  No Meta grants, credential generation, publishing or settings edits performed.
+- After user personally signed into DO, read-only editors checked all37 app-level
+  and47 backend-component key names. Component META_CAPI_ENABLED=true,
+  META_PIXEL_ID=1020718363721235, access token configured/masked (never revealed),
+  graph v25.0/timeout2. App-level FRONTEND_BASE_URL=https://flexdrive.ge and no
+  CAPI override. Older Oct10 audit's missing-production-CAPI finding is historical.
+  Meta's "Conversions API with Meta — Connection pending" is its separately
+  offered connection and does not establish failure of our direct integration.
+- No ENV values changed or saved/deployed. Editor closed, app Healthy, CUA
+  completed/reset. Actual browser Pixel delivery, direct server Purchase and
+  deduplication remain unverified. User asked to stop after this check. Plan rows
+  D14/D16 updated. No bank/provider/DB/source operation, commit or push.
+
+## Facebook Domain Settings Fixed; Business Verification Pending - 2026-11-14
+
+- User authorized checking Facebook and correcting routine settings. Confirmed
+  Meta app1321658899670696 matches backend FACEBOOK_APP_ID. Meta already allows
+  https://flexdrive.ge/auth/facebook/callback; Client/Web OAuth, HTTPS and strict
+  redirect mode enabled. Existing old/local redirects and permissions preserved.
+- Changed ONLY backend component FACEBOOK_OAUTH_REDIRECT_URI to that root callback;
+  all188 UI fields compared, exactly one value changed. Config deployment
+  0d31c64a-0d55-450b-8336-3dd396a8bc72 is Success/Live, app Healthy.
+- Meta Basic: privacy -> https://flexdrive.ge/privacy-policy; terms ->
+  https://flexdrive.ge/terms; deletion instructions -> own privacy URL (was extra.ge).
+  Exactly three fields changed, saved and reload-verified. Public privacy actually
+  includes Facebook account/data deletion instructions. No callback type change.
+- App remains unpublished; Publish disabled because business1761419678356905
+  verification is Incomplete. Security Centre shows Verification for FLEXDRIVE,
+  started Jul08, Pending submission. Continue opens intro requiring business
+  name/address/phone/email/website, connection confirmation and possibly documents.
+  Intro closed; no details entered, documents uploaded or verification submitted.
+  email/public_profile are Ready for testing (0 API calls); real login not tested.
+- No source/DB/credential/scope/role change, commit/push, bank/provider operation
+  or public store opening. CUA completed/reset. Next Facebook stage needs actual
+  business verification details/user involvement, then inspect testing/review/
+  publication requirements and test ordinary-user login. Google real login still
+  untested; branding/logo deferred to next day as recorded below.
+
+## Google Callback Environment Fixed And Live - 2026-11-14
+
+- User explicitly authorized fixing the one env after read-only check. Updated ONLY
+  backend component GOOGLE_OAUTH_REDIRECT_URI to
+  https://flexdrive.ge/auth/google/callback. Compared all188 UI fields before/after:
+  exactly one value changed, all other values/scopes/encryption retained.
+- Config deployment d0325823-7c6e-499a-86f1-161cdf17c960 is Success/Live, app Healthy.
+  Existing Google OAuth client already allows this redirect and root origin; no
+  Google client/credential/Facebook/source/DB changes. No user push/deploy needed.
+  Real Google login not performed. CUA completed/reset and stopped as requested.
+
+## Google Callback Read-Only Check - 2026-11-14
+
+- User requested quick Google callback check only and stop before Facebook.
+  Same OAuth client ID confirmed in DO backend component and Google FLEXDRIVE WEB.
+  Google client already allows https://flexdrive.ge origin and
+  https://flexdrive.ge/auth/google/callback redirect (old/local URIs retained).
+- DO backend component GOOGLE_OAUTH_REDIRECT_URI STILL points to
+  https://flexdrive-prod-front-pdzcv.ondigitalocean.app/auth/google/callback.
+  Required next change is this one env to https://flexdrive.ge/auth/google/callback.
+  User asked check only, so no edits/save/deploy/login attempt performed. Backend
+  env editor closed without edits. Facebook/branding untouched. CUA completed/reset.
+
+## Public Legal Pages Live And Google Domain Ownership Verified - 2026-11-14
+
+- User confirmed both deployments. Anonymous live root/privacy-policy/terms return
+  200; both documents contain full sections. Catalog still holding200/API403;
+  launch guard true, public_open false, preview false. No-store/noindex preserved.
+- Google Auth Branding Verify branding automated check rejected ONLY unverified
+  homepage ownership and explicitly requires verifying ownership then waiting24h
+  before retry. No false "fixed" confirmation/review request was submitted.
+- Created Search Console Domain property flexdrive.ge under the same Google account
+  as OAuth project. TXT save attempts failed/hung (first TTL mismatch, corrected
+  attempts never published). Used Google's offered CNAME alternative successfully:
+  saz7zcmidlok.flexdrive.ge -> gv-op4ax32ama2c5k.dv.googlehosted.com, TTL14400.
+  Search Console displayed green "Ownership verified". KEEP this CNAME permanently.
+- Both authoritative NS show the CNAME; all30 original DNS query groups identical
+  except SOA serial, including original root TXT (NO Google TXT added), mail/web/API.
+  Evidence in ignored tmp/measurements-20261015/api-domain-20261114/public-information/:
+  live-check.json, google-before/after-*.json, google-dns-comparison.json,
+  google-ownership-result.json. CUA completed/reset so frame removed.
+- Clock observation after success:2026-11-14 00:33:08 UTC (04:33 Tbilisi). Next retry
+  no earlier than2026-11-15 04:35 Asia/Tbilisi: Google Auth Platform -> Branding ->
+  View issues -> I have fixed the issues -> Proceed; inspect outcome and only publish
+  branding if approved/appropriate. Do not call ownership proof brand approval.
+  Other Google callback/env/login/reCAPTCHA tasks remain untouched. Search Console
+  sitemap/indexing/general SEO still deferred. Stop after this verification stage.
+
 ## Public Legal Pages For Google Branding Prepared - 2026-11-14
 
 - User authorized preparing public information pages and proceeding toward Google
