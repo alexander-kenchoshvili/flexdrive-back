@@ -1,5 +1,34 @@
 # Project Instructions
 
+## Search Console Business Reporting Connected And Prepared - 2026-11-14
+
+- User requested clear Search Console data inside their business panel. Added
+  private /api/business/search-console/ using existing business auth/no-store/date
+  contract, fixed sc-domain:flexdrive.ge and webmasters.readonly. Reuses validated
+  GA4 reader key via with_scopes; GA4/customer Google OAuth credentials unchanged.
+- Enabled Search Console API in FLEXDRIVE/flexdrive-494109 via user's Chrome.
+  Existing property owner confirmed in Settings. Prepared Restricted reader grant,
+  explained it when user asked, then user explicitly said "გასაგებია. დაამატე".
+  Added only flexdrive-analytics-reader@flexdrive-494109.iam.gserviceaccount.com
+  as Restricted; UI verified owner+reader/Restricted, 2 users. No new key/ENV/DNS.
+- Actual reporting query now HTTP200; complete current/previous/daily/query/page
+  reads all succeed with genuine empty finalized Nov1-11 data. position null,
+  not0. Aggregate evidence ignored under tmp/measurements-20261015/search-console-20261114/.
+  One-off helper removed. Computer Use via node_repl/sky; kernel reset after grant.
+- Front BusinessSearchConsole in overview(compact)/users(full), separate explicit
+  website-internal search label. Clicks/impressions/CTR/position with definitions,
+  previous comparison, daily lazy chart/table, top50 queries/pages and limitations.
+  Fixed PT days, final-only, conservative3day exclusion and16month retention;
+  actual effective dates shown and comparison uses them. Separate source totals,
+  no summing tables/averaging positions, no adding GSC clicks to GA4/orders.
+-65 network-blocked backend tests +43 frontend report tests pass; typecheck,
+  scoped ESLint and production build pass. New UI visual/mobile review after deploy
+  remains; no dev server/rendering browser started. No sitemap/indexing/public-open,
+  bank/provider mutation, tracking event, real purchase/ad, commit/push/deploy.
+- User owns BOTH new pushes/deployments, backend first. No migration/ENV/key needed.
+  Scope/rollout documented in docs/BUSINESS_SEARCH_CONSOLE.md. Existing Google
+  Branding/Meta business reviews and launch checklist remain separate.
+
 ## Decision Reports Prepared Before Test Purchase - 2026-11-14
 
 - User requested preparing missing decision analytics before the real test sale.

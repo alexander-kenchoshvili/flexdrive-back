@@ -215,3 +215,9 @@ class BusinessDecisionView(BusinessAnalyticsView):
         from .reports import previous_period
         previous_period(period)  # Validate comparison boundaries before any API call.
         return build_decision_report(period, self.kwargs["source"])
+
+
+class BusinessSearchConsoleView(BusinessAnalyticsView):
+    def build_report(self, period):
+        from .search_console import build_search_console_report
+        return build_search_console_report(period)
