@@ -2,6 +2,7 @@ import os
 import re
 import uuid
 from decimal import Decimal, ROUND_HALF_UP
+from urllib.parse import urlsplit, urlunsplit
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
@@ -712,8 +713,20 @@ class Product(TimeStampedModel):
 
     @property
     def public_canonical_url(self):
-        canonical = self.seo_canonical_url or f"/catalog/{self.public_slug}"
-        return canonical.replace(f"/catalog/{self.slug}", f"/catalog/{self.public_slug}")
+        public_path = f"/catalog/{self.public_slug}"
+        canonical = str(self.seo_canonical_url or "").strip()
+        if not canonical:
+            return public_path
+        try:
+            parsed = urlsplit(canonical)
+        except ValueError:
+            return public_path
+        # Translate only a saved legacy product path. The new public slug may
+        # itself start with the old slug; substring replacement duplicated its
+        # FlexDrive code and could also rewrite unrelated paths or query values.
+        if parsed.path.rstrip("/") == f"/catalog/{self.slug}":
+            return urlunsplit((parsed.scheme, parsed.netloc, public_path, parsed.query, parsed.fragment))
+        return canonical
 
     @property
     def customer_available_stock_qty(self):

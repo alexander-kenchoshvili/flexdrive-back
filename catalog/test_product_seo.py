@@ -36,6 +36,24 @@ class ProductSeoFixture(TestCase):
 
 
 class ProductSeoTests(ProductSeoFixture):
+    def test_canonical_for_slug_without_supplier_code_adds_internal_code_once(self):
+        self.product.slug = "mirror"
+        self.assertEqual(self.product.public_slug, "mirror-fd-02-0001")
+        self.assertEqual(self.product.public_canonical_url, "/catalog/mirror-fd-02-0001")
+
+    def test_saved_legacy_canonical_translates_only_its_exact_path(self):
+        self.product.slug = "mirror"
+        for saved, expected in (
+            ("/catalog/mirror", "/catalog/mirror-fd-02-0001"),
+            ("https://flexdrive.ge/catalog/mirror/", "https://flexdrive.ge/catalog/mirror-fd-02-0001"),
+            ("/catalog/mirror-fd-02-0001", "/catalog/mirror-fd-02-0001"),
+            ("/catalog/mirror-different", "/catalog/mirror-different"),
+            ("/other?return=/catalog/mirror", "/other?return=/catalog/mirror"),
+        ):
+            with self.subTest(saved=saved):
+                self.product.seo_canonical_url = saved
+                self.assertEqual(self.product.public_canonical_url, expected)
+
     def test_automatic_title_uses_name_vehicle_years_and_georgian_side(self):
         self.assertEqual(self.product.effective_seo_title, "Subaru Forester 2012–2018 — სარკის ქვედა ხუფი მარჯვენა")
         self.assertEqual(self.product.seo_title, None)

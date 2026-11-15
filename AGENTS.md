@@ -1,5 +1,248 @@
 # Project Instructions
 
+## SEO CMS Saved And Inventory Reviewed; Deploy Needed - 2026-11-15
+
+- User retry succeeded. Saved ONLY contact5/blogs3/catalog2 noindex=false; native
+  admin confirmed exactly3 pages changed successfully. Full reload confirms all3
+  unchecked;120 other AX editable values equal. Guard still true/public false,
+  anonymous root holding/noindex. Current production robots/sitemap still holding
+  HTML since new frontend source is not deployed. Never claim deployed fixes yet.
+- Read-only admin exact filters: published products1981/noindex0; categories13/
+  noindex0; nonempty canonical overrides0 in both. BlogPost3/noindex0. No extra
+  catalog flags changed.256 of1981 published products have no ProductImage row;
+  remaining images' accessibility/genuineness/alt not individually verified.
+- Source/test status below remains valid. Front AGENTS handoff added via approved
+  patch. docs/SEO_RELEASE_2026-11-15.md gives rollout: user BOTH pushes/deployments
+  backend then frontend, no migration; only after verified release prepare indexing
+  ENV true while keeping public_open=false and verify live closed/preview/starter.
+  DO login user-owned; no production ENV/DNS/opening action performed.
+- User must provide deployment completion next. Later post-open Search Console/
+  Rich Results/mobile performance and real content/photo work remain. Preserve
+  phone/address policy and no automatic OEM/SKU title changes. Evidence ignored
+  in SEO folder: cms-result.json, after-cms-http.json, catalog-inventory.json.
+
+## SEO Implementation Prepared; Previous CMS Save Unverified - 2026-11-15
+
+- User now explicitly authorized the full sequential SEO plan; this supersedes
+  the earlier assessment-only stop. Stop when their help is needed. Never open
+  storefront; user owns both pushes/deployments and later launch/test purchase.
+- Paired frontend SEO guard/host/private-path/strict ENV/robots/sitemap fixes,
+  category H1/description and regression harness prepared.79 front tests, scoped
+  ESLint/typecheck/production build pass. Built Nitro10 scenarios +4 outage checks
+  pass, including runtime true/false, closed/preview/open/starter/reclosed.
+- Backend Product.public_canonical_url now avoids duplicate FD public SKU on
+  manual legacy slugs and rewrites only exact old paths. Regression fixtures/tests
+  updated.48 backend tests pass,1 SQLite locking skip. No migration or DB edit.
+- Production Pages: prepared ONLY contact5/blogs3/catalog2 SEO noindex unchecked.
+  SAVE OUTCOME UNVERIFIED. Save was attempted but success/persistence not observed;
+  user video PiP covered Save. Fresh AX still showed same list.120 other editable
+  values identical; no blanket flags. Next turn FIRST inspect current saved state,
+  do not blindly click Save or assume complete. main/about-us already unchecked;
+  legal/help/private settings left as-is. Guard last confirmed true/public false.
+- Computer Use stopped on browser-URL confidence policy; no further UI actions,
+  node kernel reset to release capture. User new retry is needed. DO session also
+  previously signed out; no production ENV inspected/changed, no commit/push/deploy.
+- Full inventory/product/category flags/photos, actual ENV, deployed checks and
+  post-opening Search Console/Rich Results/performance remain. See updated
+  docs/SEO_PRELAUNCH_AUDIT_2026-11-15.md and canonical checklist. Don’t claim all SEO
+  complete. Backend/frontend source deploy BEFORE enabling indexing ENV; public
+  opening remains separate. Existing phone/address/OEM-title decisions preserved.
+
+## SEO Prelaunch Audit Prepared; No Indexing Change - 2026-11-15
+
+- User plans friend real test payment tonight, then public opening, with Monday
+  Nov16 intended start; no reporting start-date configuration changed. Asked first
+  for a clear SEO inventory/gaps/plan, including improvements. Prepared detailed
+  docs/SEO_PRELAUNCH_AUDIT_2026-11-15.md, linked from canonical checklist.
+- Read current paired code and prior SEO reports; user personally logged into
+  production Django admin. Pages list read-only confirms catalog/blogs/contact
+  SEO NOINDEX checked; main/about-us unchecked. No CMS/ENV/source/runtime edit.
+- Eight anonymous GETs confirm launch false/guard true, holding200 noindex header
+  and meta, www308 preserving path/query. robots.txt/sitemap.xml currently holding
+  HTML due guard; starter hostname also200 holding/noindex, no root redirect.
+- Identified prelaunch work: selected CMS flags, valid robots/XML responses under
+  guard, host-based noindex/redirect for shared starter before global indexing,
+  ENV/launch-switch coordination, live canonical/schema/sitemap URL validation and
+  Search Console submission. Actual DO ENV not inspected (session signed out).
+  Full production product/category/photo flags/counts and performance not audited.
+- Existing39 scoped frontend SEO tests:33 pass/6 fail, all missing alias resolution
+  of useProductGalleryPreload in old standalone test harness. Source module exists;
+  do not claim production module missing or all tests green. Log+public HTTP JSON
+  ignored under tmp/measurements-20261015/seo-prelaunch-20261115/. Helper removed.
+- Frontend remains clean. Computer Use reset. Stop at assessment; do not start
+  changes/indexing/public opening or unrelated tasks without next user direction.
+  Preserve existing phone/address policy and no automatic OEM/SKU title decisions.
+
+## GA4 Internal Traffic Filter Activated - 2026-11-15
+
+- User explicitly authorized finishing internal traffic exclusion. In existing
+  signed-in Chrome confirmed GA4 property538949234, account395725413, stream
+  14944216860 / https://flexdrive.ge / G-CKQC30CKYJ (Development name retained).
+- Existing single rule FlexDrive — სახლის ინტერნეტი uses exact IP equals and
+  traffic_type=internal. Read current browser public IPv4 through api.ipify.org;
+  it EXACTLY matches the previously user-supplied fixed home IP. No IP/rule edit.
+  Prior actual GA4 collect request had tt=internal (2026-11-14 recorded check).
+- Existing only filter Internal Traffic was Exclude / traffic_type exactly internal
+  / Testing. Changed ONLY state to Active, saved, accepted Activate filter dialog.
+  Final list shows Internal Traffic / Exclude / Active, verified after full reload.
+  No new GTM version, scopes, credentials, source/ENV/DB/deployment or public opening.
+- This excludes matching future processed analytics, not past data/DB orders or
+  Meta events. Different internet/mobile/friend IP is not automatically excluded.
+  Activation processing can lag; post-activation report/event delivery was not
+  tested and no real purchase made. Stop after this item; kernel reset completed.
+
+## Meta Domain Ownership Verified - 2026-11-15
+
+- User authorized completing domain verification and personally logged into
+  Namespace. Added flexdrive.ge to existing Meta business1761419678356905,
+  domain asset1008682372284281. Chose DNS TXT verification.
+- In existing cPanel Zone Editor added ONLY root TXT
+  facebook-domain-verification=lxikzj6b34eksn4xpvr1lnzl8jdg3z, TTL14400.
+  Zone rows31->32. Both authoritative ns1/ns2 independently confirm the new TXT;
+  all31 query groups match before/after except root TXT addition and SOA serial.
+  Original SPF/Brevo/root TXT, mail/web/API and Google ownership CNAME preserved.
+- Clicked Meta Verify domain; green Verified status confirmed and survives reload.
+  Keep this TXT permanently. No partner/person/asset permission grant, source/ENV,
+  deployment or storefront opening. Facebook app publication is unchanged; real
+  ordinary-user login test and Google branding remain separate. Stopped here.
+- Safe evidence ignored under tmp/measurements-20261015/meta-domain-20261115/:
+  before/after-ns1/ns2.namespace.life.json, comparison.json, verification-result.json.
+  One-off DNS helper removed; Computer Use kernel reset to release capture.
+
+## Meta Domains Read-Only Check: No Domains Added - 2026-11-15
+
+- User requested Computer Use check only. In existing Chrome, opened business
+  portfolio flexdrive.ge /1761419678356905, Settings -> Brand safety and suitability
+  -> Domains. Page explicitly says No domains added; flexdrive.ge is not registered
+  in this portfolio's Domains section and no Verified status is present.
+- No Add/create/verify click, DNS/source/ENV/provider mutation or public opening.
+  Domain addition/ownership verification remains pending, separate from completed
+  business verification and Facebook app publication. Computer Use kernel reset.
+- First previous turn ended at URL-detection policy stop; user's new retry worked.
+  Do not treat that intermittent issue as a permanent access blocker.
+
+## Facebook App Published Successfully - 2026-11-15
+
+- After concrete Publish review, user explicitly authorized activating Facebook
+  Login for other users and will ask a friend to test tomorrow. Clicked final
+  Publish for Meta app1321658899670696. Initial spinner resolved after reload:
+  Published status, Unpublish button and success modal explicitly confirm app
+  was successfully published and is now available for public use. Dismissed Done.
+- No new permissions/scopes, credentials, source/ENV/deploy or storefront-opening
+  action. Public store remains closed under the existing launch guard. Friend
+  must first get preview access in their own browser, then test Facebook login.
+- Ordinary-user end-to-end login remains untested/deferred to the user. No claim
+  publication alone proves login works. Google branding remains a separate item.
+  Computer Use kernel reset to release capture session.
+
+## Meta Business Verified; Publish Available Read-Only Check - 2026-11-15
+
+- User supplied Meta success email and requested checking Publish only. Opened
+  app1321658899670696 in existing signed-in Chrome. Dashboard shows green business
+  verification, customization and testing requirements; app remains Unpublished.
+- Publish page explicitly says all required app settings are complete and its
+  final Publish button is enabled. Inspected Facebook Login use case: email and
+  public_profile each show0 calls/Ready for testing; other permissions not added.
+- Did not click final Publish, change settings/permissions or perform real login.
+  This is availability/readiness evidence, not app publication or ordinary-user
+  login success. Public storefront opening unchanged. Node Computer Use reset.
+
+## Wingo References Handed To User; Next Google/Meta - 2026-11-15
+
+- User will download Wingo prices/references in admin themselves and report any
+  failure. Do not insist on checking Wingo now. ENV/account remains completed by
+  user confirmation; reference/pricing item is user-owned, not agent-verified.
+- Current next canonical configuration item is Google/Meta login external
+  readiness: Google branding outcome/logo, Meta business review and subsequent
+  Facebook app publication/review requirements. User only asked what comes next;
+  no live inspection or new provider action authorized in this turn.
+
+## Wingo Production ENV Closed By User Confirmation - 2026-11-15
+
+- User explicitly confirms filling ALL previously instructed production Wingo ENV
+  fields and considers that configuration resolved. Canonical checklist now marks
+  Wingo production ENV/account complete on that confirmation; no new live audit.
+- Next sequential item is Wingo production references/pricing: cities/locality
+  mappings, services, current production tariff snapshot and storefront quote.
+  Real shipment/status/cancellation/return tests remain separate later checklist
+  work. Do not reopen completed ENV fields without a concrete new finding and do
+  not skip this next item to Google/Meta or begin checks without user direction.
+
+## Wingo Production Merchant ID Found - 2026-11-15
+
+- User authorized continuing read-only discovery of the production merchant ID.
+  Wingo profile's stored account ID/uid is
+  b6972896-070a-4061-bf53-41b137f2c274. GET /api/v1/users/{id} returned200;
+  id, business email and API key exactly match the signed-in FlexDrive account.
+  This is the production WINGO_MERCHANT_USER_ID, not the historical TEST ID.
+- Production API key works: GET orders returned200 with zero orders, and merchant
+  tariffs returned200 with15 rows. No shipment/order was created, no provider
+  profile/ENV/source/deployment changed. User owns entering the ID in backend ENV.
+- Safe evidence: ignored tmp/measurements-20261015/wingo-production-20261115/
+  lookup-result.json and profile-id-result.json; no credentials retained there.
+  Wingo configuration stage remains incomplete: remaining production ENV values,
+  production references/snapshot and real workflow still need separate verification.
+
+## Wingo Production ENV Setup In Progress - 2026-11-14
+
+- User reports entering the new production API key and is filling the remaining
+  Wingo ENV fields. Do not mark the Wingo configuration stage complete yet; live
+  production values/account identity/reference refresh remain unverified.
+- At user's explicit request, read ONLY local ignored .env WINGO_MERCHANT_USER_ID
+  and WINGO_ACCOUNT_MODE: local account remains test. No API key/password/phone
+  or address printed. Internal merchant userId is distinct from dashboard
+  username/password and public customerId; historical test ID came from GET orders.
+- Explain PICKUP_TITLE is FLEXDRIVE, PICKUP_ADDRESS is the physical courier pickup
+  location, PICKUP_PHONE is courier contact. Receipt/Terms contact policy unchanged.
+  WEBHOOK_SECRET is optional for explicitly agreed HMAC signing; do not invent a
+  value or clear an existing agreed secret. Public webhook URL already recorded.
+
+## Receipt And Terms Items Closed By User Decision - 2026-11-14
+
+- User explicitly instructed marking prelaunch items1(receipt) and2(public
+  company information/Terms) complete. Their policy: receipt links to the website;
+  website email/social channels are the intended contact methods. They do not
+  want their detailed house/apartment address or phone displayed, avoid calls,
+  and want automated service. Phone is intentionally hidden per their account.
+- Canonical docs/PRELAUNCH_CHECKLIST_2026-11-14.md now checks both items complete
+  by user decision. Do not reopen them, insist on address/phone, or reveal/change
+  those fields without a new user request. No ENV/PDF/CMS/legal audit or source
+  change was performed in this decision step. Prior pending notes are historical.
+- Next sequential item is Wingo production ENV/account. Do not begin its review
+  automatically; preserve the user's one-step-at-a-time workflow.
+
+## Follow Canonical Prelaunch Checklist Sequentially - 2026-11-14
+
+- User explicitly adopted docs/PRELAUNCH_CHECKLIST_2026-11-14.md as the canonical
+  plan. Follow its first configuration item onward, slowly, mark actual completion,
+  and stop after each item for user confirmation. Do not jump to another topic.
+- Historical initial item (subsequently closed by user decision above): receipt seller address/phone necessity, discussion only. User
+  explicitly requested no inspection now; do not inspect ENV/site/provider/legal
+  sources in this step. They recall removing these ENV values because the store
+  is online. Absence/printed result/fallback behavior/legal acceptability are not
+  verified. Do not mark complete merely on that recollection or claim omission is
+  legally harmless. Explain company registered address/contact vs our order PDF
+  and bank receipt; agree next action before any check. Document status is pending.
+
+## Categorized Prelaunch Checklist Prepared - 2026-11-14
+
+- User requested a precise split of remaining ENV/config, manual real-world
+  tests, automation/infrastructure readiness and useful business-panel gaps
+  while they push the code. Prepared docs/PRELAUNCH_CHECKLIST_2026-11-14.md,
+  linked from the companion cutover plan. Plan only; no source/runtime/provider
+  action, deployment or public opening.
+- Existing Operations already exposes payment issues, shipment/return/stock
+  facts and supplier latest/last-success reports; do not call them unimplemented.
+  Recommended unified daily attention summary, all-job heartbeat/run history,
+  genuine source health/email delivery, concise infra alerts and future actual
+  operating-cost view. These recommendations were NOT implemented/authorized
+  as new features by this planning request. GA4/Meta/GSC work is already prepared.
+- Differentiated launch essentials, feature-dependent public Facebook Login,
+  before-ads event/dedup validation and later SEO/data/dashboard enhancements.
+  Old provider/quota/job observations require current verification, not blind
+  reconfiguration. Existing migrations/domain/callbacks/readers are not redone.
+  User owns both pushes/deployments; next stage needs their step-by-step direction.
+
 ## Search Console Business Reporting Connected And Prepared - 2026-11-14
 
 - User requested clear Search Console data inside their business panel. Added

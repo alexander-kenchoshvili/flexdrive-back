@@ -621,6 +621,7 @@ class SitemapEntriesAPITests(APITestCase):
             name="Visible Sitemap Product",
             slug="visible-sitemap-product",
             sku="VISIBLE-SITEMAP-1",
+            internal_sku="FD-02-9101",
             short_description="Visible sitemap product",
             description="Visible sitemap product",
             price="99.00",
@@ -632,6 +633,7 @@ class SitemapEntriesAPITests(APITestCase):
             name="Draft Sitemap Product",
             slug="draft-sitemap-product",
             sku="DRAFT-SITEMAP-1",
+            internal_sku="FD-02-9102",
             price="79.00",
             stock_qty=5,
             status=ProductStatus.DRAFT,
@@ -641,6 +643,7 @@ class SitemapEntriesAPITests(APITestCase):
             name="Hidden Sitemap Product",
             slug="hidden-sitemap-product",
             sku="HIDDEN-SITEMAP-1",
+            internal_sku="FD-02-9103",
             price="109.00",
             stock_qty=5,
             status=ProductStatus.PUBLISHED,
@@ -651,6 +654,7 @@ class SitemapEntriesAPITests(APITestCase):
             name="Hidden Category Product",
             slug="hidden-category-product",
             sku="HIDDEN-CATEGORY-1",
+            internal_sku="FD-02-9104",
             price="119.00",
             stock_qty=5,
             status=ProductStatus.PUBLISHED,
@@ -696,8 +700,9 @@ class SitemapEntriesAPITests(APITestCase):
         self.assertIn("/catalog/category/interior-sitemap", locs)
         self.assertNotIn("/catalog/category/hidden-sitemap-category", locs)
 
-        self.assertIn(f"/catalog/{visible_product.slug}", locs)
-        self.assertNotIn(f"/catalog/{hidden_product.slug}", locs)
+        self.assertIn("/catalog/visible-sitemap-product-fd-02-9101", locs)
+        self.assertNotIn(f"/catalog/{visible_product.slug}", locs)
+        self.assertNotIn(f"/catalog/{hidden_product.public_slug}", locs)
         self.assertNotIn("/catalog/draft-sitemap-product", locs)
 
         self.assertIn(f"/blogs/{visible_blog_item.id}-visible-sitemap-blog", locs)
