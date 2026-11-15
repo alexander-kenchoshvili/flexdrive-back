@@ -241,7 +241,7 @@ class SupplierSheetImportReportTests(TestCase):
         self.assertEqual(product.supplier_price, 77)
         self.assertEqual(product.price, 77)
         self.assertEqual(product.stock_qty, 12)
-        self.assertEqual(product.status, ProductStatus.PUBLISHED)
+        self.assertEqual(product.status, ProductStatus.DRAFT)
 
         self.assertEqual(Category.objects.filter(name="განათება").count(), 1)
         self.assertEqual(Brand.objects.filter(name="TYC").count(), 1)
@@ -258,6 +258,7 @@ class SupplierSheetImportReportTests(TestCase):
             name="Old name",
             slug="old-name-fd-0001",
             sku="FD-0001",
+            internal_sku="FD-01-9001",
             price="10.00",
             stock_qty=1,
             status=ProductStatus.PUBLISHED,
@@ -308,7 +309,8 @@ class SupplierSheetImportReportTests(TestCase):
         self.assertEqual(product.name, "Updated name")
         self.assertEqual(product.slug, "old-name-fd-0001")
         self.assertEqual(product.supplier_price, 120)
-        self.assertEqual(product.price, 120)
+        self.assertEqual(product.price, 10)
+        self.assertTrue(product.supplier_price_review_pending)
         self.assertEqual(product.stock_qty, 5)
         self.assertEqual(first_result.updated_products, 1)
         self.assertEqual(second_result.updated_products, 1)
@@ -336,14 +338,14 @@ class SupplierSheetImportReportTests(TestCase):
         self.assertEqual(product.effective_markup_percent, Decimal("0.00"))
         self.assertEqual(product.price, Decimal("100.00"))
 
-    def test_import_supplier_sheet_report_uses_product_markup_override(self):
+    def test_import_supplier_sheet_report_keeps_manual_customer_price(self):
         category = self._create_category(markup_percent=Decimal("30.00"))
         product = Product.objects.create(
             category=category,
             name="Existing",
             slug="existing-fd-0001",
             sku="FD-0001", internal_sku="FD-01-9001",
-            price="10.00",
+            price="150.00",
             supplier_price="10.00",
             markup_percent_override="50.00",
             stock_qty=1,
@@ -365,6 +367,7 @@ class SupplierSheetImportReportTests(TestCase):
         self.assertEqual(product.supplier_price, Decimal("100.00"))
         self.assertEqual(product.effective_markup_percent, Decimal("50.00"))
         self.assertEqual(product.price, Decimal("150.00"))
+        self.assertTrue(product.supplier_price_review_pending)
 
     def test_category_admin_does_not_change_product_prices(self):
         category = self._create_category(markup_percent=Decimal("30.00"))
@@ -373,7 +376,7 @@ class SupplierSheetImportReportTests(TestCase):
             name="Category priced",
             slug="category-priced",
             sku="FD-0001", internal_sku="FD-01-9001",
-            price="1.00",
+            price="100.00",
             supplier_price="100.00",
             stock_qty=1,
             status=ProductStatus.PUBLISHED,
@@ -383,7 +386,7 @@ class SupplierSheetImportReportTests(TestCase):
             name="Override priced",
             slug="override-priced",
             sku="FD-0002", internal_sku="FD-01-9002",
-            price="1.00",
+            price="150.00",
             supplier_price="100.00",
             markup_percent_override="50.00",
             stock_qty=1,

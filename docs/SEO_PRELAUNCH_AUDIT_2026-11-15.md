@@ -4,7 +4,8 @@
 
 მომხმარებელმა სრული SEO გეგმის თანმიმდევრული შესრულება დაავალა. ქვემოთ არსებული
 აუდიტი საწყის მდგომარეობას აღწერს; მიმდინარე შესრულება ამ სექციაში ფიქსირდება.
-მაღაზია არ გახსნილა, production ENV არ შეცვლილა, push/deploy არ შესრულებულა.
+მაღაზია არ გახსნილა. მომხმარებელმა ორივე source deploy შეასრულა; ამის შემდეგ
+frontend-ის მხოლოდ indexing ENV შეიცვალა, ქვემოთ მოცემული შემოწმებით.
 
 - [x] საჯარო/პირადი გზების პოლიტიკა კოდში მომზადებულია. `order-status`, preview,
   auth და manager გზები დამატებით დაცულია noindex-ით. საკონტაქტო პოლიტიკა უცვლელია.
@@ -35,23 +36,47 @@
   საერთოდ არა აქვს. ეს მიმდინარე ზუსტი ფილტრის შედეგია, არა ძველი353 რიცხვი.
   დანარჩენების ფოტოების ხელმისაწვდომობა/სისწორე/alt ინდივიდუალურად ჯერ არ შეფასებულა.
   სურათები/მონაცემები არ შეგვიცვლია; მომხმარებლის რეალური ფოტოები/წყარო დაგვჭირდება.
-- [ ] ორივე რეპოზიტორიის push/deploy მომხმარებელს ეკუთვნის, backend შემდეგ frontend.
-  საჭიროა ახალი source ვერსიების deployment **ინდექსაციის ENV ჩართვამდე**.
-- [ ] DO-ს მოქმედი `NUXT_PUBLIC_SITE_URL`/`NUXT_PUBLIC_ALLOW_INDEXING`/guard editor
-  ჯერ წასაკითხია (სესია გასული იყო). ახალი კოდის deployment-ის დადასტურების შემდეგ
-  შეიძლება indexing flag=true მომზადდეს, public_open=false შენარჩუნებით; რეალურ
-  ჰოსტზე დახურული პასუხების დაცვა დამოუკიდებლად გადამოწმდეს.
+  **მომხმარებლის შემდგომი განმარტება:** ფოტოები აკლია მხოლოდ უმარაგო პროდუქტებს;
+  მარაგში შემოსვლისას თავად დაამატებს. მარაგიანების თითქმის ყველას ფოტო აქვს.
+  ეს მომხმარებლის განმარტებაა, არა agent-ის მიერ ჩატარებული stock/image cross-check.
+  ფოტოების მასობრივი შევსება გახსნის ბლოკერი არ არის და ახლა აღარ მოწმდება.
+- [x] მომხმარებლის ორივე source deploy დადასტურდა DO-ს source hash-ებით:
+  backend886ca82 / frontendbbcb00c. ორივე Healthy. ახალი robots/text და sitemap/XML
+  პასუხები live მუშაობს. Backend release cd3d11f4-2101-4792-bbea-bcb43ef4255f.
+- [x] DO frontend საერთო ENV0, component ENV9: SITE_URL=https://flexdrive.ge,
+  INTERNAL_API_URL=https://api.flexdrive.ge/api, guard=true სწორია. შეიცვალა მხოლოდ
+  NUXT_PUBLIC_ALLOW_INDEXING=false→true, scope Run and build time.36 UI ველის
+  შედარებით დანარჩენი35 უცვლელია; შენახული ფორმის ხელახალი წაკითხვაც ზუსტად ემთხვევა.
+  deployment af1b30e3-acf9-41d1-86c3-1d3bdb25f4de Success / Live, app Healthy.
+- [x] ENV deployment-ის შემდეგ14 live GET/HEAD შემოწმება: root/catalog/preview
+  ფორმა/robots/sitemap რეალურ და starter ჰოსტზე200, noindex/nofollow, private/no-store.
+  robots text/plain Disallow:/; sitemap application/xml და0 URL. www308 ინარჩუნებს
+  /catalog?page=2-ს. Launch status guard=true/public_open=false. ერთი საწყისი probe
+  timeout დასრულდა; მისამართების ცალკე შედეგებიან გამეორებაზე14-ვე პირველივე ცდით გავიდა.
+- [x] **მოქმედი preview კოდით სრული მთავარი და კატალოგი:** მომხმარებელმა ახალი
+  კოდით თავად შეასრულა შესვლა. Chrome-ში სრული მთავარი/პროდუქტები და შევსებული
+  /catalog/ გამოჩნდა; Network დოკუმენტის Response Headers-ში ორივეზე200 OK,
+  X-Robots-Tag: noindex, nofollow და Cache-Control: private, no-store დადასტურდა.
+  ცალკე cookie-ის გარეშე GET კვლავ holding/noindex-ს აბრუნებს; launch status
+  guard=true/public_open=false/preview_allowed=false. სატესტო წვდომამ საჯარო
+  მაღაზია არ გახსნა. კოდი/cookie არ დაკოპირებულა; source/ENV/DB ცვლილება არ ყოფილა.
 - [ ] მომხმარებლის მიერ გახსნის შემდეგ live URL/canonical/meta/schema/sitemap,
   Search Console sitemap/inspection, Rich Results და მობილური სიჩქარის შეფასება.
 - [ ] შერჩეული თემატური გვერდები/ქართული გზამკვლევები/ნამდვილი ფოტოები საჭიროებს
   რეალურ მონაცემებს/კონტენტს; Merchant Center ცალკე eligibility/language არჩევანია.
+  მომხმარებელმა დამატებითი SEO გაუმჯობესებები (ტექსტები/მიზნობრივი გვერდები/
+  გზამკვლევები და სხვა) შემდგომ ეტაპებზე გადადო. ახლა ვასრულებთ უკვე მომზადებული
+  კოდის deployment-ს, შესაბამის production ENV-ს და შედეგის შემოწმებას.
 
-წინა URL-confidence შეჩერების შემდეგ მომხმარებლის ახალი retry წარმატებულია;
-CMS შენახვა დადასტურდა. შემდეგი აუცილებელი ჩართვა მომხმარებლის ორივე deploy და
-DigitalOcean-ში შესვლაა; ახალი კოდის deployment-მდე indexing ENV არ ჩაირთოს.
+მომხმარებლის ორივე deploy-ის შემდეგ ავტორიზებულ Chrome-ში ENV მომზადდა და
+კონფიგურაციის deployment ბოლომდე დადასტურდა. საჯარო გახსნა/Google-ში sitemap-ის
+გაგზავნა არ შესრულებულა. მოქმედი preview-ით მთავარი/კატალოგის დაცვა შემოწმებულია;
+გახსნის შემდგომი სრული SEO/Google შემოწმებები ცალკე რჩება.
 მტკიცებულება ignored `tmp/measurements-20261015/seo-prelaunch-20261115/`:
 `implementation-tests.log`, `typecheck.log`, `build.log`, `built-smoke.json`,
-`cms-result.json`, `after-cms-http.json`, `catalog-inventory.json`. Computer Use
+`cms-result.json`, `after-cms-http.json`, `catalog-inventory.json`, `env-result.json`,
+`deployed-before-env.json`, `deployed-after-env.json`, `valid-preview-result.json`,
+`anonymous-after-preview.json`. Computer Use
 kernel reset შესრულდა capture-ის გასათავისუფლებლად.
 გაშვების ნაბიჯები: [SEO release](SEO_RELEASE_2026-11-15.md).
 

@@ -1,5 +1,41 @@
 # Individual product pricing
 
+## Current supplier price review rule (2026-11-15)
+
+Supplier imports update the private supplier cost and stock, but keep the existing
+customer price. Every changed cost on an existing product creates or refreshes one
+pending row in Django admin **Catalog → გადასახედი ფასები**. The row shows the
+first previous cost, latest cost, current customer price, actual markup, sale
+status, and a link to the product. Repeated changes keep the row pending and update
+its latest cost. The older sync reports remain historical summaries and show only
+the first 50 details per change group; the pending queue has no such cap.
+
+If the new cost is below the customer price, sales continue at the unchanged price.
+The admin may keep the price and mark the row reviewed, or enter a new customer
+price in the product editor. If the cost is equal to or above the customer price,
+or a previously known cost becomes unavailable, the product remains visible but
+`price_available` and `purchasable` become false. The existing storefront shows
+"ფასი დასაზუსტებელია" and disables purchase; cart and checkout enforce the same
+availability check server side. A reviewed row cannot be cleared while the cost
+is missing or the customer price is at or below cost. Editing the customer price
+above cost in the product admin clears its pending row automatically.
+
+The stored `markup_percent_override` is retained for compatibility and optional
+manual percentage entry in the product editor. It no longer drives supplier-sync
+repricing. Admin shows the **actual** markup from the current cost and sale price
+separately. New supplier products still start at their supplier cost and remain
+Draft until published. The legacy sheet importer also leaves new products Draft
+when they lack the required FlexDrive SKU.
+
+Deploy migration `catalog.0032_product_supplier_price_review_pending_and_more`
+with the backend source before running the next supplier import. Existing products
+start with no pending review; the migration does not rewrite their prices, costs,
+or order snapshots. No backfill is inferred from historical sync reports. Source
+preparation and isolated tests do not verify a production deployment or a live
+supplier run.
+
+The previous percentage-driven behavior described below is historical.
+
 Pricing is controlled per product. Category markup no longer affects calculations
 or appears in the category/product admin. The legacy category database column is
 retained for compatibility; there is no bulk pricing action.

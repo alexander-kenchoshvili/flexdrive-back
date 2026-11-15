@@ -1,5 +1,10 @@
 # Cross Motors scheduled sync on DigitalOcean App Platform
 
+Current production update (2026-11-15): hourly `0 * * * *`, Asia/Tbilisi,
+direct import command without alternate-day wrapper. Live deployment confirmed;
+18:01:14 scheduled invocation shows Success. Older temporary schedules below are
+historical. See [current rollout](JOBS_ROLLOUT_2026-11-15.md).
+
 Prepared locally; this document does not create a paid resource or enable a schedule.
 
 Verification on 2026-09-22: 52 tests passed across `catalog.test_crossmotors_import`,

@@ -7,7 +7,7 @@ from django.urls import reverse
 
 from .admin import ProductAdmin
 from .crossmotors_import import _calculate_customer_price
-from .models import Category, Product
+from .models import Category, Product, SupplierPriceReview
 
 
 class ProductAdminPricingTests(TestCase):
@@ -39,14 +39,16 @@ class ProductAdminPricingTests(TestCase):
         self.product.refresh_from_db()
         return self.product
 
-    def test_amount_sets_markup_and_supplier_refresh_preserves_percentage(self):
+    def test_supplier_refresh_keeps_manual_customer_price_and_queues_review(self):
         product = self.save(pricing_input="price", price="120.00")
         self.assertEqual(product.markup_percent_override, Decimal("20"))
         self.assertEqual(product.price, Decimal("120"))
         product.supplier_price = Decimal("110")
         product.save(update_fields=["supplier_price"])
         product.refresh_from_db()
-        self.assertEqual(product.price, Decimal("132"))
+        self.assertEqual(product.price, Decimal("120"))
+        self.assertTrue(product.supplier_price_review_pending)
+        self.assertEqual(SupplierPriceReview.objects.get(product=product).latest_supplier_price, Decimal("110"))
         self.assertEqual(_calculate_customer_price(product, self.category), Decimal("132"))
 
     def test_amount_round_trips_at_cent_precision(self):
@@ -117,13 +119,13 @@ class ProductAdminPricingTests(TestCase):
         self.assertNotContains(response, "category_markup_readonly")
         self.assertNotIn("price", self.admin.get_readonly_fields(self.request, self.product))
 
-    def test_both_supplier_importers_ignore_category_and_preserve_product_markup(self):
+    def test_both_supplier_importers_queue_cost_changes_without_repricing(self):
         from .crossmotors_import import build_crossmotors_report, import_crossmotors_report, import_crossmotors_report_bulk
         from .test_supplier_sync import feed_item
         self.product.sku = "CM-000015"
         self.product.save()
         for importer in (import_crossmotors_report, import_crossmotors_report_bulk):
-            for markup, expected in [(None, Decimal("110")), (Decimal("20"), Decimal("132"))]:
+            for markup in (None, Decimal("20")):
                 with self.subTest(importer=importer.__name__, markup=markup):
                     self.product.markup_percent_override = markup
                     self.product.save()
@@ -131,8 +133,9 @@ class ProductAdminPricingTests(TestCase):
                     item["dealer_price"] = 110
                     importer(build_crossmotors_report([item]))
                     self.product.refresh_from_db()
-                    self.assertEqual(self.product.price, expected)
+                    self.assertEqual(self.product.price, Decimal("100"))
                     self.assertEqual(self.product.markup_percent_override, markup)
+                    self.assertTrue(self.product.supplier_price_review_pending)
 
     def test_public_price_is_numeric_and_later_admin_edit_updates_it(self):
         self.product.internal_sku = "FD-01-9000"
@@ -188,9 +191,9 @@ class ProductAdminPricingTests(TestCase):
 
     def test_supplier_edit_retains_precision_despite_rounded_display(self):
         self.save(pricing_input="price", supplier_price="3999", price="4999.99")
-        product = self.save(pricing_input="supplier", supplier_price="4000", price="5001.24", markup_percent_override="25.03")
+        product = self.save(pricing_input="supplier", supplier_price="4000", price="4999.99", markup_percent_override="25.03")
         self.assertEqual(product.markup_percent_override, Decimal("25.0310077519"))
-        self.assertEqual(product.price, Decimal("5001.24"))
+        self.assertEqual(product.price, Decimal("4999.99"))
 
     def test_explicit_edit_to_displayed_rounded_percentage_is_respected(self):
         self.save(pricing_input="price", supplier_price="3999", price="4999.99")

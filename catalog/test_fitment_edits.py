@@ -214,7 +214,7 @@ class AdminFitmentEditTests(TestCase):
             importer(build_crossmotors_report([item]))
             self.product.refresh_from_db()
             self.assertEqual(self.product.supplier_price, Decimal("110"))
-            self.assertEqual(self.product.price, Decimal("132"))
+            self.assertEqual(self.product.price, Decimal("120"))
             self.assertEqual(self.product.markup_percent_override, Decimal("20"))
             self.assertEqual(self.product.stock_qty, 18)
             after = (self.product.name, self.product.short_description, self.product.description,

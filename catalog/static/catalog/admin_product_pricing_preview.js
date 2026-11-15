@@ -36,7 +36,6 @@
 
     function update() {
       price.setCustomValidity("");
-      if (!mode.value) mode.value = "supplier";
       var cost = decimal(supplier.value, 2);
       if (cost === null) {
         if (preview) preview.textContent = price.value ? price.value + " GEL" : "—";
@@ -59,11 +58,14 @@
           exactMarkup = rate;
           markup.value = fixed(roundedDivide(rate, SCALE / 100n), 2);
         }
-      } else {
+      } else if (mode.value === "markup") {
         var percent = exactMarkup;
         if (percent === null) return;
         amount = roundedDivide(cost * (100n * SCALE + percent), 100n * SCALE);
         price.value = fixed(amount, 2);
+      } else {
+        amount = decimal(price.value, 2);
+        if (amount === null) return;
       }
       if (preview) preview.textContent = fixed(amount, 2) + " GEL";
     }
@@ -74,7 +76,10 @@
       mode.value = "markup";
       update();
     });
-    supplier.addEventListener("input", update);
+    supplier.addEventListener("input", function () {
+      mode.value = "supplier";
+      update();
+    });
     // Keep bound values intact when redisplaying server-side validation errors.
     // Only edits should select a source and change another input.
   }

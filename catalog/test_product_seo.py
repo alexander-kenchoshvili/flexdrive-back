@@ -268,7 +268,7 @@ class ProductSeoAdminImportTests(ProductSeoFixture):
                 self.product.refresh_from_db()
                 self.assertEqual(self.product.name, "ჩემი სარკის მარჯვენა საფარი")
                 self.assertEqual(self.product.supplier_price, Decimal("120"))
-                self.assertEqual(self.product.price, Decimal("132"))
+                self.assertEqual(self.product.price, Decimal("90"))
                 self.assertEqual(self.product.stock_qty, 20)
                 self.assertFalse(self.product.seo_title)
                 self.assertIn("ჩემი სარკის მარჯვენა საფარი", self.product.effective_seo_title)

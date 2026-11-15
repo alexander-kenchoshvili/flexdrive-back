@@ -61,11 +61,12 @@ test('decimal half cents round up without floating point drift', () => {
   assert.equal(fields.price.value, '1.01');
 });
 
-test('supplier changes use the selected input source', () => {
+test('supplier changes keep the customer amount until an explicit edit', () => {
   const { fields, edit } = form();
   edit('markup_percent_override', '20');
   edit('supplier_price', '110');
-  assert.equal(fields.price.value, '132.00');
+  assert.equal(fields.price.value, '120.00');
+  assert.equal(fields.pricing_input.value, 'supplier');
   edit('price', '121');
   assert.equal(fields.markup_percent_override.value, '10.00');
 });
@@ -97,7 +98,7 @@ test('initialization and manual products do not overwrite entered prices', () =>
 test('rounded initial display retains precise percentage when supplier price changes', () => {
   const { fields, edit } = form({supplier_price: '3999', price: '4999.99', markup_percent_override: '25.03'}, '25.0310077519');
   edit('supplier_price', '4000');
-  assert.equal(fields.price.value, '5001.24');
+  assert.equal(fields.price.value, '4999.99');
   assert.equal(fields.pricing_input.value, 'supplier');
   edit('markup_percent_override', '25.03');
   assert.equal(fields.price.value, '5001.20');

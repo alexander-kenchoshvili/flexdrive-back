@@ -10,6 +10,7 @@ from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models, transaction
 from django.db.models import F, Q
 from django.db.models.functions import Upper
+from django.utils import timezone
 from PIL import Image, ImageOps
 
 from common.image_processing import (
@@ -479,7 +480,14 @@ class Product(TimeStampedModel):
         blank=True,
         null=True,
         validators=[MinValueValidator(Decimal("0.00"))],
-        help_text="Private supplier cost. Customer-facing price is calculated from this value and markup.",
+        help_text="Private supplier cost. Supplier changes do not automatically change the customer price.",
+    )
+    supplier_price_review_pending = models.BooleanField(
+        "მომწოდებლის ფასი გადასახედია",
+        default=False,
+        db_default=False,
+        editable=False,
+        db_index=True,
     )
     markup_percent_override = models.DecimalField(
         max_digits=14,
@@ -641,9 +649,6 @@ class Product(TimeStampedModel):
     def clean(self):
         if self.status == ProductStatus.PUBLISHED and not self.internal_sku and not getattr(self, "_admin_sku_pending", False):
             raise ValidationError({"status": "გამოქვეყნებამდე საჭიროა FlexDrive SKU."})
-        if self.supplier_price is not None:
-            self.price = self.calculate_customer_price()
-
         if self.old_price is not None and self.old_price <= self.price:
             raise ValidationError(
                 {
@@ -657,37 +662,33 @@ class Product(TimeStampedModel):
     @transaction.atomic
     def save(self, *args, **kwargs):
         existing_code = None
-        if self.pk and not self._state.adding:
+        existing_product = bool(self.pk and not self._state.adding)
+        previous_supplier_price = None
+        if existing_product:
             # Only the inventory ledger may write this materialized balance.
             self.owned_stock_qty = type(self).objects.select_for_update().filter(pk=self.pk).values_list("owned_stock_qty", flat=True).get()
             existing_code = type(self).objects.select_for_update().filter(pk=self.pk).values_list("internal_sku", flat=True).first()
+            previous_supplier_price = type(self).objects.select_for_update().filter(pk=self.pk).values_list("supplier_price", flat=True).first()
             if existing_code:
                 # A stale importer/admin instance must never clear or replace a code.
                 self.internal_sku = existing_code
-        pricing_update_fields = {
-            "supplier_price",
-            "markup_percent_override",
-            "category",
-            "category_id",
-            "price",
-        }
         update_fields = kwargs.get("update_fields")
         update_field_set = set(update_fields) if update_fields is not None else None
-        should_recalculate_price = (
-            self.supplier_price is not None
-            and (
-                update_field_set is None
-                or not pricing_update_fields.isdisjoint(update_field_set)
-            )
+        supplier_changed = (
+            existing_product
+            and previous_supplier_price != self.supplier_price
+            and (update_field_set is None or "supplier_price" in update_field_set)
         )
-
-        if should_recalculate_price:
-            self.price = self.calculate_customer_price()
+        if supplier_changed:
+            self.supplier_price_review_pending = True
             if update_field_set is not None:
-                update_field_set.add("price")
+                update_field_set.add("supplier_price_review_pending")
                 kwargs["update_fields"] = list(update_field_set)
 
         super().save(*args, **kwargs)
+        if supplier_changed:
+            from .pricing_review import record_supplier_price_change
+            record_supplier_price_change(self, previous_supplier_price, self.supplier_price)
 
         if self.internal_sku and not existing_code:
             match = re.fullmatch(r"FD-([0-9]{2})-([0-9]+)", self.internal_sku)
@@ -742,7 +743,10 @@ class Product(TimeStampedModel):
 
     @property
     def price_available(self):
-        return self.price > Decimal("0.00")
+        return self.price > Decimal("0.00") and not (
+            self.supplier_price_review_pending
+            and (self.supplier_price is None or self.supplier_price >= self.price)
+        )
 
     @property
     def purchasable(self):
@@ -801,6 +805,25 @@ class Product(TimeStampedModel):
 
     def __str__(self):
         return self.name
+
+
+class SupplierPriceReview(models.Model):
+    product = models.OneToOneField(
+        Product, on_delete=models.CASCADE, related_name="supplier_price_review",
+        verbose_name="პროდუქტი",
+    )
+    previous_supplier_price = models.DecimalField("წინა შესყიდვის ფასი", max_digits=10, decimal_places=2, null=True, blank=True)
+    latest_supplier_price = models.DecimalField("ახალი შესყიდვის ფასი", max_digits=10, decimal_places=2, null=True, blank=True)
+    first_changed_at = models.DateTimeField("პირველი ცვლილება", default=timezone.now)
+    latest_changed_at = models.DateTimeField("ბოლო ცვლილება", default=timezone.now)
+
+    class Meta:
+        ordering = ("-latest_changed_at", "-pk")
+        verbose_name = "გადასახედი ფასი"
+        verbose_name_plural = "გადასახედი ფასები"
+
+    def __str__(self):
+        return self.product.name
 
 
 class DraftProduct(Product):

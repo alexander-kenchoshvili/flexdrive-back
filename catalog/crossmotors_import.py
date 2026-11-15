@@ -979,6 +979,7 @@ def _bulk_upsert_products(
     )
     created = []
     updated = []
+    changed_prices = []
     existing_slugs = set(Product.objects.values_list("slug", flat=True))
 
     for row in rows:
@@ -1009,9 +1010,13 @@ def _bulk_upsert_products(
         if not product.preserve_manual_fitment_content:
             product.short_description = values["short_description"]
             product.description = values["description"]
+        if not is_created and product.supplier_price != values["supplier_price"]:
+            changed_prices.append((product.sku, product.supplier_price, values["supplier_price"]))
+            product.supplier_price_review_pending = True
         product.supplier_price = values["supplier_price"]
-        product.price = _calculate_customer_price(product, category)
-        product.old_price = None
+        if is_created:
+            product.price = _calculate_customer_price(product, category)
+            product.old_price = None
         product.placement = values["placement"]
         product.side = values["side"]
         product.supplier_source = ProductSupplierSource.CROSS_MOTORS
@@ -1044,6 +1049,7 @@ def _bulk_upsert_products(
                 "short_description",
                 "description",
                 "supplier_price",
+                "supplier_price_review_pending",
                 "price",
                 "old_price",
                 "placement",
@@ -1062,6 +1068,10 @@ def _bulk_upsert_products(
         )
 
     products = Product.objects.in_bulk(skus, field_name="sku")
+    if changed_prices:
+        from .pricing_review import record_supplier_price_change
+        for sku, previous_price, current_price in changed_prices:
+            record_supplier_price_change(products[sku], previous_price, current_price)
     return {"created": len(created), "updated": len(updated), "products": products}
 
 
@@ -1542,12 +1552,13 @@ def _upsert_product(values, *, category, brand, synced_at):
         product.short_description = values["short_description"]
         product.description = values["description"]
     product.supplier_price = values["supplier_price"]
-    product.price = (
-        values["supplier_price"]
-        if values["supplier_price"] is not None
-        else Decimal("0.00")
-    )
-    product.old_price = None
+    if created:
+        product.price = (
+            values["supplier_price"]
+            if values["supplier_price"] is not None
+            else Decimal("0.00")
+        )
+        product.old_price = None
     product.placement = values["placement"]
     product.side = values["side"]
     active_hold_quantity = 0

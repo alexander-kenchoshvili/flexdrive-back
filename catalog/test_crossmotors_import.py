@@ -345,7 +345,7 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(result.updated_products, 1)
         self.assertEqual(product.category, manual_category)
         self.assertEqual(product.supplier_price, Decimal("250.00"))
-        self.assertEqual(product.price, Decimal("250.00"))
+        self.assertEqual(product.price, Decimal("10.00"))
         self.assertEqual(product.stock_qty, 7)
 
     def test_import_report_preserves_locked_manual_fitment_content(self):
@@ -404,7 +404,7 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(result.created_specs, 1)  # OEM stays aligned with the product field.
         self.assertEqual(result.updated_specs, 0)
         self.assertEqual(product.supplier_price, Decimal("250.00"))
-        self.assertEqual(product.price, Decimal("250.00"))
+        self.assertEqual(product.price, Decimal("10.00"))
         self.assertEqual(product.stock_qty, 7)
         self.assertEqual(product.short_description, "Manual short 2020-2024")
         self.assertEqual(product.description, "Manual description 2020-2024")
@@ -588,7 +588,7 @@ class CrossMotorsImportTests(TestCase):
 
         existing = Product.objects.get(sku="CM-000015")
         self.assertEqual(existing.category, manual_category)
-        self.assertEqual(existing.price, Decimal("275.00"))
+        self.assertEqual(existing.price, Decimal("10.00"))
         self.assertEqual(existing.stock_qty, 7)
 
         created = Product.objects.get(sku="CM-000020")
@@ -660,7 +660,7 @@ class CrossMotorsImportTests(TestCase):
         self.assertEqual(result.created_specs, 1)  # Other manually protected specs remain untouched.
         self.assertEqual(result.updated_specs, 0)
         self.assertEqual(product.supplier_price, Decimal("250.00"))
-        self.assertEqual(product.price, Decimal("250.00"))
+        self.assertEqual(product.price, Decimal("10.00"))
         self.assertEqual(product.stock_qty, 7)
         self.assertEqual(product.short_description, "Manual short 2020-2024")
         self.assertEqual(product.description, "Manual description 2020-2024")

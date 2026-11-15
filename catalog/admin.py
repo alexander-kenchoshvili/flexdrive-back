@@ -38,6 +38,7 @@ from .models import (
     ProductSpec,
     ProductStatus,
     ProductSupplierSource,
+    SupplierPriceReview,
     SupplierProductBlock,
     SupplierSyncReport,
     VehicleEngine,
@@ -567,8 +568,8 @@ class ProductAdminForm(forms.ModelForm):
             self.fields["price"].required = False
             self.fields["price"].label = "ჩვენი გასაყიდი ფასი (₾)"
             self.fields["price"].help_text = (
-                "თანხის ჩაწერა ავტომატურად ითვლის ინდივიდუალურ ფასნამატს. "
-                "მომწოდებლის ფასის ცვლილებისას შენარჩუნდება ფასნამატის პროცენტი."
+                "თანხა ხელით განსაზღვრავს გასაყიდ ფასს. "
+                "მომწოდებლის ფასის ცვლილება ამ თანხას ავტომატურად არ შეცვლის."
             )
         if "markup_percent_override" in self.fields:
             exact = self.initial.get("markup_percent_override")
@@ -585,7 +586,8 @@ class ProductAdminForm(forms.ModelForm):
             })
             self.fields["markup_percent_override"].label = "ინდივიდუალური ფასნამატი (%)"
             self.fields["markup_percent_override"].help_text = (
-                "პროცენტის შეცვლა განაახლებს გასაყიდ ფასს. "
+                "პროცენტის ხელით შეცვლა განაახლებს გასაყიდ ფასს; "
+                "მომწოდებლის ფასის სინქრონიზაცია პროცენტს ფასის გადასათვლელად არ გამოიყენებს. "
                 "ცარიელი ველი ნიშნავს 0%-ს. კატეგორია ფასზე არ მოქმედებს."
             )
 
@@ -638,7 +640,7 @@ class ProductAdminForm(forms.ModelForm):
                     data["markup_percent_override"] = markup.quantize(
                         Decimal("0.0000000001"), rounding=ROUND_HALF_UP,
                     )
-        elif "supplier_price" not in self.errors:
+        elif (mode == "markup" or markup_changed) and "supplier_price" not in self.errors:
             markup = data.get("markup_percent_override")
             if markup is None:
                 markup = Decimal("0")
@@ -787,6 +789,7 @@ class ProductAdmin(admin.ModelAdmin):
         "placement",
         "side",
         "supplier_price",
+        "supplier_price_review_pending",
         "effective_markup_percent_readonly",
         "price",
         "old_price",
@@ -806,6 +809,7 @@ class ProductAdmin(admin.ModelAdmin):
     list_filter = (
         "status",
         "supplier_missing",
+        "supplier_price_review_pending",
         "category",
         "brand",
         "placement",
@@ -844,6 +848,7 @@ class ProductAdmin(admin.ModelAdmin):
         "preserve_manual_fitment_content",
         "effective_seo_title",
         "supplier_missing",
+        "supplier_price_review_pending",
         "archive_reason",
         "effective_markup_percent_readonly",
         "calculated_customer_price_readonly",
@@ -937,7 +942,9 @@ class ProductAdmin(admin.ModelAdmin):
                 "fields": (
                     "pricing_input",
                     "supplier_price",
+                    "supplier_price_review_pending",
                     "markup_percent_override",
+                    "effective_markup_percent_readonly",
                     "calculated_customer_price_readonly",
                     "price",
                     "old_price",
@@ -1096,20 +1103,17 @@ class ProductAdmin(admin.ModelAdmin):
             return 0
         return obj.customer_available_stock_qty
 
-    @admin.display(description="Applied markup")
+    @admin.display(description="ფაქტობრივი ფასნამატი")
     def effective_markup_percent_readonly(self, obj):
-        if not obj:
-            return "0.00%"
-        return f"{obj.effective_markup_percent:.2f}%"
+        if not obj or not obj.supplier_price or obj.price is None:
+            return "—"
+        return f"{((obj.price / obj.supplier_price) - 1) * 100:.2f}%"
 
-    @admin.display(description="Calculated customer price")
+    @admin.display(description="მოქმედი გასაყიდი ფასი")
     def calculated_customer_price_readonly(self, obj):
         if not obj:
             return ""
-        calculated_price = obj.calculate_customer_price()
-        if calculated_price is None:
-            return ""
-        return f"{calculated_price:.2f} GEL"
+        return f"{obj.price:.2f} GEL" if obj.price is not None else ""
 
     @admin.display(description="Applied delivery measurements")
     def effective_shipping_measurements_readonly(self, obj):
@@ -1168,6 +1172,9 @@ class ProductAdmin(admin.ModelAdmin):
                 obj.preserve_manual_name = True
             assign_admin_sku(obj)
             super().save_model(request, obj, form, change)
+            if change and {"price", "markup_percent_override"}.intersection(form.changed_data):
+                from .pricing_review import resolve_supplier_price_review
+                resolve_supplier_price_review(obj.pk)
 
     @admin.display(description="მოქმედი SEO სათაური")
     def effective_seo_title(self, obj):
@@ -1556,6 +1563,71 @@ class ArchivedProductAdmin(ProductSectionAdmin):
     list_filter = (ArchiveReasonFilter, *(
         item for item in ProductAdmin.list_filter if item not in {"status", "supplier_missing"}
     ))
+
+
+@admin.register(SupplierPriceReview)
+class SupplierPriceReviewAdmin(admin.ModelAdmin):
+    list_display = (
+        "product_link", "previous_supplier_price", "latest_supplier_price",
+        "customer_price", "actual_markup", "sale_status", "latest_changed_at",
+    )
+    list_display_links = None
+    search_fields = ("product__name", "product__sku", "product__internal_sku")
+    list_select_related = ("product",)
+    readonly_fields = (
+        "product_link", "previous_supplier_price", "latest_supplier_price",
+        "customer_price", "actual_markup", "sale_status", "first_changed_at", "latest_changed_at",
+    )
+    fields = readonly_fields
+    actions = ("mark_reviewed",)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="პროდუქტი")
+    def product_link(self, obj):
+        if not obj or not obj.product_id:
+            return "—"
+        return format_html(
+            '<a href="{}">{} ({})</a>',
+            reverse("admin:catalog_product_change", args=[obj.product_id]),
+            obj.product.name, obj.product.internal_sku or obj.product.sku,
+        )
+
+    @admin.display(description="ჩვენი ფასი")
+    def customer_price(self, obj):
+        return f"{obj.product.price:.2f} ₾"
+
+    @admin.display(description="ფაქტობრივი ფასნამატი")
+    def actual_markup(self, obj):
+        cost = obj.product.supplier_price
+        return f"{((obj.product.price / cost) - 1) * 100:.2f}%" if cost else "—"
+
+    @admin.display(description="გაყიდვა")
+    def sale_status(self, obj):
+        return "ფასი დასაზუსტებელია — ყიდვა შეზღუდულია" if not obj.product.price_available else "გრძელდება"
+
+    @admin.action(description="მონიშნულების განხილულად მონიშვნა")
+    def mark_reviewed(self, request, queryset):
+        from .pricing_review import resolve_supplier_price_review
+
+        resolved = blocked = 0
+        for product_id in list(queryset.values_list("product_id", flat=True)):
+            if resolve_supplier_price_review(product_id):
+                resolved += 1
+            else:
+                blocked += 1
+        if resolved:
+            self.message_user(request, f"განხილულად მონიშნულია {resolved} პროდუქტი.", messages.SUCCESS)
+        if blocked:
+            self.message_user(
+                request,
+                f"{blocked} პროდუქტი დარჩა სიაში: შესყიდვის ფასი უნდა არსებობდეს და გასაყიდი მას აღემატებოდეს.",
+                messages.WARNING,
+            )
 
 
 @admin.register(SupplierSyncReport)

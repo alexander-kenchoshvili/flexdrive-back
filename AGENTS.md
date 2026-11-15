@@ -1,5 +1,140 @@
 # Project Instructions
 
+## Bank Job Configured And Verified; Stop Here - 2026-11-15
+
+- User explicitly approved paid512MB bank job and failure-email notification in
+  async answer: create and fully configure. Created exactly one
+  bog-payment-reconciliation in backend app. Reused same web DB binding,14BOG,
+  DATABASE_CONN_MAX_AGE and5META component ENV (21total), existing encrypted secrets.
+  Original app fields preserved by parsed-spec comparison before upload. Native
+  editor set_value inserted rather than replaced; corrupted UNSAVED draft was
+  replaced through Upload File with validated YAML. No corrupted spec saved.
+- Readiness deployment37edaf99-b69a-4c78-8b1f-0d95b825e582 Success/Live,
+  logs Eligible payments in batch:0. No API calls,writes or emails.
+- Real command deployment1f8c1484-16fe-48d3-8989-babbec6cb813 Success;
+  exact log resolved=0 pending=0 review=0 failed=0 skipped=0.
+  Command python manage.py reconcile_bog_payments --limit100 --min-age-minutes10
+  --retry-minutes15 --max-seconds600 (actual argv contains spaces after flags).
+- Final schedule */15 * * * *, optional timezone left default, job timeout12m.
+  Final schedule deployment367ce7fc-5113-4a49-ac30-5d3489fcc0ab confirmed Live.
+  Component reload showed exact cron and real command. First SCHEDULED bank
+  invocation not observed yet; user asked urgent bounded verification then STOP.
+- App-level Failed Job Invocation enabled with existing DO account email
+  kenchoshvili.alexander1@gmail.com; saved and reload-confirmed alert in summary.
+  Payment-specific alert support@flexdrive.ge remains global. No test alert/email.
+- Cross new hourly invocation18:01:14 Success (green Jobs list),
+  0c9ae1e6-4a34-42fa-a6d1-477bb2703c65. No extra supplier manual run.
+- Safe final-job-result.json ignored under tmp/measurements-20261015/jobs-20261115/.
+  Temporary encrypted-config upload YAML deleted; node kernel reset releases CUA.
+  No source code, commit/push, new charge/refund/shipment or public opening.
+  Real purchase/recovery-with-candidate, first bank scheduled run and missed-run
+  heartbeat remain separate; do not call those tested. Stop, no next checklist task.
+
+## Jobs Rollout Continuation; URL Policy Stop - 2026-11-15
+
+- User asks complete BOG every15min and Cross hourly plus monthly cost. Cross
+  command/schedule saved earlier; Activity now explicitly confirms Live config
+  deployment Nov15 17:19:23. Latest inspected invocation00:01:35–00:01:53 Success,
+  import applied,18sec, OLD daily/parity config. New hourly execution unverified.
+- BOG wizard draft tab5 remains UNCREATED,512MB,$0.007/hr,dry-run POST_DEPLOY.
+  Removed only invalid UNSAVED DATABASE_URL binding row. Current component ENV empty.
+  Actual global keys35, backend47; clone/reuse14BOG+5META and correctDB safely.
+  BOG_CLIENT_SECRET masked in editor; never copy masks or move secrets global.
+- Last tab App Settings App Spec editor opened read-only, no spec edit/save.
+  Native View raw click caused explicit URL-confidence policy stop. NO later UI
+  inputs; node kernel reset. New user retry permits fresh inventory/continuation.
+  Never create duplicate via both wizard/spec. No new bank job/payment/email/alert.
+- New paid resource final create and new Failed job invocation notification need
+  action-time confirmation per Computer Use confirmations[11]/[10]; not yet asked,
+  prepare exact review before asking. Existing alerts deployment/domain only.
+- 30day rounded-rate examples: Cross720runs,1min ~$0.22/5min ~$1.08;
+  BOG2880runs,1min ~$0.34/5min ~$1.68. Runtime cost, not fixed12+5. Bank unmeasured.
+  Full status docs/JOBS_ROLLOUT_2026-11-15.md; safe cross-last-execution.json ignored.
+  Store remains CLOSED. Finish dryrun/scheduler/alerts/actualruns before completion.
+
+## Jobs Setup In Progress; Cross Hourly Saved; BOG Draft Only - 2026-11-15
+
+- User authorized full BOG reconciliation DO configuration + Cross Motors every
+  hour (was alternate-day wrapper). Follow docs/JOBS_ROLLOUT_2026-11-15.md for exact
+  remaining steps; do not call complete or create duplicate job blindly.
+- Cross run command saved as direct committed bulk import/page1000/sample0/
+  archive-missing. Cron saved0 * * * *, Asia/Tbilisi retained. Reload confirms both.
+  Existing1GB/1sharedvCPU/1container plan unchanged. Last observed deployment was
+  Building job; Success/Live and actual new job execution remain unverified. Alerts
+  empty. Safe original/configured JSON in ignored tmp/measurements-20261015/jobs-20261115/.
+- BOG new resource wizard DRAFT only: same repo/main/root/autodeploy off; name
+  bog-payment-reconciliation, Job,512MB/1sharedvCPU/1container. UI $0.007/hr runtime,
+  $0–$5/month range for NEW resource. First command reconcile_bog_payments --dry-run;
+  trigger still default POST_DEPLOY, not real15minute scheduler yet. Added only
+  DATABASE_URL=${flexdrive-prod-db.DATABASE_URL} binding; BOG/Brevo/app-env inheritance
+  still to inspect. Local .env DATABASE_URL isn't prod, no remote connection used.
+- No Add resources, no new paid job, dry-run, provider request or email performed.
+  Need action-time cost approval before new-resource final Add (skill confirm11),
+  new alert subscription also confirm10. Prepare full review first. After approval
+  first readiness dry-run, then real command+*/15 schedule and actual run evidence.
+- Payment problems already stored per-payment in admin + business Operations
+  issue/checked_at, not a SupplierSyncReport for every payment batch. DO run history
+  needed. Missed-run heartbeat still distinct from failed-job notification.
+- Computer Use stopped on browser-URL confidence during Alt+Enter opening Cross
+  settings in NEW tab. Outcome unknown, prior BOG draft expected to remain in old
+  tab. No further input; node reset. New retry should inspect fresh tabs/state.
+  Do not treat interruption as permanent blocker; never open storefront.
+
+## Valid Preview SEO Protection Verified - 2026-11-15
+
+- User generated/entered their preview code themselves and said entered. Existing
+  Chrome displays full homepage with products and populated /catalog/. Inspected
+  actual document responses in DevTools Network via Computer Use only: both200 OK,
+  X-Robots-Tag=noindex,nofollow and Cache-Control=private,no-store. This completes
+  prior missing authorized-preview check; anonymous preview form is separate.
+- Independent cookie-free GET /catalog/ still holding/noindex; API status remains
+  guard=true/public_open=false/preview_allowed=false. No code/cookie copied, no
+  account login automation, new code generation, source/ENV/DB or public opening.
+- DevTools closed, node kernel reset to release capture. Safe aggregate evidence
+  valid-preview-result.json and anonymous-after-preview.json in ignored SEO folder.
+  Canonical checklist/audit updated. Stop this SEO prep stage; next public opening
+  and post-open URL/canonical/schema/sitemap/GSC checks require user's timing.
+  Extra SEO content/photo/landing-page improvements remain deferred by user.
+
+## SEO Production ENV Live; Closed Checks Passed - 2026-11-15
+
+- User reported both source deployments, then authorized explained SEO rollout.
+  DO source hashes match local: backend886ca82, frontendbbcb00c; both Healthy.
+  Backend deployment cd3d11f4-2101-4792-bbea-bcb43ef4255f. New robots/text and XML
+  responses prove frontend SEO source is active before indexing ENV change.
+- In signed-in user Chrome, frontend app has0 app-level envs and9 component envs.
+  SITE_URL=https://flexdrive.ge, INTERNAL_API_URL=https://api.flexdrive.ge/api and
+  guard=true already correct. Changed ONLY NUXT_PUBLIC_ALLOW_INDEXING false→true,
+  retained Run and build time scope.36 UI fields compared, only1 differs; reopened
+  saved editor exactly matches all36. No secrets/credentials/other app/backend edit.
+- Config deployment af1b30e3-acf9-41d1-86c3-1d3bdb25f4de Success / Live, Healthy.
+  Post-deploy14 live GET/HEAD checks on real/starter domains pass: root/catalog/
+  preview form200 noindex/no-store, robots text blocked, sitemap XML0 URLs. www308
+  preserves /catalog?page=2. API guard=true/public_open=false. One earlier batch
+  timed out; result-recording retry had all14 pass on first attempt.
+- Full AUTHORIZED preview page remains untested live: current browser storefront
+  tab is holding (no valid preview access). No code generated or public launch.
+  User must enter valid preview code then agent can verify full-page response.
+  Do not claim anonymous preview form test equals full preview catalog test.
+- Source/ENV prep is done; post-open canonical/schema/indexing/GSC checks remain.
+  Do not submit sitemap/open store or start deferred content/keyword/photo work.
+  Docs updated; no new functional code/push/deploy needed. Safe ignored evidence:
+  env-result.json, deployed-before-env.json, deployed-after-env.json in SEO folder.
+
+## SEO Extras Deferred; User Deploying Prepared Code - 2026-11-15
+
+- User explicitly deferred extra category copy/curated landing pages/guides and
+  other growth improvements until later. Do not implement or reopen them now.
+- User clarifies missing photos belong only to out-of-stock products, will add
+  when restocked; almost all in-stock products have photos. This is user-reported,
+  not agent-verified stock/image cross-check. Do not treat256 missing image rows
+  as an immediate launch blocker or insist on another photo audit.
+- User now owns push/deploy of prepared backend then frontend code. Next after
+  their completion: verify both releases/live closed SEO resources, inspect DO
+  frontend SEO ENV, prepare indexing flag only with new guard code deployed,
+  maintain public_open=false and verify closed/preview/starter remain noindex.
+  User owns final opening after payment; post-open sitemap/GSC checks stay pending.
+
 ## SEO CMS Saved And Inventory Reviewed; Deploy Needed - 2026-11-15
 
 - User retry succeeded. Saved ONLY contact5/blogs3/catalog2 noindex=false; native

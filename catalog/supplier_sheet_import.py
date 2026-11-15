@@ -568,13 +568,16 @@ def _upsert_product(values, *, category, brand):
     product.short_description = _short_description(values["description"], values)
     product.description = values["description"]
     product.supplier_price = values["supplier_price"]
-    product.old_price = None
+    if created:
+        product.price = values["supplier_price"]
+        product.old_price = None
     product.stock_qty = values["stock_qty"]
-    product.status = (
-        ProductStatus.PUBLISHED
-        if values.get("is_active", True)
-        else ProductStatus.ARCHIVED
-    )
+    if not values.get("is_active", True):
+        product.status = ProductStatus.ARCHIVED
+    elif product.internal_sku:
+        product.status = ProductStatus.PUBLISHED
+    else:
+        product.status = ProductStatus.DRAFT
     product.seo_title = f"{values['name']} | FlexDrive"
     product.seo_description = product.short_description
     product.is_universal_fitment = False
