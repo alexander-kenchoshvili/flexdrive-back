@@ -1,5 +1,68 @@
 # Project Instructions
 
+## Header Search ID/Name Cleanup Prepared In Frontend - 2026-11-16
+
+- User authorized the input id/name cleanup, explicitly no Computer Use needed.
+  Frontend HeaderSearch adds5 lines only: Vue useId per instance, unique desktop/
+  mobile suffixes and name=q. Existing draft/filter/submit/focus/autocomplete logic
+  unchanged.55 existing search/filter/render tests, scoped lint/typecheck pass.
+- No browser/production/DB/ENV/backend action or migration. User owns frontend
+  push/deploy; live Chrome warning disappearance not yet tested. Existing business
+  source-link change and all other user edits preserved. Details in frontend AGENTS.
+
+## Pixel Local Block Resolved And Business Sources Verified - 2026-11-16
+
+- User authorized Pixel fix and questioned disconnected-source cards. Chrome
+  AdBlock popup showed active flexdrive.ge blocking/1 blocked request. Agent only
+  inspected; user personally clicked Pause on this site and confirmed. After
+  reload, Console ERR_BLOCKED_BY_CLIENT disappeared; actual fbevents.js network
+  row200/script/disk-cache432kB proves loader no longer blocked. No blocker bypass,
+  extension/privacy/consent setting or GTM/Meta tracking code changed by agent.
+- Existing business login still valid. Live /business/users shows genuine GA4
+  fetched19:19 Tbilisi plus Search Console empty result. /business/marketing
+  shows current/previous ads, FB/IG profile/activity fetched19:20; ads empty/0.
+  Connections already operational; do not claim new accounts/permissions created.
+- Screenshot card/modal were hardcoded obsolete placeholders in frontend
+  BusinessReport.vue. Replaced both with explanatory links to existing users and
+  marketing reports, preserving selected date period; no extra API requests or
+  fake health badge.56 existing business tests/scoped ESLint/Nuxt typecheck pass.
+  User owns frontend push/deploy; source-card change NOT yet live. No backend ENV,
+  migration/deploy or production DB action required. No real purchase/CAPI/browser
+  purchase-dedup/Meta ingestion verification. CUA reset on marketing page.
+
+## CSS/JS Cache Verified In Production - 2026-11-16
+
+- After user confirmed deployment,18 anonymous live HTTP checks passed at18:32
+  Tbilisi. Current CSS +2 actually deployed JS URLs return correct MIME/year/
+  immutable, CDN MISS->HIT and ETag304. HEAD correct; no Vary Cookie on assets.
+  Mutable latest.json stays private/no-store; buildIDc0a07522-53cb-45d8-93c4-b753b6af2b85.
+- Anonymous root/catalog/business/preview and protected API keep no-store;
+  backend guard=true/public_open=false. Unknown hashed file404 isn't immutable.
+  CUA real preview homepage reload shows multiple CSS disk-cache hits; catalog
+  and product FD-04-0446 render with photos/380GEL, no new app JS/hydration errors.
+- Browser is NOT completely clean: one Meta fbevents.js ERR_BLOCKED_BY_CLIENT
+  and one Chrome autofill improvement (input missing id/name; HeaderSearch source
+  lacks these). No code/privacy-extension changes made; do not claim zero issues.
+  Exact offending node not inspected. Payment/login/full cross-browser not tested.
+- Initial local-build JS probe404 was a stale DIFFERENT build filename, not a
+  broken deployed reference; final tests used actual browser-observed live JS.
+  Safe evidence ignored under tmp/measurements-20261015/static-cache-20261116/
+  production-http.json. No DB/provider/config/public-open action. DevTools closed,
+  Disable cache unchecked for test, CUA reset. Stop after this verification.
+
+## Cross Motors 18:01 Failure Diagnosed Read Only - 2026-11-16
+
+- User reported failed sync. Live DO Jobs invocation965dc6c0-ba1e-44ba-99bd-8951cc419d1e
+  in backend app9f8af0f7-ff7e-493c-8238-a51b8e27947f shows Scheduled/Failed,
+  start18:01:34/end18:02:08 Asia/Tbilisi. Exact error is ConnectTimeout to
+  portal.crossmotors.ge:443 on stock page1/limit1000, connect timeout30seconds.
+- Failure occurs before catalog write phase in import command. No feed fetched
+  or product import applied by this invocation; failure report saved as expected.
+  Log does NOT distinguish supplier outage from network/routing/filtering issue.
+- Hourly schedule unchanged. No manual rerun, supplier probe, DB/source/ENV/config
+  change, support message or public opening. CUA reset after leaving failed log
+  open. If repeated, inspect next scheduled invocation/network before changing code.
+
 ## Hashed CSS/JS Cache Prepared In Frontend - 2026-11-16
 
 - User authorized only the main CSS/JS caching priority; other audit fixes deferred.
