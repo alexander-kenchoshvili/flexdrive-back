@@ -1,5 +1,147 @@
 # Project Instructions
 
+## Hashed CSS/JS Cache Prepared In Frontend - 2026-11-16
+
+- User authorized only the main CSS/JS caching priority; other audit fixes deferred.
+  Paired frontend guard response hook now permits year/immutable only current
+  hashed CSS/JS present in Nitro's build manifest, GET/HEAD200/304 and correct MIME.
+  Unknown/mutable/error/private responses are excluded; no access/indexing change.
+-41 focused tests, scoped ESLint, Nuxt typecheck, production build and15 real
+  built-Nitro loopback checks passed using a mock backend. Temporary own servers
+  stopped. No DB/provider/browser/ENV/production action, commit or push.
+- Frontend-only deployment pending, user owns push/deploy. No backend migration
+  or deploy required. docs/CACHE_AUDIT_2026-11-16.md has implementation status;
+  frontend docs/STATIC_ASSET_CACHE.md records exact scope and post-deploy checks.
+
+## Production Sale Prices Rounded Up To Whole GEL - 2026-11-16
+
+- User confirmed REAL product sale prices in production DB must round UP, e.g.
+  122.10->123, not display-only rounding. Read-only preflight2214 products found
+  219 fractional sale prices, all Published;1995 existing integer prices unchanged.
+- Applied exact219-ID plan in one guarded transaction after durable original-row
+  backup. New price=ceil(old price); recalculated individual markup to10 decimals
+  from unchanged supplier cost so admin arithmetic reproduces the new amount.
+  All selected costs positive, rates within0–1000%, no promotional old_price
+  conflicts and no selected pending supplier-price reviews. Review state unchanged.
+- ONLY price/markup_percent_override changed. All2214 products' other columns
+  preserved, including supplier costs, status, stock,11kg fender weights, dimensions,
+  old_price and timestamps. All1995 untargeted prices/rates preserved. Six order/
+  item/payment/checkout/review/sync-report tables checksum-identical in transaction.
+- Committed then independently verified via NEW REPEATABLE READ READ ONLY
+  connection at16:29:49 Tbilisi: all2214 current product prices are whole amounts,
+  all219 new markups reproduce rounded prices exactly to cents. No historical
+  order/payment repricing, local DB/code/ENV change, migration or deploy needed.
+- Evidence/rollback originals ignored under tmp/measurements-20261015/whole-sale-prices-20261116/.
+  Desktop price-history workbook remains its explicitly dated earlier snapshot;
+  its14:53 sale-price values were NOT silently refreshed after this operation.
+
+## All Actual Fender Courier Weights Set To 11kg In Production - 2026-11-16
+
+- User explicitly authorized all actual fenders, excluding brackets/moldings/
+  liners/accessories, to use11kg and requested count. Exact frozen144-ID list
+  matches all144 previously reviewed actual fenders;128 Published/6 Draft/
+  10 Archived. Preliminary commentary count146 was corrected BEFORE applying.
+- Old values:128 at31kg,14 at3kg,2 missing. ALL144 now11.000kg. Scope includes
+  unpublished actual fenders per user's "ყველა" instruction; statuses unchanged.
+- Backed up exact original rows/weights before writing; one guarded transaction
+  updates ONLY catalog_product.shipping_weight_kg on explicit IDs. No product
+  triggers. Before/after checks preserve every other column of all2214 products
+  and all2070 untargeted weights. Committed then verified through a NEW READ ONLY
+  connection at16:21:26 Tbilisi. No price/stock/name/status/dimensions/order edits.
+- Safe backup/selection/commit/verification evidence is git-ignored under
+  tmp/measurements-20261015/fender-weights-11kg-20261116/. No local DB, provider
+  call, source functional change, migration or deployment required/performed.
+
+## Published Stocked Products Image Audit Read Only - 2026-11-16
+
+- User requested current production check for Published + in-stock + no image.
+  Fresh PostgreSQL REPEATABLE READ READ ONLY snapshot16:12:23 Tbilisi confirms
+  1979 Published,1299 with customer-available stock (owned + max(stock-5,0)).
+  ZERO of those1299 lack all four original/desktop/tablet/mobile image fields.
+-241 Published products have no attached image and zero customer-available stock;
+  two of these have positive raw supplier-backed quantity within reserve5. This
+  uses sellable availability, not raw supplier quantity. File/URL accessibility,
+  photo content and correctness were not tested; no provider/asset requests.
+- No data/source/config/deploy changes. Read-only connection rolled back/closed.
+  Safe product-only evidence ignored under tmp/measurements-20261015/stocked-missing-images-20261116/.
+
+## Desktop Price Workbook Models And Years Added - 2026-11-16
+
+- User requested model/year columns in the existing Desktop price workbook.
+  Fresh production PostgreSQL REPEATABLE READ READ ONLY at15:49:45 Tbilisi matched
+  all282 product supplier/FD SKUs; all have one fitment, none missing. Read current
+  vehicle make/model/year bounds only; original price snapshots remain unchanged.
+- Updated SAME Desktop/FlexDrive_Price_Changes_2026-11-16.xlsx. Products: modelJ/
+  yearsK; original notes moved K->M with blankL. History: modelK/yearsL. Native
+  table ranges extended to include the new sortable/filterable columns.
+- Artifact Tool imported/edited/exported and rendered both affected sheets.
+  Independent XLSX comparison verifies every original value/formula/number format,
+  notes, pane/row heights/conditional rules; all new models/years match production.
+  Native Excel read-only check confirms282 rows, Subaru XV/2012–2017 and unchanged
+  price213.16. Desktop overwrite guarded by original SHA256; copied hash verified.
+- Original backup before-fitments.xlsx and evidence remain in ignored price-history
+  folder. No production DB/provider action, price refresh or app-code change.
+
+## Two Hood Delivery Price Read-Only Check - 2026-11-16
+
+- User asked whether delivery doubles for two51kg hoods; assessment only. Quote
+  code sums unit weight times quantity and selects ONE total-weight band, rather
+  than multiplying parcel/unit delivery prices. No dimension/volume multiplier.
+- Fresh production PostgreSQL REPEATABLE READ READ ONLY at15:43:34 Tbilisi reads
+  production Wingo tariff snapshot synced Nov15 23:17:35.51kg uses50.01–100kg
+  band7: Tbilisi standard57/fast93, surroundings62/region78/highland88 GEL.
+  102kg uses100.01–150kg band8: standard63/fast120, surroundings68/region88/
+  highland103. These are CARRIER tariffs; live production buffer ENV not inspected.
+- Existing quote function verified against those production bands in8 cart/
+  buy-now/service/quantity scenarios without DB/provider calls. A configured
+  delivery buffer is added once per order (checked with2.50 example).
+- No functional code/config/DB edits, courier requests, shipment, migration or
+  deploy. Safe evidence ignored under tmp/measurements-20261015/hood-quantity-delivery-20261116/.
+
+## Restocked Products Without Images In Sync Reports - 2026-11-16
+
+- User requested a sync-report warning when an imageless product returns to stock.
+  Added back_in_stock_without_image: "მარაგში დაბრუნდა, სურათი არ აქვს" with
+  name/supplier SKU/saved FlexDrive SKU. Published effective supplier stock must
+  cross above reserve5, or a supplier-archived stocked product return to Published.
+  Unchanged stock, Drafts and quantities at/below5 do not emit repeated warnings.
+- supplier_snapshot annotates one Exists query over nonempty original/desktop/
+  tablet/mobile image fields; no image downloads or per-product queries. Report
+  group retains ALL affected products, not first50; other groups' limits unchanged.
+  Admin truncation notice now reflects actual saved item count, preserving old
+  capped reports. Later photo uploads do not rewrite historical reports.
+-44 report/supplier-sync/price-review tests pass, including both import paths,
+  empty/secondary/variant images, threshold/hidden/restored states, repeat syncs
+  and >50 retained/rendered photo items. No new migrations; whitespace check passes.
+  Backend deploy needed. No production DB/provider calls, price/stock changes,
+  backfill, commit/push or deploy. docs/SUPPLIER_SYNC_APP_PLATFORM.md updated.
+
+## Production Price History Excel On Desktop - 2026-11-16
+
+- User requested read-only production supplier-price history over last3–4 weeks,
+  old/new supplier and sale prices, Excel saved directly on Desktop. Direct TLS
+  PostgreSQL snapshot at14:53:31 Tbilisi, explicit REPEATABLE READ READ ONLY and
+  default_transaction_read_only=on; rollback/close, no production writes.
+- Retained reports for Oct19–Nov16 count286 changes but store only66 event details
+  (62 unique products). Nov15 00:01 report59 counts270 but caps details at50. Full
+  per-event sale prices were never stored; do not invent these or call current
+  markup calculations historical facts.
+- Reused verified PRODUCTION snapshot Oct26 16:34:30 (2185 rows), not local SQLite.
+  Replayed retained events with zero cost-chain mismatches;220 further distinct
+  product cost differences reconcile the truncated report. Combined282 products:
+  280 Published/2 Draft. Exact timestamps for those220 aren't retained.
+- Desktop/FlexDrive_Price_Changes_2026-11-16.xlsx has Products (282 rows, actual
+  Oct26 versus Nov16 cost/sale snapshots, change formula, status, both SKUs) and
+  History (66 retained events, old/new supplier cost, unknown event sale prices
+  explicitly "არ ინახება", current sale separate). Snapshot sale isn't necessarily
+  the sale immediately preceding each event; this limitation is prominent.
+- Artifact Tool authored/rendered both tabs; independent XLSX XML verification
+  checks every SKU/currency/date/formula and filters/frozen panes. Desktop copy
+  hash verified. Native Excel opened READ ONLY, confirmed282 rows, Tbilisi date
+  20.10.2026 00:01 and current sale213.16; closed without save. No credential saved.
+- Safe evidence/helpers under ignored tmp/measurements-20261015/price-history-20261116/.
+  No queue entries, price/status/stock edits, supplier calls, migration or deploy.
+
 ## Adjacent Left/Right Catalog Pairs Prepared - 2026-11-16
 
 - User authorized matching opposite-side products consecutively in recommended

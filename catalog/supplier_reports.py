@@ -1,14 +1,16 @@
 """Small, credential-free summaries of committed supplier changes."""
 
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
-from catalog.models import CUSTOMER_STOCK_RESERVE_QTY, Product, ProductStatus, SupplierSyncReport
+from catalog.models import CUSTOMER_STOCK_RESERVE_QTY, Product, ProductImage, ProductStatus, SupplierSyncReport
 
 
 CHANGE_LABELS = {
     "new": "ახალი პროდუქტები — Draft",
     "out_of_stock": "მარაგი ამოეწურა",
     "back_in_stock": "მარაგში დაბრუნდა",
+    "back_in_stock_without_image": "მარაგში დაბრუნდა, სურათი არ აქვს",
     "archived": "დაარქივდა",
     "restored": "არქივიდან გამოქვეყნდა",
     "supplier_price": "მომწოდებლის ფასი შეიცვალა",
@@ -20,14 +22,20 @@ DETAIL_LIMIT = 50
 
 
 def supplier_snapshot(*, lock=False):
-    products = Product.objects.filter(sku__startswith="CM-").order_by("pk")
+    images = ProductImage.objects.filter(product_id=OuterRef("pk")).filter(
+        Q(image_original__gt="") | Q(image_desktop__gt="")
+        | Q(image_tablet__gt="") | Q(image_mobile__gt="")
+    )
+    products = Product.objects.filter(sku__startswith="CM-").annotate(
+        has_image=Exists(images),
+    ).order_by("pk")
     if lock:
         products = products.select_for_update()
     return {
         row["sku"]: row
         for row in products.values(
             "sku", "internal_sku", "name", "status", "stock_qty", "supplier_price",
-            "manufacturer_part_number",
+            "manufacturer_part_number", "has_image",
         )
     }
 
@@ -38,7 +46,8 @@ def create_success_report(*, started_at, before, after):
     def add(key, row, **detail):
         group = changes[key]
         group["count"] += 1
-        if len(group["items"]) < DETAIL_LIMIT:
+        # This is a photo-upload work list, so retain every affected product.
+        if key == "back_in_stock_without_image" or len(group["items"]) < DETAIL_LIMIT:
             group["items"].append({"sku": row["sku"], "internal_sku": row.get("internal_sku") or "", "name": row["name"], **detail})
 
     for sku, row in sorted(after.items()):
@@ -50,9 +59,11 @@ def create_success_report(*, started_at, before, after):
             add("archived", row)
         if old["status"] == ProductStatus.ARCHIVED and row["status"] == ProductStatus.PUBLISHED:
             add("restored", row)
+        was_available = old["status"] == ProductStatus.PUBLISHED and old["stock_qty"] > CUSTOMER_STOCK_RESERVE_QTY
+        available = row["status"] == ProductStatus.PUBLISHED and row["stock_qty"] > CUSTOMER_STOCK_RESERVE_QTY
+        if not was_available and available and row.get("has_image") is False:
+            add("back_in_stock_without_image", row)
         if old["status"] == row["status"] == ProductStatus.PUBLISHED:
-            was_available = old["stock_qty"] > CUSTOMER_STOCK_RESERVE_QTY
-            available = row["stock_qty"] > CUSTOMER_STOCK_RESERVE_QTY
             if was_available and not available:
                 add("out_of_stock", row)
             elif not was_available and available:

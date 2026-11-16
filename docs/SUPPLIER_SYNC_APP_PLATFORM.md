@@ -186,7 +186,19 @@ ignored because of manual protection is not reported as a catalog change.
 New products are listed in the existing new-product group without double-counting
 their initial OEM as an addition. Ordinary stock quantity changes are not listed. Each group
 stores the full count and up to 50 product names/SKUs; price changes include old/new costs.
+The photo work list below is the exception and retains all matching names/SKUs.
 These are private staff reports, never customer API data.
+
+**მარაგში დაბრუნდა, სურათი არ აქვს** lists published products that become
+supplier-stock available (effective quantity above the existing five-unit reserve)
+without any nonempty original/desktop/tablet/mobile product image field. This
+includes supplier-archived products restored to Published. Existing in-stock
+products do not repeat on every run; Drafts and still-unavailable products are not
+listed. Presence is checked in the database, without downloading image files.
+Every affected product's name and both available SKUs are saved in this group,
+including batches larger than 50. Adding an image later does not rewrite history.
+This report-only feature requires a backend deployment and no schema migration;
+old reports are not backfilled.
 
 Use date/status filters, tick individual rows or the header checkbox, select
 **Delete selected**, and confirm. Django's **Select all ...** link selects all matching

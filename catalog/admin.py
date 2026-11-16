@@ -1667,7 +1667,7 @@ class SupplierSyncReportAdmin(admin.ModelAdmin):
 
     @admin.display(description="მნიშვნელოვანი ცვლილებები")
     def change_details(self, obj):
-        from .supplier_reports import CHANGE_LABELS, DETAIL_LIMIT
+        from .supplier_reports import CHANGE_LABELS
 
         legacy_skus = {
             item["sku"]
@@ -1688,14 +1688,15 @@ class SupplierSyncReportAdmin(admin.ModelAdmin):
             group = obj.changes.get(key, {})
             if not group.get("count"):
                 continue
+            items = group.get("items", [])
             rows = format_html_join(
                 "", "<li><strong>{}</strong> — {} {}</li>",
                 ((display_sku(item), item["name"],
                   (f"({item['before']} → {item['after']}{' GEL' if key == 'supplier_price' else ''})"
                    if "before" in item else ""))
-                 for item in group.get("items", [])),
+                 for item in items),
             )
-            note = f"ნაჩვენებია პირველი {DETAIL_LIMIT} პროდუქტი." if group["count"] > DETAIL_LIMIT else ""
+            note = f"ნაჩვენებია პირველი {len(items)} პროდუქტი." if group["count"] > len(items) else ""
             sections.append(format_html(
                 "<h3>{}: {}</h3><ul>{}</ul><p>{}</p>", label, group["count"], rows, note,
             ))

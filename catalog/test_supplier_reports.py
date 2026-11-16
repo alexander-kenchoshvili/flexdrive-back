@@ -10,7 +10,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.formats import date_format
 
-from catalog.models import Category, Product, SupplierSyncReport
+from catalog.models import Category, Product, ProductImage, SupplierSyncReport
 from catalog.supplier_reports import create_success_report, DETAIL_LIMIT, supplier_snapshot
 from catalog.test_supplier_sync import feed_item
 
@@ -84,6 +84,69 @@ class SupplierReportTests(TestCase):
             self.assertEqual(report.changes[key]["count"], 1)
         self.assertEqual(report.changes["new"]["count"], DETAIL_LIMIT + 3)
         self.assertEqual(len(report.changes["new"]["items"]), DETAIL_LIMIT)
+
+    @patch("catalog.management.commands.import_crossmotors_products.fetch_crossmotors_stock")
+    def test_both_import_paths_report_restocks_without_images_once(self, fetch):
+        category = Category.objects.create(name="Restock parts", slug="report-restock")
+        product = Product.objects.create(
+            name="Lamp", sku="CM-000015", internal_sku="FD-01-0123", slug="restock-lamp",
+            category=category, price=150, supplier_price=100, status="published", stock_qty=5,
+        )
+        for bulk in (False, True):
+            with self.subTest(bulk=bulk):
+                Product.objects.filter(pk=product.pk).update(stock_qty=5)
+                fetch.return_value = ([feed_item(qty=6)], {})
+                self.run_import(commit=True, bulk=bulk)
+                report = SupplierSyncReport.objects.latest("pk")
+                group = report.changes["back_in_stock_without_image"]
+                self.assertEqual(group["count"], 1)
+                self.assertEqual(group["items"][0]["internal_sku"], "FD-01-0123")
+                self.assertIn("მარაგში დაბრუნდა, სურათი არ აქვს: 1", report.summary)
+                self.assertEqual(report.changes["back_in_stock"]["count"], 1)
+                self.run_import(commit=True, bulk=bulk)
+                self.assertEqual(SupplierSyncReport.objects.latest("pk").changes["back_in_stock_without_image"]["count"], 0)
+
+    def test_snapshot_checks_all_image_variants_without_duplicate_products(self):
+        category = Category.objects.create(name="Images", slug="report-images")
+        products = []
+        for index, field in enumerate(("image_original", "image_desktop", "image_tablet", "image_mobile", None)):
+            product = Product.objects.create(
+                name="Image part", sku=f"CM-image-{index}", slug=f"image-part-{index}",
+                internal_sku=f"FD-01-{index + 1:04d}",
+                category=category, price=100, supplier_price=50, status="published", stock_qty=5,
+            )
+            products.append(product)
+            # Bulk insertion avoids actual image processing/file/network access.
+            ProductImage.objects.bulk_create([
+                ProductImage(product=product),
+                ProductImage(product=product, **({field: "test/photo.webp"} if field else {})),
+            ])
+        with self.assertNumQueries(1):
+            before = supplier_snapshot(lock=True)
+        Product.objects.filter(pk__in=[p.pk for p in products]).update(stock_qty=6)
+        after = supplier_snapshot()
+        report = create_success_report(started_at=timezone.now(), before=before, after=after)
+        group = report.changes["back_in_stock_without_image"]
+        self.assertEqual(group["count"], 1)
+        self.assertEqual(group["items"][0]["sku"], products[-1].sku)
+        self.assertEqual(len(after), 5)
+
+    def test_missing_photo_work_list_includes_restored_products_and_is_not_capped(self):
+        def row(sku, *, status="published", qty=6):
+            return dict(sku=sku, internal_sku=f"FD-01-{int(sku):04d}", name="No photo",
+                        status=status, stock_qty=qty, supplier_price=Decimal("100"), has_image=False)
+        before = {str(i): row(str(i), qty=5) for i in range(DETAIL_LIMIT + 3)}
+        after = {str(i): row(str(i)) for i in range(DETAIL_LIMIT + 3)}
+        # A supplier-archived product may retain its old raw stock count.
+        before["0"] = row("0", status="archived")
+        for sku, status in (("100", "draft"), ("101", "archived")):
+            before[sku], after[sku] = row(sku, status=status, qty=0), row(sku, status=status)
+        before["102"], after["102"] = row("102", qty=0), row("102", qty=5)
+        report = create_success_report(started_at=timezone.now(), before=before, after=after)
+        group = report.changes["back_in_stock_without_image"]
+        self.assertEqual(group["count"], DETAIL_LIMIT + 3)
+        self.assertEqual(len(group["items"]), DETAIL_LIMIT + 3)
+        self.assertEqual(report.changes["restored"]["count"], 1)
 
 
 @override_settings(STORAGES={
@@ -178,3 +241,18 @@ class SupplierReportAdminTests(TestCase):
         self.assertContains(response, "CM-saved / FD-02-0045")
         self.assertContains(response, "CM-keep / FD-01-0123")
         self.assertContains(response, "<strong>CM-new</strong>", html=True)
+
+    def test_detail_shows_full_photo_work_list_and_legacy_truncation_notice(self):
+        report = self.reports[0]
+        items = [{"sku": f"CM-photo-{i}", "internal_sku": f"FD-01-{i:04d}", "name": "No photo"}
+                 for i in range(DETAIL_LIMIT + 3)]
+        report.changes = {"back_in_stock_without_image": {"count": len(items), "items": items}}
+        report.save()
+        url = reverse("admin:catalog_suppliersyncreport_change", args=[report.pk])
+        response = self.client.get(url)
+        self.assertContains(response, "მარაგში დაბრუნდა, სურათი არ აქვს")
+        self.assertContains(response, f"FD-01-{DETAIL_LIMIT + 2:04d}")
+        self.assertNotContains(response, "ნაჩვენებია პირველი")
+        report.changes = {"back_in_stock": {"count": len(items), "items": items[:DETAIL_LIMIT]}}
+        report.save()
+        self.assertContains(self.client.get(url), f"ნაჩვენებია პირველი {DETAIL_LIMIT} პროდუქტი.")
