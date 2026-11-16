@@ -18,12 +18,41 @@ Ordering:
 
 1. Existing customer-stock availability rule first.
 2. Principal, ordinary, then small accessory tier.
-3. Round-robin across the available principal families: one item from each family,
-   then their second items, etc. A large number of hoods cannot crowd other
+3. Round-robin across the available principal families: one item or left/right
+   pair from each family, then their second groups, etc. A large number of hoods cannot crowd other
    principal families out of the first round. Once other families are exhausted,
    remaining products still appear; nothing is repeated to manufacture variety.
-4. Stable SKU hashes mix models/items within families; featured items lead within
+4. Stable product/group ID hashes mix models/items within families; featured items lead within
    their family. No random() or changing date/session seed is used.
+
+Left/right pairs (2026-11-16):
+
+- Whole side labels (LH/RH, left/right, მარცხენა/მარჯვენა) are removed from
+  otherwise identical names for comparison. All remaining variant words remain.
+  Structured side fields must agree with a name's side label when both exist.
+- Category, brand, placement, universal status and the ENTIRE fitment set must
+  match: model, engine, exact year range and notes. Fitment notes retain steering
+  side and trim differences. Filtered matching-fitment subsets are not used to
+  infer a pair. Non-universal products without fitments remain independent.
+- Only one unambiguous left and one right candidate are paired within the same
+  availability/family tier. Duplicates or conflicting sides stay independent.
+  An unavailable opposite does not move ahead of stocked products.
+- A pair occupies one family turn, with its two products consecutive. Other
+  families still mix between groups. If either side is featured, the group leads
+  within its family. Ordinary parts and small accessories can also form pairs
+  without changing their priority tier.
+- Pair recognition uses two lightweight metadata queries; SQL group ranking
+  happens before pagination. Product details/images are loaded only for the page.
+  No product records, prices, stock or names are edited.
+- Pagination is unchanged by explicit user request: the frontend still requests
+  15 products per page (except the final page). A pair can straddle the last slot
+  of one page and the first slot of the next. No variable page sizes or page gaps.
+- Local read-only catalog sample:1995 published products,547 recognized pairs,
+  all consecutive. Default/Subaru/Forester API responses200. These are LOCAL
+  counts verified with the new source in Django's test client; no production
+  audit or deployment was performed for this change. The already running
+  localhost8000 process still returns the previous order and needs a backend
+  restart before UI review. No frontend change/build is required.
 
 SQL window numbering is applied AFTER requested filters and unique product-ID
 selection, BEFORE pagination. Multiple matching fitments or image rows cannot
@@ -35,10 +64,12 @@ search. Explicit newest/oldest/name/price orders retain their existing rules.
 Product eligibility, prices, stock, compatibility and facet counts are preserved.
 No model/schema/data migration is required for this ordering change.
 
-Verification:56 focused backend tests pass, including8 recommendation tests:
+Verification:60 focused backend tests pass, including12 recommendation tests:
 100-hood diversity, accessory exclusions, complete/unique/stable multi-page
 results, make/model joins, image joins, filters/facets, exact search and explicit
-ordering. Existing CKEditor/staticfiles warnings only. No new migrations detected.
+ordering, adjacent pairs across pages, unchanged15-item pagination, complete
+fitment/variant safeguards, ambiguity handling and stock/filter preservation.
+Existing CKEditor/staticfiles warnings only. No new migrations detected.
 
 Local browser verified default catalog, Subaru, Forester, page1->2->Back (15
 unique links on each page, zero overlap, exact restored order), and390px mobile

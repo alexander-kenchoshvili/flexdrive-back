@@ -384,7 +384,8 @@ class SupplierSyncReport(models.Model):
         verbose_name_plural = "სინქრონიზაციის ანგარიშები"
 
     def __str__(self):
-        return f"Cross Motors — {self.get_status_display()} — {self.started_at:%Y-%m-%d %H:%M}"
+        started_at = timezone.localtime(self.started_at)
+        return f"Cross Motors — {self.get_status_display()} — {started_at:%Y-%m-%d %H:%M}"
 
 
 class SupplierProductBlock(TimeStampedModel):

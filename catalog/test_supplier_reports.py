@@ -1,4 +1,5 @@
 from decimal import Decimal
+from datetime import datetime, timezone as datetime_timezone
 from io import StringIO
 from unittest.mock import patch
 
@@ -7,6 +8,7 @@ from django.core.management import call_command, CommandError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.formats import date_format
 
 from catalog.models import Category, Product, SupplierSyncReport
 from catalog.supplier_reports import create_success_report, DETAIL_LIMIT, supplier_snapshot
@@ -98,6 +100,33 @@ class SupplierReportAdminTests(TestCase):
         self.product = Product.objects.create(name="Keep", sku="CM-keep", slug="keep", category=category, price=10)
         self.reports = [create_success_report(started_at=timezone.now(), before={}, after={}) for _ in range(3)]
         self.url = reverse("admin:catalog_suppliersyncreport_changelist")
+
+    @override_settings(TIME_ZONE="UTC")
+    def test_admin_uses_tbilisi_dates_without_changing_stored_times(self):
+        report = self.reports[0]
+        started_at = datetime(2026, 11, 15, 22, 1, tzinfo=datetime_timezone.utc)
+        finished_at = datetime(2026, 11, 15, 22, 2, tzinfo=datetime_timezone.utc)
+        SupplierSyncReport.objects.filter(pk=report.pk).update(
+            started_at=started_at, finished_at=finished_at,
+        )
+        with timezone.override("Asia/Tbilisi"):
+            expected_start = date_format(timezone.localtime(started_at), "DATETIME_FORMAT")
+            expected_finish = date_format(timezone.localtime(finished_at), "DATETIME_FORMAT")
+        with timezone.override("UTC"):
+            response = self.client.get(self.url, {
+                "started_at__year": "2026", "started_at__month": "11", "started_at__day": "16",
+            })
+            self.assertContains(response, expected_start)
+            self.assertContains(response, expected_finish)
+            self.assertIn(report.pk, [row.pk for row in response.context["cl"].result_list])
+            response = self.client.get(reverse("admin:catalog_suppliersyncreport_change", args=[report.pk]))
+            self.assertContains(response, expected_start)
+            self.assertContains(response, expected_finish)
+            self.assertContains(response, "2026-11-16 02:01")
+            self.assertEqual(timezone.get_current_timezone_name(), "UTC")
+        report.refresh_from_db()
+        self.assertEqual(report.started_at, started_at)
+        self.assertEqual(report.finished_at, finished_at)
 
     def test_bulk_delete_selected_then_all_does_not_delete_products(self):
         response = self.client.get(self.url)

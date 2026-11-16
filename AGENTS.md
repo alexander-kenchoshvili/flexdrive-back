@@ -1,5 +1,37 @@
 # Project Instructions
 
+## Adjacent Left/Right Catalog Pairs Prepared - 2026-11-16
+
+- User authorized matching opposite-side products consecutively in recommended
+  browsing. Explicitly KEEP15 items per frontend page; splitting a pair over the
+  last/first position of adjacent pages is acceptable. No pagination changes.
+- recommendations.py groups only unambiguous one-left/one-right candidates with
+  same side-neutral name, category, brand, placement, universal flag and full
+  model/engine/year/notes fitments within one availability/family tier. Missing
+  compatibility, conflicts and duplicate candidates stay independent. Steering
+  and variant differences retained. Pair consumes one family turn (DenseRank).
+- Default catalog/make/model browsing uses groups; exact/text search and explicit
+  price/name/date orders retain existing behavior. No added/hidden products or
+  price/stock/name mutation. Local read-only sample1995 products/547 consecutive
+  pairs; default/Subaru/Forester API200. Docs CATALOG_RECOMMENDATIONS.md updated.
+-60 focused backend tests pass (12 recommendations + SEO/admin pricing). No
+  migration needed. Backend-only change, user owns push/deploy/local review;
+  no production action or commit/push performed.
+- Existing localhost8000 responds200 but still returns the previous order; the
+  running user backend needs restart to load this change. New-source behavior was
+  verified with Django test client/local read-only queries. User services untouched.
+
+## Sync Report Admin Uses Tbilisi Time - 2026-11-16
+
+- SupplierSyncReportAdmin scopes its views and deferred template rendering to
+  Asia/Tbilisi. List/detail dates, date hierarchy/filter boundaries and report
+  titles use the same local time, including existing reports. Model string uses
+  the active time zone. Other admin pages/global TIME_ZONE remain unchanged.
+- All10 supplier-report tests pass, including UTC midnight rollover to next-day
+  Tbilisi filtering, detail/list display, unchanged stored timestamps and restored
+  request time zone. No migration or scheduler/data changes. Backend deploy needed;
+  no production action, commit or push performed.
+
 ## Ordinary Local Catalog 500 Fixed - 2026-11-16
 
 - User reported localhost3000 catalog/wishlist500 after restarting backend.

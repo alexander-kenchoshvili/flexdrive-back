@@ -15,6 +15,7 @@ from django.utils.http import urlencode
 from PIL import Image, ImageOps
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import timedelta
+from functools import wraps
 
 from common.cache_utils import CACHE_GROUP_CATALOG_CATEGORIES, invalidate_groups
 
@@ -1639,6 +1640,24 @@ class SupplierSyncReportAdmin(admin.ModelAdmin):
     readonly_fields = ("started_at", "finished_at", "status", "summary", "change_details")
     fields = readonly_fields
     actions = ("delete_selected",)
+
+    def get_urls(self):
+        def tbilisi_view(view):
+            @wraps(view)
+            def wrapped(request, *args, **kwargs):
+                with timezone.override("Asia/Tbilisi"):
+                    response = view(request, *args, **kwargs)
+                    # Admin templates render lazily; keep dates and date filters
+                    # in the same time zone until rendering has completed.
+                    if isinstance(response, TemplateResponse):
+                        response.render()
+                    return response
+            return wrapped
+
+        urls = super().get_urls()
+        for pattern in urls:
+            pattern.callback = tbilisi_view(pattern.callback)
+        return urls
 
     def has_add_permission(self, request):
         return False
