@@ -41,6 +41,7 @@ from .serializers import (
 from .search_cache import get_vehicle_search_catalog
 from .seo import active_seo_fitment_queryset
 from .oem import oem_search_patterns
+from .recommendations import recommended_products
 
 
 SEARCH_QUERY_MIN_LENGTH = 2
@@ -1049,11 +1050,20 @@ class ProductListAPIView(generics.ListAPIView):
         )
 
         params = self.request.query_params
+        recommendation_queryset = queryset
         self.vehicle_filter = _resolve_vehicle_filter(params)
 
         if self.vehicle_filter:
             fitment_filter = _matching_fitment_filter(self.vehicle_filter)
             matching_fitments = ProductFitment.objects.filter(fitment_filter)
+            recommendation_queryset = recommendation_queryset.prefetch_related(
+                Prefetch(
+                    "fitments", queryset=matching_fitments
+                    .select_related("vehicle_model__make", "engine")
+                    .order_by("year_from", "year_to", "engine__name"),
+                    to_attr="matching_fitments",
+                ),
+            )
             queryset = (
                 queryset.filter(
                     Q(is_universal_fitment=True) | Q(fitments__in=matching_fitments)
@@ -1158,7 +1168,8 @@ class ProductListAPIView(generics.ListAPIView):
         queryset = queryset.filter(**refinement_filters)
 
         ordering_param = params.get("ordering")
-        if search_context and not ordering_param:
+        is_recommended = not ordering_param or ordering_param == "recommended"
+        if search_context and is_recommended:
             return queryset.annotate(
                 **_search_relevance_annotations(search_context),
             ).order_by(
@@ -1174,11 +1185,19 @@ class ProductListAPIView(generics.ListAPIView):
                 "id",
             )
 
-        ordering_key = ordering_param or "newest"
+        if is_recommended:
+            # Deduplicate matching IDs before window numbering. Fitment/image
+            # joins can otherwise number one product multiple times and break
+            # both distinct counts and pagination.
+            return recommended_products(recommendation_queryset.filter(
+                pk__in=queryset.order_by().values("pk"),
+            ))
+
+        ordering_key = ordering_param
         ordering = self.ORDERING_MAP.get(ordering_key)
         if not ordering:
             raise ValidationError(
-                {"ordering": f"Invalid value. Allowed: {', '.join(self.ORDERING_MAP.keys())}."}
+                {"ordering": f"Invalid value. Allowed: recommended, {', '.join(self.ORDERING_MAP.keys())}."}
             )
 
         return queryset.annotate(

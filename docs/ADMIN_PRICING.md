@@ -2,6 +2,16 @@
 
 ## Current supplier price review rule (2026-11-15)
 
+Production update2026-11-16: user reported deploying commit ef038fd and authorized
+migration. Only catalog.0032 applied; fresh read-only verification confirms no
+pending migrations, empty review queue and false initial flags. All2214 original
+product rows/columns and59 original data tables preserved; only the expected
+migration/contenttype/permission metadata changed. Existing95 equal-price
+Published products were not backfilled or repriced. See
+[price audit](PRICE_AUDIT_2026-11-16.md); UI and first real changed-cost sync remain
+separate verification. Backup/checksum evidence is ignored in
+`tmp/measurements-20261015/price-migration-20261116/`.
+
 Supplier imports update the private supplier cost and stock, but keep the existing
 customer price. Every changed cost on an existing product creates or refreshes one
 pending row in Django admin **Catalog → გადასახედი ფასები**. The row shows the

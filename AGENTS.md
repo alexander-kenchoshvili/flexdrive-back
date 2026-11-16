@@ -1,5 +1,210 @@
 # Project Instructions
 
+## Ordinary Local Catalog 500 Fixed - 2026-11-16
+
+- User reported localhost3000 catalog/wishlist500 after restarting backend.
+  Reproduced BOTH on actual localhost8000: no such column
+  catalog_product.supplier_price_review_pending. Original local SQLite was at0030;
+  previous review only migrated the isolated copy, making earlier restart-only
+  instructions incomplete. New recommendation query itself was not the cause.
+- Backed up ORIGINAL local db.sqlite3 into ignored catalog-recommendations folder,
+  confirmed plan ONLY catalog0031+0032, applied both to original local SQLite.
+  All2037 original product rows/columns and24 commerce tables hash-preserved.
+  Pending review flags0/new review rows0. No production/.env/source logic change.
+- Real localhost8000 catalog/wishlist/Forester now200. Actual browser at
+  https://localhost:3000/catalog/ renders15 mixed products, console0 errors0 warnings.
+  User should reload this ordinary local URL. Own temporary3001/8001 servers stopped;
+  original3000/8000 services left running. Older review-server notes now historical.
+  Backup+verification: original-local-before-schema-fix.sqlite3 and
+  original-local-schema-fix.json in ignored recommendation evidence folder.
+
+## Mixed Recommended Catalog Prepared For Local Review - 2026-11-16
+
+- User authorized stable mixed primary-part ordering for default catalog and
+  make/model filters; inspect locally first, user owns later push/build/deploy.
+- catalog/recommendations.py classifies whole part nouns into9 primary families,
+  ordinary and small tiers; stock first, round-robin family row numbers and
+  stable SKU hashes before pagination. Accessories (incl "წინა ფარი სალასკა")
+  remain small. No products filtered out, no price/stock/eligibility mutation.
+- views defaults/explicit recommended use new order; text/OEM/SKU relevance and
+  explicit price/name/date order preserved. Filtered IDs deduplicated before
+  windows to prevent fitment/image joins duplicating products. Facets retained.
+-56 focused backend tests pass incl8 recommendations. Browser default/Subaru/
+  Forester + page1/2/Back (zero overlap, same restored order) +390px width pass.
+  No migration required. docs/CATALOG_RECOMMENDATIONS.md contains exact rules.
+- Local frontend https://localhost:3001/catalog (exec84390), isolated backend
+  https://127.0.0.1:8001 (exec69732), ignored clone preview.sqlite3 under
+  tmp/measurements-20261015/catalog-recommendations-20261116/. Only clone received
+  existing0031/0032 prerequisites; original local/production DB and .env untouched.
+  Original8000 service was not stopped. Review servers left running for user.
+
+## Frontend Cleared Search Draft Fix Prepared - 2026-11-16
+
+- User reported deleting header query then switching Legacy->Forester restores
+  deleted text. Fixed paired frontend HeaderSearch/ProductCatalog with shared
+  request-safe text draft; next filter action applies cleared/edited q, while
+  API/results keep applied q until navigation. No backend/data/migration change.
+-89 relevant frontend tests, scoped ESLint/typecheck/production build pass. User owns frontend
+  push/deploy; live browser check remains after deployment. Details in frontend
+  AGENTS.md. Current financial price-review behavior was not changed here.
+
+## Google Audience And 100-User Cap Clarified Read Only - 2026-11-16
+
+- User asks if branding removes100 limit. Read current Auth Audience: In production,
+  External. UI still shows1user/100user cap and explains cap for unapproved sensitive/
+  restricted scopes. Data access lists no configured rows in all3scope categories.
+- Actual local customer auth accounts/google_auth.py GOOGLE_OAUTH_SCOPE is fixed
+  openid email profile. Official Google Manage App Audience15549945 confirms basic
+  identity/sign-in exception and production external public access. Thus100 cap
+  does not apply to our basic sign-in; branding publication is name/link display,
+  not a new audience change. Do not claim cap number disappeared or was edited.
+- No scope/audience/client/ENV edits or real login test. Kernel reset. Ordinary
+  friend login remains practical verification; storefront public guard separate.
+
+## Google Branding Verified And Published - 2026-11-16
+
+- After live DNS/Owner Verified recheck and explanation of old ownership issue,
+  user explicitly authorized I have fixed the issues -> Proceed. Submitted exact
+  reverification in Google Auth FLEXDRIVE/flexdrive-494109. Within ~20sec console
+  said branding verified but not shown, Publish branding within7days.
+- User said continue. Published existing approved branding (FLEXDRIVE + existing
+  root/privacy/terms links). Console green status: Your branding has been verified
+  and is being shown to users. Full reload reconfirmed exact status; Publish button
+  gone. This closes Google Branding approval/publication, not real Google login test.
+- No logo uploaded (form remains without logo); do not promise logo on consent.
+  No support/developer email, domains, OAuth credentials/scopes/audience/client,
+  source/ENV/DNS/deploy or storefront public-open action. Store opening separate.
+- Kernel reset releases Computer Use; stop after branding. Older pending/retry
+  Branding notes are historical. Real ordinary-user Google/FB login remain pending.
+
+## Google Ownership Reconfirmed Live - 2026-11-16
+
+- User questioned ownership proof/additional requirements; read-only recheck only.
+  Both authoritative ns1/ns2.namespace.life return existing CNAME
+  saz7zcmidlok.flexdrive.ge -> gv-op4ax32ama2c5k.dv.googlehosted.com.
+- Existing Search Console Users/permissions sc-domain:flexdrive.ge shows user's
+  kenchoshvili.alexander1@gmail.com Owner / Verified. This EXACTLY matches Google
+  Auth Cloud account observed in previous status check. Reader remains Restricted;
+  2 users, no permission edits. Thus ownership currently verified, not just old proof.
+- Previous Branding issues panel lists ONLY old homepage ownership issue +24h wait.
+  No new retry/submission/approval occurred in this recheck. Do not guarantee approval
+  or invent additional current requirements. Return next to user for reverification.
+- Chrome briefly occluded by VSCode; explicitly activated Chrome before inputs.
+  No terminal/VSCode interaction. Kernel reset; stop after ownership check.
+
+## Google Branding Status Read Only; Reverification Needed - 2026-11-16
+
+- User asked whether Google branding answered and what next. Gmail connector
+  search failed Unknown tool; do not claim mailbox searched/no email received.
+  Existing signed-in Chrome Google Cloud FLEXDRIVE/flexdrive-494109 Branding
+  explicitly says Your branding is not being shown to users; resolve issues and
+  verify again. View issues says Issues found from PREVIOUS verification attempt:
+  homepage https://flexdrive.ge not registered to you, verify ownership then wait24h.
+- This is old-attempt issue, not evidence of fresh rejection after completed
+  ownership proof. Prior domain ownership verified Nov14 and24h wait has elapsed;
+  next action I have fixed the issues -> Proceed requests reverification.
+  No radio selection, Proceed, submission, app/client/ENV edit or upload performed.
+  Branding fields have expected root/privacy/terms URLs; logo upload appears empty.
+  Do not promise automatic approval or that24h alone triggers a new review.
+- Cancelled issue panel and verified closed. Kernel reset. User owns next retry
+  authorization; stop after status check. Do not call branding approved/pending review.
+
+## Brevo And Cloudinary Read-Only Review - 2026-11-16
+
+- User opened both tabs and authorized retry, review only, no provider edits.
+  Brevo signed in: daily emails300 left/300. Transactional statistics default
+  Nov9–16 shows0 sent; realtime last30min0. Do NOT infer delivery failure or live
+  successful sending from empty stats. No test email sent. FlexDrive account
+  confirmed by only sender FLEXDRIVE/noreply@flexdrive.ge Verified, DKIM green,
+  DMARC configured; Domains flexdrive.ge Authenticated.
+- Cloudinary dbjebtzcm (UI Test label), sole Free cloud, matches existing backend
+  App Spec service CLOUDINARY_CLOUD_NAME (native existing raw-spec tab read; no
+  hidden API/credentials). Current30day credits3.96/25=15.84%, storage1.63GB,
+  bandwidth82.55MB, transformations556, assets28.23K. Old66.88% is historical.
+- Error Reports explicitly Advanced-plan-or-higher only; disabled demo data below
+  paywall is NOT actual customer errors. No error-log success/failure claim.
+  No paid upgrade needed merely to view those logs; none attempted.
+- No settings/API key/DNS/ENV/notification/plan/billing/assets edits or test sends.
+  Safe aggregate tmp/measurements-20261015/providers-20261116/review.json ignored.
+  Returned to Brevo authenticated Domains page, reset kernel. STOP after this item.
+  Real email delivery, quotas' existing notification settings remain untested;
+  infrastructure-wide row not wholly complete. Monitoring item1 deferred by user.
+
+## Brevo/Cloudinary Review Requested; UI Policy Stop - 2026-11-16
+
+- User explicitly skips remaining-monitoring item1 (defer after opening), moves
+  to item2, requests only Brevo and Cloudinary current readiness/usage/quota check.
+  User offers to open Chrome tabs; no settings/billing/notification edits requested.
+- Fresh Chrome inventory showed no Brevo/Cloudinary tabs. Ctrl+T action caused
+  explicit Computer Use URL-confidence policy stop. No later UI input; kernel reset.
+  Neither provider inspected yet; do not claim current quota/auth/delivery health.
+  On user retry use user-opened provider tab with known URL rather than new blank tab.
+- Keep review narrow. Stop after provider checks; no payment/backup/monitoring work.
+
+## PostgreSQL Backup Availability Read-Only Check - 2026-11-16
+
+- User authorized only backup date/status inspection then stop. Existing Chrome:
+  Managed Databases -> flexdrive-prod-db b47a861f-f3e2-4af7-9d4d-6852d2de565d,
+  green status,1GB/1vCPU/10GiB/PostgreSQL18/FRA1. Actions -> Restore from backup
+  opens enabled Latest Transaction and PITR options, states7day transaction restore.
+- PITR date dropdown includes Nov16(today),Nov15 and earlier daily options.
+  Selected Nov16 in UNSUBMITTED form only; UI showed01:04:19/GMT+4 default.
+  This is restore-point availability, NOT explicit full-backup completion timestamp
+  or successful restore evidence. No standalone last-backup-success status exposed
+  in these UI views. Do not claim restore tested or exact full-backup creation time.
+- Cancelled form, confirmed dialog closed. NEVER clicked Restore to New Cluster;
+  no paid cluster/job/restore/upgrade/DB/config changes. Kernel reset; stop here.
+
+## Bank Scheduled Invocation Verified; Stop - 2026-11-16
+
+- User authorized ONLY quick read-only last automatic bank job check then stop.
+  DO Jobs shows successive green scheduled bog-payment-reconciliation executions
+  around00:02/00:16/00:31/00:46 Tbilisi. Opened latest invocation
+  13691d99-47ee-4dc3-99ad-81c89376d105: Success, Scheduled, Every15minutes
+  (*/15 * * * *), start00:46:47/end00:46:52 Nov16 Asia/Tbilisi (5sec).
+- Exact result resolved=0 pending=0 review=0 failed=0 skipped=0. Existing CKEditor
+  warning only. No manual run/config/deploy/payment/DB action. Candidate recovery
+  and email delivery remain untested; this closes first scheduled invocation gap.
+- Computer Use kernel reset; stop here. Cleanup to remain manual per user request,
+  no new cleanup cron authorized. Heartbeat/backup remain separate pending topics.
+
+## Price Review Migration Applied In Production - 2026-11-16
+
+- User reported deploying price code (local commit ef038fd feat:prices) and
+  explicitly requested production migration; search issue FD-08-0007 deferred.
+- Direct TLS1.3/read-only preflight found exactly catalog.0032 pending. Backed up
+  product and migration/contenttype/permission rows, captured schema and62 table
+  checksums in ignored tmp/measurements-20261015/price-migration-20261116/.
+- Applied only catalog.0032 plus its one content type/four permissions in one
+  transaction. All2214 products' original columns and59 original data tables
+  preserved by checksums; only3 expected metadata tables changed. Review rows0,
+  pending product flags0, all-app pending migrations0. Fresh read-only connection
+  independently confirmed committed schema/migration. One-off helper removed.
+- Existing95 equal-price Published products were NOT changed/backfilled; the
+  currently stocked FD-08-0007 still needs user decision. Search/live admin UI and
+  first real supplier change through the new queue remain unverified. No price,
+  stock, order, payment, publication, provider API or storefront opening action.
+
+## Production Published Price Audit; Read Only - 2026-11-16
+
+- User stopped Computer Use and supplied production DB specifically for read-only
+  published-price audit. Node kernel reset; direct PostgreSQL TLS1.3 / explicit
+  REPEATABLE READ READ ONLY with read_only=on. No writes/migrations/provider calls.
+- Snapshot00:13 Tbilisi:1979 Published,1300 customer-stock-positive. No below-cost,
+  missing/nonpositive cost/sale, invalid old_price, missing company SKU or inactive
+  category. All current sale prices match stored percentage arithmetic to cents.
+-95 equal-cost products:94 have supplier/owned stock0; ONE currently sellable:
+  product375 / CM-000404 / FD-08-0007, წინა გიტარა (LH), AJSparts,140→140 GEL,
+  supplier stock23, customer available18. Do not change without user price decision.
+- Two under10% positive markups (both no stock);23 at least200% (21 stocked), max525%.
+  Screening flags aren't confirmed commercial errors. No market price comparison.
+- Prepared0032 NOT applied. Existing pending flags default false: deploying alone
+  does not block these95 equal prices; user must decide price/status/review handling
+  before launch/restock. User owns push/deploy, then will request migration.
+- docs/PRICE_AUDIT_2026-11-16.md records findings + financial verification checklist.
+  Detailed product-only evidence in ignored tmp/measurements-20261015/price-audit-20261116/.
+  No credentials stored. Keep new DB credentials out of docs/logs/output.
+
 ## Bank Job Configured And Verified; Stop Here - 2026-11-15
 
 - User explicitly approved paid512MB bank job and failure-email notification in
