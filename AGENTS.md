@@ -1,5 +1,73 @@
 # Project Instructions
 
+## VIN Search Prepared; Deploy Both Repositories - 2026-11-17
+
+- User authorized VIN integration. Header recognizes full17-character VIN, calls
+  new read-only POST /api/catalog/vehicles/vin/, then navigates with internal
+  make/model/year filters and clears VIN text. Subsequent part search keeps car.
+  Stale category/engine/refinement/page filters clear on a new vehicle. Existing
+  catalog labels/removal remain. Explicit part-code escape handles17-char SKUs.
+- Fixed official NHTSA vPIC endpoint, bounded timeout/body/no redirects/retries,
+  strict ErrorCode0 + identity/year validation,10/min scoped throttle. SHA256
+  cache keys; decoded identity7days, unrecognized5min, unavailable20sec. Internal
+  active taxonomy/publication/fitment coverage resolves live. No fuzzy model,
+  cross-market alias, engine/trim or OEM fitment guesses. Mercedes spelling alias.
+- Failures/no coverage stay with visible explanation and manual choice. No VIN
+  in normal catalog q/suggestions/analytics/history or explicit application logs;
+  sidebar cannot accidentally apply an unsubmitted VIN draft. Provider disclosed.
+-21 backend +66 frontend focused tests, scoped ESLint, strict typecheck and
+  isolated production build pass. Public example live decoder returns Honda
+  Accord2003/ErrorCode0. No customer VIN, prod DB/provider settings/ENV/migration/
+  purchase/deploy/commit/push. User owns BOTH deploys. No new ENV/API key/cron.
+- Browser verification not run (explicit request required). After deploy verify
+  known VIN -> car -> cleared search -> part name within same car. vPIC/model
+  naming coverage is limited; strict unsupported/ambiguous cases require manual
+  choice. docs/VIN_SEARCH.md documents contract/limits/validation. Performance
+  optimization remains deferred; prior SEO500fix is preserved.
+
+## SEO Pinia 500 Fix Deployed And Live Verified - 2026-11-17
+
+- User frontendcommit546a48adeployed Healthy/Live18:22:09Tbilisi. NewPSI18:24/
+ 18:26home+catalog mobile/desktop ALLnormalpages, no unsuccessfulHTTP/console
+  erroraudit. Home89mobile/96desktop/SEO100both/LCP3.602s/1.002s; catalog88/87/
+  SEO100both/LCP3.189s/0.834s. DesktopcatalogTBT250ms andmobileSI6.048s remain
+  optimization candidates; labvariation, not fullrealuserCrUXassessment.
+- FreshRuntimeLogs search public_page_failure givesNoresults. Ordinary anonymous
+  home/catalog/product checks all200 (atmost2parallel, no stresstest). Separate
+  CMS404andh3statusMessagewarnings remain; do NOT call allwarnings eliminated.
+- This closes live verification for the reproduced SEO/Pinia500fix. No newsource/
+  ENV/DB/provider/billing/deploychanges thisturn, no furtherdeployneeded. User
+  tabs left open; nativeCUAkernelreset releasesframe. Full datedreport links in
+  docs/PERFORMANCE_500_INVESTIGATION_2026-11-17.md; earlier pendingdeploy notes below
+  arehistorical. Do notpromise futurezeroerrors orfixedLighthousescores.
+
+## Reproduced Public 500 SEO Pinia Race Fixed Locally; Deploy Frontend - 2026-11-17
+
+- User deployed diagnostics17:46Tbilisi. PSI root17:50:13mobile/desktop BOTH500;
+  high89/98speed invalid(errorpages). NativeRuntimeLogs13:50:29UTC captured real
+  public_page_failure/home/TypeError/missing_value and server.mjs3168:29→3229:3.
+  Compared compiled production call chain; failure occurs when useSeoDefaults
+  re-resolves useSiteSettings AFTER awaited fetchSiteSettings in SEO plugin.
+- Real productionPinia3.0.4 regression reproduces exact Cannot read properties
+  of undefined(reading '_s') when globalactivePinia disappears during await;
+  overlappingrequest metadata isolation also failed before fix. Both now pass.
+- FrontendONLY: plugin captures useSiteSettings(nuxtApp.$pinia as Pinia) BEFORE
+  await, passes same request-owned store into required useSeoDefaults(store).
+  Composable no longer accesses globalactivePinia. Existing title test adjusted.
+  No indexing/canonical/metadata-policy/auth/checkout/price/backend/ENV/schema edit.
+-26focusedSEO/error/diagnostic tests, scopedESLint/strictTypeScript/prodbuild pass.
+  Actual isolated builtNuxt + loopbackfixture forciblyclears SAME outputPinia
+  while settings reply returns: parallelroot/catalog BOTH200 with content/SEO,
+  no public_page_failure/TypeError. Own3107/8128stopped; nativeCUA reset.
+- Requires user FRONTEND push/deploy, then livePSI/log recheck. Backend already
+  user-deployed analytics; no backend redeploy/migration needed for this fix.
+  Do not claim live500eliminated before deploying. Diagnostics retained.
+- Local devNuxt writes ordinary.nuxt during builds; isolated production mapping
+  uses frontend/node_modules/.cache/flexdrive-performance-500 and ignored backend
+  performance-20261117/nuxt-output. User devservices untouched. No production
+  stress test/artificial500/order/refund/provider/configmutations.
+  Full history docs/PERFORMANCE_500_INVESTIGATION_2026-11-17.md.
+
 ## Intermittent PageSpeed 500 Investigation; Cause Still Unproven - 2026-11-17
 
 - First native Chrome PageSpeed home/catalog desktop runs returned real500/error

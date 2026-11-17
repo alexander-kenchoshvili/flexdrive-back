@@ -1,5 +1,63 @@
 # PageSpeed-ის პერიოდული 500 — 2026-11-17
 
+## საბოლოო პროდაქშენშემოწმება — შესწორება გამოქვეყნებულია
+
+მომხმარებლისfrontendcommit`546a48a`დეპლოიDigitalOcean-შიHealthy/Liveა
+18:22:09Tbilisi. ახალი18:24/18:26PageSpeedტესტები ორივერეჟიმში სრულგვერდებს
+იღებს; არცHTTPerrorauditდაარცconsoleerrorauditაღარარის. RuntimeLogs-ის
+`public_page_failure`ფილტრიაჩვენებსNoresults. ჩვეულებრივიroot/catalog/product
+GETებიმაქსიმუმ2პარალელურობითსამივე200; არიყოload/stressტესტი.
+
+| გვერდი | mobileქულა | desktopქულა | mobileLCP | desktopLCP | SEO |
+| --- | --- | --- | --- | --- | --- |
+| მთავარი |89|96|3.602s|1.002s|100ორივე|
+| კატალოგი |88|87|3.189s|0.834s|100ორივე|
+
+მთავარიTBTmobile41ms/desktop33ms, CLS0.016/0.011; კატალოგიTBT41/250ms,
+CLS0.002/0.015, SpeedIndexmobile6.048s. მობილურისLCPდაdesktopკატალოგისTBT
+ოპტიმიზაციისკანდიდატებია; ესარისცალკელაბორატორიულიგაზომვა, არაCrUX28დღიანი
+შეფასება ან ქულისმომავალშიუცვლელობისგარანტია. რეალურივიზიტორებისCrUXსაკმარისი
+მონაცემებიჯერარარის. ცალკეულიCMS404დაh3statusMessagewarningsლოგებშირჩება;
+„ყველაგაფრთხილებაგაქრა“არაცხადდება. ამგაფრთხილებებზესკოპიარ გაგვიფართოებია.
+
+ამკონკრეტულიSEO/Pinia500-ისშესწორებაგამოქვეყნებულიადაგადამოწმებულია.
+შემდგომიდეპლოი/მიგრაცია/ENVამშემოწმებისშედეგადარსჭირდება.
+NativeChromeCUAგათიშულია; ახალიsourcefunctionalცვლილებაარშესრულებულა.
+
+ახალიანგარიშები: [მთავარი](https://pagespeed.web.dev/analysis/https-flexdrive-ge/ylgfk21n1d?form_factor=mobile),
+[კატალოგი](https://pagespeed.web.dev/analysis/https-flexdrive-ge-catalog/zqutirnyzs?form_factor=mobile).
+ქვემოთშესწორებისმომზადების/პირველიდიაგნოსტიკისჩანაწერებიისტორიულია.
+
+## განახლება — მიზეზი გამეორებულია და შესწორება მომზადებულია
+
+მომხმარებელმა17:46Tbilisiდეპლოი გააკეთა.17:50:13PageSpeedrootახალტესტში
+mobile/desktopრეალურად500დაბრუნდა; მაღალი89/98speedქულები errorpage-სეკუთვნის.
+13:50:29UTCfrontendRuntimeLogs-შიახალმადიაგნოსტიკამმიიღო:
+
+`public_page_failure`, route=home, TypeError, hint=missing_value,
+server.mjs3168:29 →3229:3. APIstack2544 დაSEOpluginchain წარმოებისასლთან
+შესადარებლადგამოვიყენეთ.შეცდომისადგილიარის`useSeoDefaults`-ისახალი
+`useSiteSettings()`მოძებნა`await fetchSiteSettings()`-ისშემდეგ.
+
+ნამდვილიPinia3.0.4productionSDK-ით ტესტმა გამეორა ზუსტად
+`Cannot read properties of undefined (reading '_s')`: settingsAPIკითხვისას
+activePiniaკონტექსტისდაკარგვა; ასევეორიSSRმოთხოვნისერთმანეთისგავლენა.
+ორივერეგრესია ძველკოდზეარასწორადმუშაობდა დაახალზეწარმატებულია.
+
+შესწორება: SEOpluginსაწყისშივეიყენებს`useSiteSettings(nuxtApp.$pinia as Pinia)`;
+შენახულიrequest-ownedstoreგადაეცემაგადმოწერილიმონაცემებისშემდეგ
+`useSeoDefaults(siteSettingsStore)`-ს. composableაღარეძებსglobalactivePinia-ს.
+SEOველი/canonical/robots/ინდექსაციისპოლიტიკაარიცვლება; ფინანსები/ავტორიზაცია
+არამოდიფიცირებულა. დიაგნოსტიკარჩება.
+
+26SEO/error/diagnosticტესტი, scopedESLint, typecheckდაproductionბილდიწარმატებულია.
+ActualbuiltNuxt+loopbackAPIში settingsპასუხისმოსვლისასგანზრახგასუფთავდაactivePinia;
+root/catalogორი პარალელურიმოთხოვნაორივეHTTP200/სწორიშიგთავსით/SEO-თიდაბრუნდა,
+დიაგნოსტიკურიშეცდომაარასდროსგამოჩნდა. QAგაჩერებულია.
+**საჭიროაახალიფრონტისდეპლოი**;
+ესშესწორებაპროდაქშენზეჯერარარის. ბექი/მიგრაცია/ENVცვლილებაარ სჭირდება.
+ქვემოთ„მიზეზიუნახავია“ჩანაწერებიისტორიულისაფეხურებია დაარაახლანდელისტატუსი.
+
 ## დადასტურებული მდგომარეობა
 
 17ნოემბერი14:43/14:48Tbilisi ტესტებში მობილური სრული გვერდი იყო, desktop-ზე კი

@@ -799,6 +799,7 @@ REST_FRAMEWORK = {
         'password_reset': '100000/min' if TESTING else '5/min',
         'activation_resend': '100000/hour' if TESTING else '5/hour',
         'catalog_search': '100000/min' if TESTING else '30/min',
+        'vin_lookup': '100000/min' if TESTING else '10/min',
         'business_login': '5/min',
         'business_login_account': '5/min',
         'business_dashboard': '120/min',
