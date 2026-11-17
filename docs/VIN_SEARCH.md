@@ -1,5 +1,9 @@
 # VIN → vehicle filters → part search
 
+2026-11-17 update: [existing supplier version hints](VIN_VARIANT_HINTS.md) adds
+optional trim/series context, conservative prioritization and honest card badges.
+It supersedes the original make/model/year-only result description below.
+
 Implemented 2026-11-17; user owns backend and frontend push/deploy. No production
 DB, inventory, price, provider-account or environment changes. No migration,
 API key, new dependency, paid service or scheduled job required.

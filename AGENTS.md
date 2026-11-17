@@ -1,5 +1,29 @@
 # Project Instructions
 
+## Supplier Version Mentions Prepared For Local Review - 2026-11-17
+
+- User authorized reversible version hints from existing supplier names/generation
+  notes, without requesting more supplier data. Clean bases backend1f86fa3 and
+  frontendd797a6f. No production data/ENV/migration/import/deploy/commit/push.
+- vPIC optional Trim/Trim2/Series/Series2 retained, identity cache v2. Canonical
+  bounded variant query (or unspecified) accompanies exact make/model/year match.
+  No model/engine/body/OEM guesses. Existing variant_hints.py controlled parser
+  uses name + only matching-car/year notes, word boundaries, composite/negative
+  handling. It is mention evidence, never exclusive/full compatibility proof.
+- Recommended order promotes matching mentions within availability, preserves
+  exact text/identifier relevance and explicit price/name/date order. No version
+  mismatch/unknown/negative removes a product. Two lightweight metadata reads,
+  no N+1 or persisted derived values. Existing pagination/pairs/SEO remain.
+- Front preserves context across part search, sort/page/refinements/Back; manual
+  car/year/engine change/reset clears it. Chip includes version. Cards replace
+  full-compatibility claim with model/year match + mentioned version or check
+  version. Removed lower VIN explanatory lines/button stay removed.
+-46 backend +71 frontend tests, scoped ESLint/typecheck/isolated build pass.
+  LOCAL SQLite query_only audit: Jetta2017 count117 unchanged; GLI grille
+  FD-04-0250 and bumper FD-04-0328 rise first; other parts remain. No fixtures
+  added. Browser verification not run (explicit request required); user reviews
+  local URL in docs/VIN_VARIANT_HINTS.md. Both repo deployments needed later.
+
 ## VIN Search Prepared; Deploy Both Repositories - 2026-11-17
 
 - User authorized VIN integration. Header recognizes full17-character VIN, calls

@@ -65,7 +65,7 @@ class VinTests(APITestCase):
         get.return_value = provider_response()
         response = self.post(VIN.lower())
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["filters"], {"make": "honda", "model": "accord", "year": "2003"})
+        self.assertEqual(response.data["filters"], {"make": "honda", "model": "accord", "year": "2003", "variant": "unspecified"})
         self.assertNotIn(VIN, json.dumps(response.data))
         self.assertEqual(response["Cache-Control"], "private, no-store")
         self.assertEqual(self.client.get(self.url).status_code, 405)
@@ -84,7 +84,7 @@ class VinTests(APITestCase):
         self.assertEqual(self.post().data["status"], "matched")
         self.assertEqual(self.post().data["status"], "matched")
         get.assert_called_once()
-        key = "catalog:vin:v1:" + hashlib.sha256(VIN.encode()).hexdigest()
+        key = "catalog:vin:v2:" + hashlib.sha256(VIN.encode()).hexdigest()
         self.assertNotIn(VIN, key)
         self.assertNotIn(VIN, json.dumps(cache.get(key)))
         self.product.status = ProductStatus.DRAFT

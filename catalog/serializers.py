@@ -308,11 +308,16 @@ class ProductListSerializer(serializers.ModelSerializer):
             }
 
         match = matching_fitments[0]
-        return {
+        result = {
             "matched": True,
             "match_type": "engine" if match.engine_id else "vehicle_year",
             "notes": match.notes,
         }
+        variants = self.context["vehicle_filter"].get("variants", ())
+        if variants:
+            from .variant_hints import variant_hint
+            result["variant"] = variant_hint(variants, obj.name, [f.notes for f in matching_fitments])
+        return result
 
     def get_seo(self, obj):
         request = self.context["request"]

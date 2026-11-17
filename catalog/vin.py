@@ -14,6 +14,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from .models import ProductFitment, ProductStatus, VehicleMake, VehicleModel
+from .variant_hints import variant_keys
 
 
 VIN_PATTERN = re.compile(r"[A-HJ-NPR-Z0-9]{17}", re.ASCII)
@@ -64,11 +65,16 @@ def _read_provider(vin):
         raise ValueError("missing vehicle identity")
     if not isinstance(year, str) or not re.fullmatch(r"[0-9]{4}", year) or not 1981 <= int(year) <= timezone.now().year + 2:
         raise ValueError("missing model year")
-    return {"status": "decoded", "vehicle": {"make": make.strip(), "model": model.strip(), "year": int(year)}}
+    vehicle = {"make": make.strip(), "model": model.strip(), "year": int(year)}
+    for field in ("Trim", "Trim2", "Series", "Series2"):
+        value = row.get(field)
+        if isinstance(value, str) and value.strip() and len(value) <= 120 and all(c.isprintable() for c in value):
+            vehicle[field.lower()] = value.strip()
+    return {"status": "decoded", "vehicle": vehicle}
 
 
 def decode_vehicle(vin):
-    key = "catalog:vin:v1:" + hashlib.sha256(vin.encode("ascii")).hexdigest()
+    key = "catalog:vin:v2:" + hashlib.sha256(vin.encode("ascii")).hexdigest()
     try:
         cached = cache.get(key)
     except Exception:
@@ -107,7 +113,9 @@ def resolve_vehicle(vehicle):
     ).filter(Q(engine__isnull=True) | Q(engine__is_active=True)).exists()
     if not coverage:
         return {"status": "no_coverage", "vehicle": vehicle}
+    variants = variant_keys(*(vehicle.get(field, "") for field in ("trim", "trim2", "series", "series2")))
     return {
-        "status": "matched", "vehicle": {"make": make.name, "model": model.name, "year": vehicle["year"]},
-        "filters": {"make": make.slug, "model": model.slug, "year": str(vehicle["year"])},
+        "status": "matched", "vehicle": {**vehicle, "make": make.name, "model": model.name},
+        "filters": {"make": make.slug, "model": model.slug, "year": str(vehicle["year"]),
+                    "variant": ",".join(variants) if variants else "unspecified"},
     }

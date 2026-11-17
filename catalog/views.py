@@ -42,6 +42,7 @@ from .search_cache import get_vehicle_search_catalog
 from .seo import active_seo_fitment_queryset
 from .oem import oem_search_patterns
 from .recommendations import recommended_products
+from .variant_hints import annotate_variant_priority, parse_variant_query
 
 
 SEARCH_QUERY_MIN_LENGTH = 2
@@ -904,8 +905,9 @@ def _resolve_vehicle_filter(params):
     model_param = params.get("model")
     year_param = params.get("year")
     engine_param = params.get("engine")
+    variant_param = params.get("variant")
 
-    has_vehicle_filter = any([make_param, model_param, year_param, engine_param])
+    has_vehicle_filter = any([make_param, model_param, year_param, engine_param, variant_param])
     if not has_vehicle_filter:
         return None
 
@@ -948,11 +950,19 @@ def _resolve_vehicle_filter(params):
             "engine",
         )
 
+    try:
+        variants = parse_variant_query(variant_param)
+    except ValueError:
+        raise ValidationError({"variant": "Unknown vehicle version."})
+    if variants and (not model or year is None):
+        raise ValidationError({"variant": "Vehicle model and year are required."})
+
     return {
         "make": make,
         "model": model,
         "year": year,
         "engine": engine,
+        "variants": variants,
     }
 
 
@@ -1169,6 +1179,9 @@ class ProductListAPIView(generics.ListAPIView):
 
         ordering_param = params.get("ordering")
         is_recommended = not ordering_param or ordering_param == "recommended"
+        variants = self.vehicle_filter.get("variants", ()) if self.vehicle_filter else ()
+        if variants and is_recommended and search_context:
+            queryset = annotate_variant_priority(queryset, variants, matching_fitments)
         if search_context and is_recommended:
             return queryset.annotate(
                 **_search_relevance_annotations(search_context),
@@ -1179,6 +1192,7 @@ class ProductListAPIView(generics.ListAPIView):
                 "-search_direct_name_match",
                 "-search_startswith_match",
                 "-search_contains_match",
+                *(["-variant_priority"] if variants else []),
                 "-is_featured",
                 "search_name_length",
                 "name",
@@ -1189,9 +1203,13 @@ class ProductListAPIView(generics.ListAPIView):
             # Deduplicate matching IDs before window numbering. Fitment/image
             # joins can otherwise number one product multiple times and break
             # both distinct counts and pagination.
-            return recommended_products(recommendation_queryset.filter(
+            ordered = recommended_products(recommendation_queryset.filter(
                 pk__in=queryset.order_by().values("pk"),
             ))
+            if variants:
+                ordered = annotate_variant_priority(ordered, variants, matching_fitments)
+                ordered = ordered.order_by("-merch_stock", "-variant_priority", *ordered.query.order_by[1:])
+            return ordered
 
         ordering_key = ordering_param
         ordering = self.ORDERING_MAP.get(ordering_key)
@@ -1368,6 +1386,9 @@ class ProductSuggestionAPIView(generics.ListAPIView):
                 Q(is_universal_fitment=True) | Q(fitments__in=matching_fitments)
             ).distinct()
         search_context = _build_search_context(search_query)
+        variants = vehicle_filter.get("variants", ()) if vehicle_filter else ()
+        if variants:
+            queryset = annotate_variant_priority(queryset, variants, matching_fitments)
         queryset = (
             _apply_catalog_search(queryset, search_context)
             .annotate(
@@ -1380,6 +1401,7 @@ class ProductSuggestionAPIView(generics.ListAPIView):
                 "-search_direct_name_match",
                 "-search_startswith_match",
                 "-search_contains_match",
+                *(["-variant_priority"] if variants else []),
                 "-is_featured",
                 "search_name_length",
                 "name",
