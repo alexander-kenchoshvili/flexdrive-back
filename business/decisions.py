@@ -15,8 +15,11 @@ from .marketing import MetaUnavailable, _ads, _cached
 from .reports import previous_period
 
 FUNNEL_URL = f"https://analyticsdata.googleapis.com/v1alpha/properties/{GA4_PROPERTY_ID}:runFunnelReport"
-STEPS = (("view_item", "პროდუქტი ნახა"), ("add_to_cart", "კალათაში დაამატა"),
-         ("begin_checkout", "გადახდა დაიწყო"), ("purchase", "იყიდა"))
+STEPS = (("view_item", "პროდუქტი ნახა"), ("begin_checkout", "გადახდა დაიწყო"), ("purchase", "იყიდა"))
+CART_STEPS = (STEPS[0], ("add_to_cart", "კალათაში დაამატა"), *STEPS[1:])
+FUNNEL_PATHS = {"all": ("ყველა გზა", STEPS, None),
+                "cart": ("კალათით", CART_STEPS, r"https://flexdrive\.ge/checkout/?(\?.*)?"),
+                "buy_now": ("ახლავე ყიდვით", STEPS, r"https://flexdrive\.ge/buy-now/checkout/?(\?.*)?")}
 METRICS = ("sessions", "totalUsers", "ecommercePurchases", "purchaseRevenue")
 PUBLIC = {"notExpression": _filter("pagePath", r"^/(business|admin|manager-fd)(/|$)", "PARTIAL_REGEXP")}
 
@@ -87,17 +90,23 @@ def _google(period):
             "warnings": _warnings(reports)}
 
 
-def funnel_request(period):
+def funnel_request(period, path="all"):
     base = build_ga4_report_request(period, (), (), dimension_filter=PUBLIC)
+    _, steps, checkout_path = FUNNEL_PATHS[path]
+    filters = []
+    for event, _ in steps:
+        expression = {"funnelEventFilter": {"eventName": event}}
+        if event == "begin_checkout" and checkout_path:
+            expression = {"andGroup": {"expressions": [expression, {"funnelFieldFilter": {
+                "fieldName": "pageLocation", "stringFilter": {"matchType": "FULL_REGEXP", "value": checkout_path}}}]}}
+        filters.append({"name": event, "isDirectlyFollowedBy": False, "filterExpression": expression})
     return {"dateRanges": base["dateRanges"], "dimensionFilter": base["dimensionFilter"],
-            "limit": "4", "returnPropertyQuota": True,
-            "funnel": {"isOpenFunnel": False, "steps": [
-                {"name": event, "isDirectlyFollowedBy": False,
-                 "filterExpression": {"funnelEventFilter": {"eventName": event}}}
-                for event, _ in STEPS]}}
+            "limit": str(len(steps)), "returnPropertyQuota": True,
+            "funnel": {"isOpenFunnel": False, "steps": filters}}
 
 
-def parse_funnel(body):
+def parse_funnel(body, path="all"):
+    _, steps, _ = FUNNEL_PATHS[path]
     if body.get("kind") != "analyticsData#runFunnelReport":
         raise ValueError("Invalid funnel")
     report = body["funnelVisualization"]
@@ -105,39 +114,49 @@ def parse_funnel(body):
     if ([h["name"] for h in report["dimensionHeaders"]] != ["funnelStepName"]
             or metrics not in (["activeUsers"], ["activeUsers", "activeUsers"])):
         raise ValueError("Unexpected funnel headers")
-    # Live v1alpha also returns two identical activeUsers headers for an empty
-    # single-date-range query. Nonempty duplicates are accepted only if equal.
+    # v1alpha duplicates the header for our single date range, sometimes with
+    # only one value. Accept only this exact duplication; never truncate values.
     counts = {}
     for row in report.get("rows", []):
-        if len(row["dimensionValues"]) != 1 or len(row["metricValues"]) != len(metrics):
+        if len(row["dimensionValues"]) != 1 or len(row["metricValues"]) not in (1, len(metrics)):
             raise ValueError("Invalid funnel row")
         label = row["dimensionValues"][0]["value"]
         event = re.sub(r"^\d+\.\s*", "", label)
         number = Decimal(row["metricValues"][0]["value"])
         if any(Decimal(item["value"]) != number for item in row["metricValues"]):
             raise ValueError("Ambiguous funnel metrics")
-        if event not in dict(STEPS) or event in counts or not number.is_finite() or number < 0 or number > 2**53 - 1 or number != number.to_integral_value():
+        if event not in dict(steps) or event in counts or not number.is_finite() or number < 0 or number > 2**53 - 1 or number != number.to_integral_value():
             raise ValueError("Invalid funnel count")
         counts[event] = int(number)
-    # Missing nonempty steps are ambiguous, not evidence of zero users.
-    if counts and set(counts) != set(dict(STEPS)):
-        raise ValueError("Incomplete funnel")
-    values = [counts.get(event, 0) for event, _ in STEPS]
-    if any(right > left for left, right in zip(values, values[1:])):
+    # Omitted rows in a nonempty alpha report are unknown, not invented zeros.
+    values = [counts.get(event) if counts else 0 for event, _ in steps]
+    known = [value for value in values if value is not None]
+    if any(right > left for left, right in zip(known, known[1:])):
         raise ValueError("Closed funnel cannot grow")
+    warnings = _warnings([report, body.get("funnelTable", {})])
+    if any(value is None for value in values):
+        warnings.append("Google-მა ყველა ეტაპის სტრიქონი არ დააბრუნა. გამოტოვებული ეტაპი ნაჩვენებია ტირეთი; მას ნულად არ ვთვლით.")
     return {"steps": [{"event": event, "label": label, "users": count,
-                       "lost": count - values[index + 1] if index < 3 else None}
-                      for index, ((event, label), count) in enumerate(zip(STEPS, values))],
-            "warnings": _warnings([report, body.get("funnelTable", {})])}
+                       "lost": count - values[index + 1] if index < len(steps) - 1 and count is not None and values[index + 1] is not None else None}
+                      for index, ((event, label), count) in enumerate(zip(steps, values))], "warnings": warnings}
 
 
 def _funnel(period):
     with AuthorizedSession(_credentials(), refresh_timeout=5, max_refresh_attempts=0) as session:
-        response = session.post(FUNNEL_URL, json=funnel_request(period), timeout=(3, 8),
-                                max_allowed_time=15, allow_redirects=False)
-        if response.status_code != 200:
-            raise AnalyticsUnavailable("quota" if response.status_code == 429 else "access")
-        return parse_funnel(response.json())
+        paths = {}
+        for path, (label, _, _) in FUNNEL_PATHS.items():
+            try:
+                response = session.post(FUNNEL_URL, json=funnel_request(period, path), timeout=(3, 8),
+                                        max_allowed_time=15, allow_redirects=False)
+                if response.status_code != 200:
+                    raise AnalyticsUnavailable("quota" if response.status_code == 429 else "access")
+                paths[path] = {"status": "ready", "label": label, **parse_funnel(response.json(), path)}
+            except (AnalyticsUnavailable, RequestException, GoogleAuthError, InvalidOperation, ValueError, KeyError, TypeError):
+                paths[path] = {"status": "unavailable", "label": label,
+                               "message": "ამ გზის ანგარიში ვერ მივიღეთ. ეს ნულოვან შედეგს არ ნიშნავს."}
+        if not any(item["status"] == "ready" for item in paths.values()):
+            raise AnalyticsUnavailable()
+        return {"steps": paths["all"].get("steps"), "warnings": paths["all"].get("warnings", []), "paths": paths}
 
 
 def _safe_google(reader):
@@ -156,7 +175,7 @@ def build_decision_report(period, source="all"):
         raw, path = settings.BUSINESS_GA4_CREDENTIALS_JSON, settings.BUSINESS_GA4_CREDENTIALS_FILE
         if raw or path:
             identity = sha256(f"{raw}\0{path}".encode()).hexdigest()[:16]
-            root = f"business:decisions:ga4:v1:{identity}:{period.start}:{period.end}"
+            root = f"business:decisions:ga4:v2:{identity}:{period.start}:{period.end}"
             tasks.extend([("google", lambda: _cached(root + ":core", lambda: _safe_google(lambda: _google(period)))),
                           ("funnel", lambda: _cached(root + ":funnel", lambda: _safe_google(lambda: _funnel(period))))])
         else:

@@ -10,16 +10,17 @@ from rest_framework.test import APIClient
 from requests.exceptions import Timeout
 
 from .analytics import AnalyticsUnavailable
-from .decisions import (STEPS, _google, _rows, build_decision_report, definitions,
+from .decisions import (STEPS, _funnel, _google, _rows, build_decision_report, definitions,
                         funnel_request, parse_funnel)
 from .marketing import _ad_values
 from .reports import ReportPeriod
 from .test_analytics import LOCAL_CACHE, report
+from .test_analytics import response as api_response
 
 PERIOD = ReportPeriod(date(2026, 11, 1), date(2026, 11, 14))
 
 
-def funnel(counts=(10, 6, 4, 2)):
+def funnel(counts=(10, 4, 2)):
     return {"kind": "analyticsData#runFunnelReport", "funnelVisualization": {
         "dimensionHeaders": [{"name": "funnelStepName"}], "metricHeaders": [{"name": "activeUsers"}],
         "rows": [{"dimensionValues": [{"value": f"{index + 1}. {event}"}], "metricValues": [{"value": str(value)}]}
@@ -50,16 +51,16 @@ class DecisionContractTests(SimpleTestCase):
 
     def test_ordered_funnel_counts_and_missing_or_growing_steps(self):
         parsed = parse_funnel(funnel())
-        self.assertEqual([s["lost"] for s in parsed["steps"]], [4, 2, 2, None])
-        for bad in (funnel((10, 11, 4, 2)), funnel((10, -1, 4, 2)), funnel((10, "NaN", 4, 2))):
+        self.assertEqual([s["lost"] for s in parsed["steps"]], [6, 2, None])
+        for bad in (funnel((10, 11, 2)), funnel((10, -1, 2)), funnel((10, "NaN", 2))):
             with self.assertRaises(ValueError):
                 parse_funnel(bad)
         bad = funnel()
         bad["funnelVisualization"]["rows"].pop()
-        with self.assertRaises(ValueError):
-            parse_funnel(bad)
+        self.assertIsNone(parse_funnel(bad)["steps"][-1]["users"])
+        self.assertTrue(parse_funnel(bad)["warnings"])
         empty = funnel(())
-        self.assertEqual([step["users"] for step in parse_funnel(empty)["steps"]], [0, 0, 0, 0])
+        self.assertEqual([step["users"] for step in parse_funnel(empty)["steps"]], [0, 0, 0])
 
     def test_duplicate_wrong_headers_and_sampling(self):
         bad = funnel()
@@ -77,7 +78,10 @@ class DecisionContractTests(SimpleTestCase):
     def test_live_alpha_duplicate_headers_empty_and_equal_rows_only(self):
         empty = funnel(())
         empty["funnelVisualization"]["metricHeaders"] *= 2
-        self.assertEqual([step["users"] for step in parse_funnel(empty)["steps"]], [0, 0, 0, 0])
+        self.assertEqual([step["users"] for step in parse_funnel(empty)["steps"]], [0, 0, 0])
+        single = funnel((4,))
+        single["funnelVisualization"]["metricHeaders"] *= 2
+        self.assertEqual([step["users"] for step in parse_funnel(single)["steps"]], [4, None, None])
         same = funnel()
         same["funnelVisualization"]["metricHeaders"] *= 2
         for row in same["funnelVisualization"]["rows"]:
@@ -86,6 +90,23 @@ class DecisionContractTests(SimpleTestCase):
         same["funnelVisualization"]["rows"][0]["metricValues"][1] = {"value": "9"}
         with self.assertRaises(ValueError):
             parse_funnel(same)
+
+    def test_cart_and_buy_now_have_distinct_checkout_filters(self):
+        for path, expected in (("cart", r"https://flexdrive\.ge/checkout/?(\?.*)?"), ("buy_now", r"https://flexdrive\.ge/buy-now/checkout/?(\?.*)?")):
+            request = funnel_request(PERIOD, path)
+            checkout = next(step for step in request["funnel"]["steps"] if step["name"] == "begin_checkout")
+            self.assertEqual(checkout["filterExpression"]["andGroup"]["expressions"][1]["funnelFieldFilter"]["stringFilter"]["value"], expected)
+        self.assertIn("add_to_cart", str(funnel_request(PERIOD, "cart")))
+        self.assertNotIn("add_to_cart", str(funnel_request(PERIOD, "buy_now")))
+
+    @patch("business.decisions._credentials", return_value=object())
+    @patch("business.decisions.AuthorizedSession")
+    def test_one_path_failure_keeps_other_paths_and_no_real_tracking_request(self, transport, credentials):
+        transport.return_value.__enter__.return_value.post.side_effect = [api_response(funnel()), api_response({}, 403), api_response(funnel())]
+        result = _funnel(PERIOD)
+        self.assertEqual(result["paths"]["all"]["status"], "ready")
+        self.assertEqual(result["paths"]["cart"]["status"], "unavailable")
+        self.assertEqual(result["paths"]["buy_now"]["steps"][1]["users"], 4)
 
     @patch("business.decisions.AuthorizedSession")
     @patch("business.decisions._credentials", return_value=object())
@@ -150,6 +171,11 @@ class DecisionCacheTests(SimpleTestCase):
 class DecisionAccessTests(TestCase):
     def setUp(self):
         caches["throttling"].clear()
+        from .throttling import BusinessLoginIpThrottle, BusinessLoginAccountThrottle
+        for throttle in (BusinessLoginIpThrottle, BusinessLoginAccountThrottle):
+            binding = patch.object(throttle, "cache", caches["throttling"])
+            binding.start()
+            self.addCleanup(binding.stop)
         self.client = APIClient()
         self.owner = get_user_model().objects.create_superuser("decision-owner", "decisions@example.test", "test-password")
 
@@ -171,3 +197,19 @@ class DecisionAccessTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("no-store", response["Cache-Control"])
         build.assert_called_once_with(ReportPeriod(date(2026, 1, 1), date(2026, 1, 2)), "all")
+
+    @patch("business.pages.build_page_report", return_value={"status": "ready", "rows": []})
+    def test_new_pages_endpoint_is_business_private_validated_and_no_store(self, build):
+        url = reverse("business:pages")
+        self.assertEqual(self.client.get(url).status_code, 401)
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.get(url).status_code, 401)
+        build.assert_not_called()
+        with patch("business.views.validate_recaptcha", return_value=True):
+            self.client.post(reverse("business:login"), {"username": "decision-owner", "password": "test-password", "recaptcha_token": "mock"})
+        self.assertEqual(self.client.get(url, {"start": "2026-11-01"}).status_code, 400)
+        self.assertEqual(self.client.get(url, {"start": "2027-11-01", "end": "2027-11-02"}).status_code, 400)
+        build.assert_not_called()
+        response = self.client.get(url, {"start": "2026-11-01", "end": "2026-11-02"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("no-store", response["Cache-Control"])

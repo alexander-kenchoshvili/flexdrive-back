@@ -9,7 +9,7 @@ from django.urls import reverse
 from requests.exceptions import Timeout
 from rest_framework.test import APIClient
 
-from .marketing import AD_ID, GRAPH, IG_ID, PAGE_ID, MetaUnavailable, _cached, _count, build_marketing_report
+from .marketing import AD_ID, GRAPH, IG_ID, PAGE_ID, PIXEL_ID, MetaUnavailable, _cached, _count, build_marketing_report
 from .reports import ReportPeriod
 from .test_analytics import LOCAL_CACHE
 
@@ -59,6 +59,9 @@ class MarketingTests(SimpleTestCase):
             if isinstance(value, Exception):
                 raise value
             return value
+        if node == PIXEL_ID:
+            self.assertEqual(params["fields"], "id,name,last_fired_time")
+            return response({"id": PIXEL_ID, "name": "FlexDrive Web Pixel", "last_fired_time": "2026-11-16T21:21:55+0000"})
         if node == PAGE_ID:
             return response({"id": PAGE_ID, "name": "FlexDrive", "followers_count": 3, "instagram_business_account": {"id": IG_ID}})
         if node == IG_ID:
@@ -82,9 +85,22 @@ class MarketingTests(SimpleTestCase):
             return response({"data": [ad_row(campaign_id="123", campaign_name="Our campaign")]})
         self.fail("Unexpected endpoint")
 
+    @override_settings(META_CAPI_ENABLED=True, META_CAPI_ACCESS_TOKEN="private-capi", META_PIXEL_ID=PIXEL_ID)
+    def test_pixel_permission_failure_preserves_ads_and_does_not_fake_delivery(self):
+        self.overrides[PIXEL_ID] = response({"error": {"code": 200, "message": "private-error"}}, 403)
+        answer = build_marketing_report(PERIOD)
+        self.assertEqual(answer["ads"]["status"], "ready")
+        self.assertEqual(answer["pixel"]["status"], "unavailable")
+        self.assertTrue(answer["technical"]["capi_configured"])
+        self.assertEqual(answer["technical"]["delivery_details"], "not_available")
+        self.assertNotIn("private-capi", str(answer))
+        self.assertNotIn("private-error", str(answer))
+
     def test_real_contract_exact_assets_whole_period_unique_reach_and_attribution(self):
         report = build_marketing_report(PERIOD)
         self.assertEqual(report["status"], "ready")
+        self.assertEqual(report["pixel"]["last_event_at"], "2026-11-16T21:21:55+00:00")
+        self.assertEqual(report["technical"]["delivery_details"], "not_available")
         self.assertEqual(report["facebook"]["profile"]["followers"], 3)
         self.assertEqual(report["facebook"]["activity"]["views"], 60)
         self.assertTrue(report["facebook"]["activity"]["complete"])
@@ -99,7 +115,7 @@ class MarketingTests(SimpleTestCase):
         self.assertNotIn(SECRET, serialized)
         self.assertNotIn(PAGE_SECRET, serialized)
         self.assertNotIn("access_token", serialized)
-        self.assertEqual(len(self.calls), 9)
+        self.assertEqual(len(self.calls), 10)
 
     def test_valid_empty_ads_are_zero_and_missing_social_metrics_are_unknown(self):
         for label in ("summary", "daily", "campaigns", IG_ID + "/insights"):

@@ -1,5 +1,63 @@
 # Project Instructions
 
+## Intermittent PageSpeed 500 Investigation; Cause Still Unproven - 2026-11-17
+
+- First native Chrome PageSpeed home/catalog desktop runs returned real500/error
+  pages; their98/94speed scores are invalid. Mobile85/88served normal pages.
+  Fresh runs WITHOUT source/deploy changes: home desktop96/SEO100/LCP1.083s,
+  catalog desktop97/SEO100/LCP0.661s; new mobile83/91SEO100. Thus500no longer
+  reproduces in latest runs; do NOT call root cause identified/fixed.
+- Anonymous requests root/catalog/product and Chrome/Headless/Mobile/Lighthouse
+  suffix UAs all200. No stress test. Front RuntimeLogs visible sample has h3
+  statusMessage warnings10:48UTC and CMS40411:01UTC, not conclusive500cause.
+  Old PSI console audit only says document500. Official public PSI API429;
+  no new keys/API/permissions/billing action. Native CUA reset releases capture.
+- Paired frontend adds ONLY bounded server-side failure diagnostics: early Nuxt
+  app:error + Nitro error hooks -> recordPublicPageFailure. Public home/catalog/
+  product GET/HEAD500only, request dedup/20permin, max3causes/4buildlocations.
+  No raw error messages/URLs/query/cookies/headers/bodies/stack/user data emitted;
+  no response/checkout/auth/indexing/cache behavior change.5focusedtests/scoped
+  ESLint/typecheck/production build pass. Actual built Nuxt + loopback500 fixture:
+  two GETs home/catalog preserve500, emit exactly2deduplicated redacted records
+  with real build-file locations; no private marker/upstreamURL in diagnostics.
+  This validates diagnostics, NOT original root cause. Own3107/8128servers stopped.
+- User owns deploy; frontend diagnostic deploy needed BEFORE real500canbe
+  captured as public_page_failure. Previous analytics changes remain uncommitted
+  across both repos. No migration/ENV/new infrastructure. Do not promise old
+  missing stack will be reconstructed or silently change error to200/retry APIs.
+- Evidence/helper ignored under tmp/measurements-20261015/performance-20261117/.
+  docs/PERFORMANCE_500_INVESTIGATION_2026-11-17.md records exact old/newreports.
+
+## Business Analytics Journey, Pages And Meta Status Prepared - 2026-11-17
+
+- User authorized analytics plan sequentially. Current receipt fixes preserved.
+  Google purchase chain passes isolated canonical-host browser/GTMv10/gtag test:
+  exactly1 purchase, correct event_id/transaction/value/currency and G-CKQC30CKYJ
+  outgoing collect request intercepted204; NO fake production event sent.
+  Historical Nov16 real purchase still absent at14:00Nov17 (<24h), receipt unknown;
+  do not claim received/root cause proven or processing delay definitely the cause.
+- decisions.py normalizes exact alpha duplicate activeUsers headers with1or2equal
+  values. Missing nonempty step is null, not zero; no fabricated drop/percentage.
+  Overall3steps covers BuyNow; cart4steps and BuyNow3steps split begin_checkout by
+  supported pageLocation. pagePath is NOT supported in funnel steps. All3actual
+  API queries now200: overall/BuyNow6viewers/5checkout, purchase omitted.
+- Added business/pages.py + private /api/business/pages/: fixed property/host,
+ 20public allowlisted pagePaths, views/users/engagement seconds per activeUser;
+  private token/query URLs rejected. Independent cached read preserves existing
+  core analytics. Real14rows confirmed. No individual clickstream/session recording.
+- Meta existing reader gets Pixel id/name/last_fired_time200; stats event reads
+  return400code100PermissionDenied. UI shows Pixel read + last event (not per-source
+  purchase acknowledgement), boolean CAPI config (not delivery proof), Events
+  Manager link. No new access/API keys/settings; no server_last_fired_time field.
+- Paired frontend Users adds pages and3path selector; Marketing adds technical
+  status.56backend/27frontend focused tests, scoped ESLint/typecheck/build pass.
+ 390/1440 built UI isolation: route selector/Meta link work,0JSerrors/0docoverflow.
+  Existing CKEditor/local staticfiles/Node DEP0155 warnings remain unrelated.
+- User owns push/deploy BOTH, no migration/ENV. Live new UI and historical GA4
+  receipt after processing window remain. Plan/status docs/BUSINESS_ANALYTICS_COMPLETION_2026-11-17.md.
+  QA processes/context stopped, native Chrome CUA node reset; no sale/refund/DB or
+  provider-setting writes. Evidence ignored in test-sale-audit-20261117 folder.
+
 ## Guest Receipt Access Fix Prepared; Deploy Both - 2026-11-17
 
 - User challenged leaving missing guest receipt unresolved; authorized fix.

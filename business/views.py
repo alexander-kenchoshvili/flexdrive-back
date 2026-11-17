@@ -221,3 +221,9 @@ class BusinessSearchConsoleView(BusinessAnalyticsView):
     def build_report(self, period):
         from .search_console import build_search_console_report
         return build_search_console_report(period)
+
+
+class BusinessPagesView(BusinessAnalyticsView):
+    def build_report(self, period):
+        from .pages import build_page_report
+        return build_page_report(period)

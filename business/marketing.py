@@ -16,6 +16,8 @@ import requests
 PAGE_ID = "1044408968766868"
 IG_ID = "17841432881478668"
 AD_ID = "1462913205812039"
+PIXEL_ID = "1020718363721235"
+EVENTS_MANAGER_URL = f"https://eventsmanager.facebook.com/events_manager2/list/dataset/{PIXEL_ID}/overview?business_id=1761419678356905"
 GRAPH = "https://graph.facebook.com/v26.0/"
 FRESH_SECONDS = 300
 RETRY_SECONDS = 60
@@ -102,6 +104,20 @@ def _instagram_profile(token):
         raise MetaUnavailable("configuration_error")
     return {"username": "flexdrive.ge", "followers": _count(body.get("followers_count")),
             "posts": _count(body.get("media_count"))}
+
+
+def _pixel(token):
+    with _session(token) as session:
+        body = _get(session, PIXEL_ID, {"fields": "id,name,last_fired_time"})
+    if body.get("id") != PIXEL_ID or not isinstance(body.get("name"), str):
+        raise MetaUnavailable("configuration_error")
+    fired = body.get("last_fired_time")
+    if fired:
+        parsed = datetime.fromisoformat(fired.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            raise MetaUnavailable("invalid_response")
+        fired = parsed.isoformat()
+    return {"id": PIXEL_ID, "name": body["name"][:150], "last_event_at": fired or None}
 
 
 def _facebook_activity(token, period):
@@ -305,6 +321,13 @@ def _cached(key, reader):
 def build_marketing_report(period):
     base = {"period": {"start": period.start.isoformat(), "end": period.end.isoformat()}, "refresh_seconds": FRESH_SECONDS,
             "accounts": {"facebook": PAGE_ID, "instagram": IG_ID, "ads": AD_ID}, "generated_at": timezone.now().isoformat()}
+    # Configuration is not proof of successful event delivery. Never return keys.
+    technical = {"events_manager_url": EVENTS_MANAGER_URL, "pixel_id": PIXEL_ID,
+                 "capi_enabled": bool(settings.META_CAPI_ENABLED),
+                 "capi_configured": bool(settings.META_CAPI_ENABLED and settings.META_CAPI_ACCESS_TOKEN and str(settings.META_PIXEL_ID) == PIXEL_ID),
+                 "delivery_details": "not_available",
+                 "delivery_message": "ბრაუზერისა და სერვერის მოვლენების დეტალური მიღება ამ ანგარიშში არ მოწმდება. დეტალები ნახეთ Events Manager-ში."}
+    base["technical"] = technical
     token = settings.BUSINESS_META_ACCESS_TOKEN
     if not token:
         return {**base, "status": "not_configured", "message": "Meta-ს სერვერული გასაღები ამ გარემოში ჯერ არ არის მითითებული."}
@@ -319,6 +342,7 @@ def build_marketing_report(period):
         return _cached(key, fn)
     # Independent providers/sections: one failure cannot hide the others.
     tasks = [
+        ("pixel", lambda: read("pixel:v1", lambda: _pixel(token), profile=True)),
         ("facebook_profile", lambda: read("facebook_profile", lambda: _facebook_profile(token), profile=True)),
         ("facebook_activity", lambda: read("facebook_activity", lambda: _facebook_activity(token, period), maximum=90)),
         ("instagram_profile", lambda: read("instagram_profile", lambda: _instagram_profile(token), profile=True)),
@@ -332,4 +356,5 @@ def build_marketing_report(period):
     status = "ready" if all(block["status"] in ("ready", "empty") for block in blocks) else "partial" if successful else "unavailable"
     return {**base, "status": status,
             "facebook": {"profile": values["facebook_profile"], "activity": values["facebook_activity"]},
-            "instagram": {"profile": values["instagram_profile"], "activity": values["instagram_activity"]}, "ads": values["ads"]}
+            "instagram": {"profile": values["instagram_profile"], "activity": values["instagram_activity"]},
+            "pixel": values["pixel"], "ads": values["ads"]}
