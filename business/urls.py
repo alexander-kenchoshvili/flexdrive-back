@@ -1,10 +1,12 @@
 from django.urls import path
 from .views import BusinessDecisionView, BusinessSearchConsoleView, BusinessPagesView
+from .views import BusinessVehicleDemandView
 from .views import BusinessAccessView, BusinessLoginView, BusinessLogoutView, BusinessSessionView, BusinessReportView, BusinessOperationsView, BusinessAnalyticsView, BusinessMarketingView
 
 app_name = "business"
 
 urlpatterns = [
+    path("vehicle-demand/", BusinessVehicleDemandView.as_view(), name="vehicle-demand"),
     path("pages/", BusinessPagesView.as_view(), name="pages"),
     path("search-console/", BusinessSearchConsoleView.as_view(), name="search-console"),
     path("decisions/<str:source>/", BusinessDecisionView.as_view(), name="decisions"),

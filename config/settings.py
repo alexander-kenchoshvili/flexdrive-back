@@ -544,6 +544,8 @@ CORS_ALLOW_HEADERS = (
     *default_headers,
     "idempotency-key",
     "x-flexdrive-marketing-consent",
+    "x-flexdrive-meta-fbp",
+    "x-flexdrive-meta-fbc",
     "x-receipt-token",
 )
 CSRF_TRUSTED_ORIGINS = _dedupe(
@@ -800,6 +802,7 @@ REST_FRAMEWORK = {
         'activation_resend': '100000/hour' if TESTING else '5/hour',
         'catalog_search': '100000/min' if TESTING else '30/min',
         'vin_lookup': '100000/min' if TESTING else '10/min',
+        'vehicle_interest': '100000/min' if TESTING else '30/min',
         'business_login': '5/min',
         'business_login_account': '5/min',
         'business_dashboard': '120/min',

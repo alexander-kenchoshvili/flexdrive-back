@@ -22,4 +22,7 @@ class VehicleVinAPIView(APIView):
         result = decode_vehicle(vin)
         if result["status"] == "decoded":
             result = resolve_vehicle(result["vehicle"])
+        if result["status"] in ("matched", "no_coverage", "not_in_catalog"):
+            from business.vehicle_demand import lookup_interest_token
+            result = {**result, "interest_token": lookup_interest_token(result)}
         return Response(result, status=503 if result["status"] == "unavailable" else 200)

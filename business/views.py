@@ -227,3 +227,16 @@ class BusinessPagesView(BusinessAnalyticsView):
     def build_report(self, period):
         from .pages import build_page_report
         return build_page_report(period)
+
+
+class BusinessVehicleDemandView(BusinessAnalyticsView):
+    def build_report(self, period):
+        from .vehicle_demand import build_vehicle_demand
+        return build_vehicle_demand(period)
+
+    def get(self, request):
+        from django.db import DatabaseError
+        try:
+            return super().get(request)
+        except DatabaseError:
+            return Response({"detail": "მანქანების მოთხოვნის ანგარიში დროებით მიუწვდომელია."}, status=503)

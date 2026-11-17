@@ -51,10 +51,30 @@ def send_meta_purchase_event(*, order, request=None):
 
 
 def build_marketing_context(request):
-    return {
+    context = {
         "client_ip_address": _get_client_ip(request),
         "client_user_agent": request.META.get("HTTP_USER_AGENT", "").strip(),
     }
+    if _has_meta_marketing_consent(request):
+        context.update(_browser_identifiers(request))
+    return context
+
+
+def _valid_browser_identifier(key, value):
+    suffix = r"\d{1,30}" if key == "fbp" else r"[A-Za-z0-9_-]{1,400}"
+    return isinstance(value, str) and bool(re.fullmatch(r"fb\.\d{1,2}\.\d{13}\." + suffix, value))
+
+
+def _browser_identifiers(request):
+    """Existing consented Pixel cookies only; never fabricate an ad click."""
+    result = {}
+    for key in ("fbp", "fbc"):
+        value = getattr(request, "headers", {}).get(f"X-FlexDrive-Meta-{key.title()}") or request.META.get(
+            f"HTTP_X_FLEXDRIVE_META_{key.upper()}",
+        ) or request.COOKIES.get(f"_{key}", "")
+        if _valid_browser_identifier(key, value):
+            result[key] = value
+    return result
 
 
 def has_marketing_consent(request):
@@ -92,8 +112,9 @@ def _has_meta_marketing_consent(request):
     if request is None:
         return False
 
-    if _request_marketing_consent_header(request) == "granted":
-        return True
+    explicit_consent = _request_marketing_consent_header(request)
+    if explicit_consent in {"granted", "denied"}:
+        return explicit_consent == "granted"
 
     consent = _parse_cookie_consent(
         request.COOKIES.get(COOKIE_CONSENT_NAME),
@@ -142,6 +163,15 @@ def _build_order_success_url(order):
 
 def _build_user_data(*, order, request=None):
     user_data = {}
+
+    if request is not None and _has_meta_marketing_consent(request):
+        user_data.update(_browser_identifiers(request))
+    elif request is None and order.marketing_consent and isinstance(order.marketing_context, dict):
+        # A bank callback uses the checkout snapshot, not the bank's browser.
+        user_data.update({
+            key: order.marketing_context[key] for key in ("fbp", "fbc")
+            if _valid_browser_identifier(key, order.marketing_context.get(key))
+        })
 
     if request is not None:
         client_ip_address = _get_client_ip(request)
@@ -222,7 +252,13 @@ def _hash_customer_value(value):
 
 
 def _normalize_phone(value):
-    return re.sub(r"\D+", "", str(value or ""))
+    digits = re.sub(r"\D+", "", str(value or ""))
+    # Checkout accepts Georgian local mobile numbers; Meta requires country code.
+    if len(digits) == 9 and digits.startswith("5"):
+        return f"995{digits}"
+    if str(value or "").strip().startswith("00"):
+        return digits[2:]
+    return digits
 
 
 def _get_client_ip(request):

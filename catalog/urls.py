@@ -1,6 +1,7 @@
 ﻿from django.urls import path
 
 from .vin_views import VehicleVinAPIView
+from .interest_views import VehicleInterestView
 from .views import (
     CategoryListAPIView,
     CategoryDetailAPIView,
@@ -14,6 +15,7 @@ from .views import (
 )
 
 urlpatterns = [
+    path("vehicles/interest/", VehicleInterestView.as_view(), name="catalog-vehicle-interest"),
     path("vehicles/vin/", VehicleVinAPIView.as_view(), name="catalog-vehicle-vin"),
     path("products/", ProductListAPIView.as_view(), name="catalog-product-list"),
     path("products/suggestions/", ProductSuggestionAPIView.as_view(), name="catalog-product-suggestions"),

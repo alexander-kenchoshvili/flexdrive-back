@@ -1,5 +1,74 @@
 # Project Instructions
 
+## Meta Marketing Signals Completed In Code - 2026-11-18
+
+- User requested useful missing Meta signals before both deploys; explicitly
+  approved fbp/fbc async after automatic review required payload-specific consent.
+  No ad/account/budget/provider event/production operation. Existing commerce
+  ViewContent/AddToCart/AddToWishlist/InitiateCheckout/AddPaymentInfo/Purchase stay.
+- Shared frontend useMetaMarketing owns VIN+part Search and Contact; part hook
+  reuses successful catalog results/dedup, strips obvious private queries; Contact
+  only after form API success, no submitted fields. Existing combined consent/
+  internal/host guards and bounded Pixel wait. Do not duplicate in GTM. GA unchanged.
+- Only existing consented validated fbp/fbc checkout headers -> marketing_context
+  -> original bank snapshot -> Purchase CAPI, no fake click/new cookie/raw VIN.
+  Added CORS two headers. Explicit denied header overrides stale grant cookie;
+  outgoing existing Georgian local phone hash gains995. No DB phone edits.
+- COD browser Purchase requires delivered, matching existing server rule; new
+  unpaid placement no longer counts as sale. Card paid rule/IDs/SKUs/value/receipt/
+  refund behavior unchanged. No new model/migration/ENV/job. Prior business0002
+  still needed for earlier demand feature; user owns both deploys then migration.
+-88 frontend +11 backend focused checks, scoped ESLint, strict typecheck and
+  whitespace pass. No build/browser/prod DB/event/push/deploy. Live Meta receipt,
+  dedup/attribution and optional VIN custom conversion remain post-deploy checks.
+  docs/META_MARKETING_EVENTS.md records inventory, privacy and exact limits.
+
+## VIN Search Meta Event Prepared - 2026-11-18
+
+- User requested check/implementation of VIN marketing event, no ad launch. Fresh
+  public live GTM-MVNFL9TH read confirms version10 commerce tags, no Search/VIN
+  mapping. Frontend useVinSearchMarketing now sends standard Search through the
+  existing GTM-installed fbq after a current explicit decoded VIN result only.
+- Allowlisted make/model/year/search_type=vin/vin_outcome; never raw VIN/token/
+  session/person/free text or fabricated product value. Both analytics+marketing
+  consent/canonical host/GTM config/internal exclusion apply. Bounded10s in-memory
+  wait for existing fbq, revoke/dispose clear, no later-consent replay, no second
+  Pixel/CAPI initialization. This frontend hook is sole VIN Search owner; do NOT
+  duplicate it in GTM. Existing checkout/product events/GA search unchanged.
+- Own business vehicle demand remains distinct session-based first-party report,
+  not Meta received-event counts. No Meta conversion/audience/ad account/campaign
+  edits. Source check does not prove Meta delivery or campaign event eligibility.
+- Frontend deploy needed; no NEW migration/ENV/backend functional change. Earlier
+  demand feature still independently requires business0002. No build/real event/
+  browser/prod DB/commit/push/deploy. docs/VIN_SEARCH_MARKETING.md has contract,
+  source links and post-deploy receipt/custom-conversion steps.
+
+## Vehicle Demand Business Section Implemented - 2026-11-17
+
+- User requested own PostgreSQL demand history + clear make/model/year section
+  and useful Georgian conclusions; explicitly no full builds/visual automation.
+  /business/vehicle-demand uses existing private permission/session/date controls.
+  Counts distinct search sessions, VIN-use/empty-result/missing-catalog signals;
+  top100 combinations, factual leaders/ties/gaps and empty/small-sample states.
+- New VehicleInterest model + business0002. Full VIN/search q/name/email/phone/IP/
+  account IDs are not stored. Consent-gated canonical-host client collector uses
+  random30min idle per-tab ID; server persists keyed digest. DB uniqueness/monotonic
+  flags dedupe refresh/page/sort and VIN+manual contexts. Counts are interest,
+  not ownership/people/conversions. No GA/Meta events/audiences added.
+- VIN response signs ONLY decoded public vehicle attrs/outcome,15min lifetime;
+  records missing catalog too. Public CSRF-protected30/min collector validates
+  active scoped manual IDs/signed tokens and rejects extra fields. Failed/invalid
+  VINs not guessed. Storage failures cannot block shopping. Authenticated staff,
+  current business user/internal-browser flag and local/preview traffic excluded.
+- Local SQLite exact business0001(unmanaged permission anchor)+0002 forward plan
+  applied; empty table/no synthetic activity. No production DB/deploy/push/ENV/job.
+  User must deploy BOTH repos and run migrate business0002_vehicle_interest on
+  production. Existing product/order/payment records untouched.
+-6 focused backend +5 collector checks pass; wiring run75 header/catalog tests
+  passes, scoped ESLint and strict typecheck pass. NO full build/browser checks
+  per user instruction. Visual review remains user-owned. docs/VEHICLE_DEMAND.md
+  documents metrics, collection limits and deployment. Old VIN notes below remain.
+
 ## Supplier Version Mentions Prepared For Local Review - 2026-11-17
 
 - User authorized reversible version hints from existing supplier names/generation
