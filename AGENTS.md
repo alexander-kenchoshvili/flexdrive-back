@@ -1,5 +1,101 @@
 # Project Instructions
 
+## Guest Receipt Access Fix Prepared; Deploy Both - 2026-11-17
+
+- User challenged leaving missing guest receipt unresolved; authorized fix.
+  Reproduced lost-JS-storage API flow failing before change; real old Android state
+  not reconstructed. Do NOT claim original historical device cause proven.
+- Bank status/verified lookup now set per-order signed HttpOnly receipt cookie with
+  existing API cookie flags/guest-token TTL; authorize accepts matching cookie OR
+  existing header OR authenticated owner. Public summary returns receipt_available
+  only, no credentials/receipt creation. No capability granted to arbitrary public
+  summary readers. Cookie/header expiry/tampering/wrong-order protections tested.
+- Front bank return loads status onMounted so browser receives Set-Cookie before
+  navigation (SSR fetch doesn't automatically forward it). Success uses server flag,
+  supports existing token/header, and retains issued receipt after refund. Missing
+  access shows recovery link; fresh phone/order/reCAPTCHA lookup now renders PDF card.
+  Stale restored lookup cannot authorize download without fresh lookup. No payment,
+  refund, stock, pricing, ledger, analytics or email logic changes.
+-101 backend receipt/callback/refund +44 frontend focused tests pass; scoped ESLint,
+  typecheck and production build pass. Old test_card_payment_flow has29 PRE-API setup
+  failures from old Published fixtures without internal_sku; unchanged and recorded.
+- Real isolated Django/Nitro/SQLite browser QA:390px mobile +1440px desktop with JS
+  sessionStorage disabled, bank-return simulation->visible receipt->real PDF download,
+ 0JS errors/overflow; lost-cookie recovery link works. No actual bank/provider call;
+  request network blocked outside loopback. Own8127/3107 servers STOPPED. No production
+  DB/provider/config/ENV/commit/push/deploy. User owns BACKEND then FRONTEND deploy;
+  no migration/new ENV. Afterwards live existing refunded-order lookup/PDF check.
+- docs/TEST_SALE_AUDIT_2026-11-17.md amended. Browser/SQL artifacts ignored under
+  tmp/measurements-20261015/test-sale-audit-20261117/. GA4 purchase/funnel and buyer
+  email features remain separate; do not silently mark them complete.
+
+## First Real Test Purchase And Refund Audited Read Only - 2026-11-17
+
+- User requested audit after friend Android Chrome/mobile-data bolt purchase and
+  full admin refund; explicitly SKIP courier test. Production READ ONLY snapshot
+  12:55 Tbilisi: ORD-20261116-000001, FD-08-0121, 1x3+9delivery=12 GEL. Sale paid
+  21:43/refund refunded21:46 Nov16; order cancelled/refunded, no error codes.
+  Supplier hold released order_cancelled; original external stock663/owned0;
+  return not_purchased/not_required. No artificial owned lot or active hold.
+- Actual application accounting ledger on separately READ ONLY PostgreSQL:
+  +12/-12, net money/units/profit0. Live Sales1sold/1returned; Finance12/12/0.
+  Operations pending0; displayed failed279 GEL attempt is OLD Oct19, not this sale.
+- Receipt snapshot exists ~0.8sec after paid, compact-v1/hash-valid. Local in-memory
+  generator renders54513-byte PDF from real saved snapshot; seller correct406559040
+  and12 GEL. No PDF saved/receipt creation. UI hides guest receipt without stored
+  session token AND hides after refund; no mobile CSS hide. User says missing
+  BEFORE refund on success page. Exact original-device cause still UNCONFIRMED;
+  do not claim fixed or blame Messenger/cache. Existing refunded page JS console empty.
+- GA4 read-only Nov16-17 reports14sessions/12users, view_item6/begin_checkout3/
+  add_payment_info1 and success pageview; purchase/transactionId EMPTY. No attribution
+  of aggregate behavior to friend. Funnel HTTP200 has duplicate activeUsers headers
+  with one metricValue and only first nonzero step; parse_funnel rejects Invalid
+  funnel row. Known parser fix still pending; do not report tracking all healthy.
+- Meta correct Pixel1020718363721235 live Events Manager: exactly1 Purchase from
+  Conversions API, ~15h ago. Browser Purchase absent; dedup NOT practically verified.
+  Marketing ads0 expected for direct/non-ad sale, different from pixel event total.
+- Order has NO email; buyer order/refund email sending is NOT implemented in current
+  commerce paths (auth/contact/reconciliation operator emails exist). No claim of
+  failed email delivery. GA4 refund event sending absent; Finance net remains correct.
+- docs/TEST_SALE_AUDIT_2026-11-17.md has exact panel links, evidence and next steps.
+  NO functional source/config/ENV/production data changes, payment/provider actions,
+  emails, event replay, migration/commit/push/deploy. CUA left usersNov16-17 then reset.
+  Safe scripts/results under ignored tmp/measurements-20261015/test-sale-audit-20261117/.
+
+## Public Launch SEO Checked; Google Robots Recrawl Sent - 2026-11-16
+
+- User opened storefront themselves; live API confirms guard=true/public_open=true.
+  Anonymous root/catalog indexable, robots Allow:/ plus business disallow/sitemap;
+  XML1995 unique URLs:1979 products/8 categories/3 blogs/5 other, all URL shapes checked.
+ 36 selected routes tested, not all1995 fetched.6 Product and3 Article JSON-LD
+  parse/identity/GEL checks passed. Private/search/filter/starter noindex and404
+  policies hold.4 initial concurrent500 responses recovered on individual retries;
+  root cause unresolved. Audit parser was corrected to ignore SVG logo title.
+- GSC sitemap was prepared, then appeared submitted while awaiting user reply;
+  agent did NOT observe its own Submit click. User approved sitemap submission.
+  Last observed status Couldn't fetch/General HTTP error/0 discovered. Google's
+  real sitemap LIVE TEST21:12 reports Blocked by robots.txt. GSC cached file is
+  Nov15 22:56/26bytes, explicitly Disallow:/; live file already allows crawling.
+- User explicitly approved robots recrawl. First attempt failed approval review
+  due usage limit, action unexecuted. After user continued, clicked Request a
+  recrawl for EXACT https://flexdrive.ge/robots.txt; green dialog confirms Recrawl
+  request sent / Check back soon. Reload THEN confirmed Google fetched NEW robots
+  Nov16 22:50/84bytes (old26bytes); content panel kept loading. User-approved exact
+  sitemap resubmitted by agent, green Sitemap submitted successfully observed.
+  List still showed Couldn't fetch immediately after submission. Product real
+  LIVE TEST Nov16 22:55 FD-03-0297 then confirmed URL is available to Google /
+  Page can be indexed; Product snippets/Merchant listings/Breadcrumbs each1valid.
+  Merchant3optional: category invalid, missing hasMerchantReturnPolicy/shippingDetails.
+  No invented data/source edits. Root real LIVE TEST Nov16 22:57 likewise confirms
+  URL is available to Google / Page can be indexed. Old GOOGLE INDEX Nov14 noindex
+  is historical, not current live failure. FINAL GSC Sitemaps row confirms Type
+  Sitemap, Submitted/Last read Nov16, green Success,1,995 discovered pages,0videos.
+  This closes cached-robots/sitemap launch blocker. Discovery/live availability
+  does not mean indexed or ranked. CUA kernel reset releases capture.
+- No functional source/ENV/DNS/CMS/DB/payment change; status docs only. Public PageSpeed API429 quota on root
+  and catalog; no speed score. Product rich-result validity checked in GSC live. Report:
+  docs/SEO_POSTLAUNCH_2026-11-16.md; safe ignored postopen*.json evidence.
+
 ## Header Search ID/Name Cleanup Prepared In Frontend - 2026-11-16
 
 - User authorized the input id/name cleanup, explicitly no Computer Use needed.

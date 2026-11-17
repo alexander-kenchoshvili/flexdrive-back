@@ -45,6 +45,7 @@ from .models import (
 
 RECEIPT_TOKEN_SALT = "commerce.order-receipt.v1"
 RECEIPT_TOKEN_HEADER = "X-Receipt-Token"
+RECEIPT_COOKIE_PREFIX = "flexdrive_receipt_"
 RECEIPT_TOKEN_MAX_LENGTH = 4096
 RECEIPT_SCHEMA_VERSION = 1
 
@@ -345,16 +346,51 @@ def verify_receipt_access_token(token, receipt):
         )
 
 
+def receipt_cookie_name(order):
+    return f"{RECEIPT_COOKIE_PREFIX}{order.public_token.hex}"
+
+
 def authorize_receipt_request(request, receipt):
     if (
         request.user.is_authenticated
         and receipt.order.user_id == request.user.id
     ):
         return
-    verify_receipt_access_token(
+    # The bank-return response grants a per-order HttpOnly cookie. Keep the
+    # signed header for existing clients and verified order lookup downloads.
+    # A stale header must not override a still-valid cookie (or vice versa).
+    tokens = (
         request.headers.get(RECEIPT_TOKEN_HEADER, ""),
-        receipt,
+        request.COOKIES.get(receipt_cookie_name(receipt.order), ""),
     )
+    last_error = None
+    for token in dict.fromkeys(value for value in tokens if value):
+        try:
+            verify_receipt_access_token(token, receipt)
+            return
+        except ReceiptAccessError as error:
+            last_error = error
+    if last_error is not None:
+        raise last_error
+    verify_receipt_access_token("", receipt)
+
+
+def has_order_receipt_access(order, request):
+    """Expose availability, never credentials, on a public order summary."""
+    receipt = OrderReceipt.objects.select_related("order").filter(order=order).first()
+    if receipt is not None:
+        try:
+            authorize_receipt_request(request, receipt)
+            return True
+        except ReceiptAccessError:
+            return False
+    if request.user.is_authenticated and order.user_id == request.user.id:
+        try:
+            get_receipt_eligibility(order)
+            return True
+        except ReceiptUnavailableError:
+            pass
+    return False
 
 
 def build_receipt_access_payload(order, request):
@@ -363,6 +399,7 @@ def build_receipt_access_payload(order, request):
     except ReceiptUnavailableError:
         return None
     return {
+        "receipt_order_token": str(order.public_token),
         "receipt_url": request.build_absolute_uri(
             reverse(
                 "commerce-order-receipt",

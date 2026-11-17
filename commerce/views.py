@@ -43,6 +43,8 @@ from .receipts import (
     authorize_receipt_request,
     build_receipt_access_payload,
     get_or_create_order_receipt,
+    has_order_receipt_access,
+    receipt_cookie_name,
     receipt_filename,
     render_order_receipt_pdf,
 )
@@ -213,6 +215,17 @@ def _api_cookie_delete_kwargs():
     if settings.API_COOKIE_DOMAIN:
         kwargs["domain"] = settings.API_COOKIE_DOMAIN
     return kwargs
+
+
+def _apply_receipt_cookie(response, order, receipt_access):
+    if receipt_access:
+        response.set_cookie(
+            receipt_cookie_name(order),
+            receipt_access["receipt_access_token"],
+            **_api_cookie_kwargs(max_age=settings.ORDER_RECEIPT_GUEST_TOKEN_MAX_AGE_SECONDS),
+        )
+    response["Cache-Control"] = "private, no-store, max-age=0"
+    return response
 
 
 class CartResponseMixin:
@@ -678,11 +691,12 @@ class CardPaymentStatusAPIView(APIView):
                 context={"request": request},
             ).data
         )
+        receipt_access = None
         if payment.order_id:
             receipt_access = build_receipt_access_payload(payment.order, request)
             if receipt_access:
                 payload.update(receipt_access)
-        return Response(payload)
+        return _apply_receipt_cookie(Response(payload), payment.order, receipt_access)
 
 
 class OrderReceiptAPIView(APIView):
@@ -974,7 +988,11 @@ class OrderSummaryAPIView(APIView):
     def get(self, request, public_token):
         order = get_object_or_404(Order.objects.prefetch_related("items", "payment_transactions"), public_token=public_token)
         serializer = PublicOrderSummarySerializer(order, context={"request": request})
-        return Response(serializer.data)
+        payload = dict(serializer.data)
+        payload["receipt_available"] = has_order_receipt_access(order, request)
+        response = Response(payload)
+        response["Cache-Control"] = "private, no-store, max-age=0"
+        return response
 
 
 class OrderLookupAPIView(APIView):
@@ -1010,7 +1028,7 @@ class OrderLookupAPIView(APIView):
         receipt_access = build_receipt_access_payload(order, request)
         if receipt_access:
             payload.update(receipt_access)
-        return Response(payload)
+        return _apply_receipt_cookie(Response(payload), order, receipt_access)
 
 
 class OwnedOrderListAPIView(generics.ListAPIView):
