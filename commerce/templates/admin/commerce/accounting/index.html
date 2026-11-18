@@ -1,7 +1,29 @@
 {% extends "admin/index.html" %}
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  .dashboard .accounting-shortcut table { width: 100%; }
+  .dashboard .accounting-shortcut table th {
+    width: auto;
+    white-space: nowrap;
+    word-break: normal;
+  }
+  .dashboard .accounting-shortcut table td {
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
+  @media (max-width: 767px) {
+    .dashboard .accounting-shortcut table tr,
+    .dashboard .accounting-shortcut table th,
+    .dashboard .accounting-shortcut table td { display: block; }
+    .dashboard .accounting-shortcut table th { border-bottom: 0; padding-bottom: 4px; }
+    .dashboard .accounting-shortcut table td { padding-top: 4px; }
+  }
+</style>
+{% endblock %}
 {% block content %}
 {% if request.user.is_superuser %}
-<div class="module"><table><caption>ფინანსური ანგარიშგება</caption><tbody><tr>
+<div class="module accounting-shortcut"><table><caption>ფინანსური ანგარიშგება</caption><tbody><tr>
 <th scope="row"><a href="{% url 'accounting-report' %}">ბუღალტერია</a></th>
 <td>შეკვეთები, პროდუქტები, გადახდები და დაბრუნებები</td>
 </tr></tbody></table></div>

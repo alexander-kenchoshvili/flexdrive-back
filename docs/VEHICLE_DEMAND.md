@@ -51,6 +51,15 @@ Conversion attribution and raw search-term storage were not added in this scope.
 
 ## Deployment and local state
 
+Production update 2026-11-18: user confirmed forgetting the migration after both
+deployments and authorized applying it. Read-only preflight found business0001
+recorded and no business_vehicleinterest table. Exact plan contained only
+business0002_vehicle_interest; applied transactionally. A new read-only connection
+confirmed migration recorded/table present, initially zero rows. No fake searches
+or product/order/payment changes. The screenshot's end date was Nov17; a current
+Nov18 search needs an inclusive current period and a new consented real lookup.
+Earlier failed collection requests cannot be recovered from nonexistent records.
+
 Deploy both repositories and run:
 
 ```sh

@@ -1,5 +1,20 @@
 # Project Instructions
 
+## Vehicle Demand Production Migration Applied - 2026-11-18
+
+- User reported red report-load error after a friend's search, then confirmed
+  forgetting the migration and explicitly authorized applying it. Fresh production
+  READ ONLY preflight: business0001 applied, business_vehicleinterest absent.
+- Exact Django forward plan ONLY business0002_vehicle_interest, no backwards or
+  other-app migrations. Applied in PostgreSQL transaction, no product/order/payment
+  changes or new deployment/ENV. Standard migrate metadata handling retained.
+- NEW read-only connection confirms business0002 recorded and new table exists,
+  initially0 rows. This verifies schema, NOT a subsequent customer's collection
+  or authenticated live report response. Earlier failed searches cannot be rebuilt.
+- User screenshot's range ended Nov17; choose current month/today Nov18, refresh,
+  then repeat a consented non-internal real VIN search. No fake analytics created.
+  Safe results ignored under tmp/measurements-20261015/vehicle-demand-prod-20261118/.
+
 ## Meta Marketing Signals Completed In Code - 2026-11-18
 
 - User requested useful missing Meta signals before both deploys; explicitly
