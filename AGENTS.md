@@ -1,5 +1,13 @@
 # Project Instructions
 
+## Admin Navigation Labels English Then Georgian - 2026-11-20
+
+- User found Georgian-only navigation confusing and explicitly requested English
+  first, then Georgian. All configured app/model menu labels now use this format,
+  e.g. Orders — შეკვეთები. Existing group/model order is unchanged; no route,
+  permission, model identity, schema or frontend change. Backend deploy required.
+
+
 ## Admin Navigation Organized Without Identity Changes - 2026-11-20
 
 - User explicitly authorized admin grouping/Georgian labels, Orders first, and a

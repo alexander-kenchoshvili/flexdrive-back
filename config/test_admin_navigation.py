@@ -48,7 +48,7 @@ class AdminNavigationTests(SimpleTestCase):
                 self.assertEqual(app[field], original_apps[app["app_label"]][field])
         self.assertEqual(actual[0]["app_label"], "commerce")
         self.assertEqual(actual[0]["models"][0]["object_name"], "Order")
-        self.assertEqual(actual[0]["models"][0]["name"], "შეკვეთები")
+        self.assertEqual(actual[0]["models"][0]["name"], "Orders — შეკვეთები")
 
     def test_app_index_still_filters_by_original_app_label(self):
         request = self.request()
