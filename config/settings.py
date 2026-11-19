@@ -557,7 +557,7 @@ CSRF_TRUSTED_ORIGINS = _dedupe(
 
 INSTALLED_APPS = [
     'common.apps.CommonConfig',
-    'django.contrib.admin',
+    'config.apps.FlexDriveAdminConfig',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.postgres',

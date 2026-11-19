@@ -1,5 +1,55 @@
 # Project Instructions
 
+## Admin Navigation Organized Without Identity Changes - 2026-11-20
+
+- User explicitly authorized admin grouping/Georgian labels, Orders first, and a
+  separate compact frontend select-clear X. AdminConfig now selects the minimal
+  FlexDriveAdminSite; get_app_list calls Django first, then relabels/sorts only.
+- Existing app groups ordered commerce/catalog/pages/accounts/auth/token_blacklist
+  with Georgian names; all currently registered models get menu-only translations.
+  Existing app/model labels, app/add/changelist/custom URLs, permissions, proxy
+  models, index template/accounting shortcut and model metadata remain unchanged.
+  Unknown future apps/models remain visible. No model/DB/migration/ENV change.
+- Five DB-free tests compare all original registered menu URLs/actions/identities,
+  app-specific filtering, restricted staff, accountant redirect/menu exclusion and
+  metadata. Pass; only pre-existing CKEditor check warning. Frontend98 focused
+  select/header/catalog tests pass. No full build/browser/production/push/deploy.
+- User must deploy backend for navigation and frontend for compact clear styling.
+
+
+## Report-Only Accountant Created In Production - 2026-11-20
+
+- User explicitly requested production accountant with the same username/password
+  as old staging. Fresh READ ONLY preflight confirmed username absent, existing
+  commerce.view_accounting_report present, and requested password matched the local
+  original hash. Reused original non-deliverable placeholder email; no mailbox.
+- Created only accountant (id10), active/staff true, superuser false, no groups,
+  exactly commerce.view_accounting_report in one bounded transaction. No other
+  users changed; no admin/business/order/product/payment permissions granted.
+- NEW READ ONLY connection verifies Django authenticate succeeds, original password
+  matches, accounting access true/business access false, exact permission and other
+  users unchanged. No browser login/session created, source logic/ENV/deploy change.
+- Production DB and user passwords entered via non-echoing prompts, not saved in
+  scripts/evidence. Safe result/helper ignored under tmp/measurements-20261015/
+  accountant-prod-20261120/. Login at https://api.flexdrive.ge/manager-fd/ redirects
+  to accounting via existing middleware; browser end-to-end not run this turn.
+
+
+## TikTok Production Migration Applied - 2026-11-20
+
+- User explicitly authorized production migration with the database connection.
+  Fresh READ ONLY preflight: pages0085 recorded,0086 absent, tiktok_url absent.
+  Exact Django forward plan ONLY pages0086_footersettings_tiktok_url; applied in
+  PostgreSQL transaction with bounded lock/statement timeouts and standard migrate
+  metadata handling. No other app/backwards migration, deployment or ENV edit.
+- NEW REPEATABLE READ READ ONLY connection confirms0086 recorded and nullable
+  varchar(200) tiktok_url exists. Existing one-row FooterSettings values and launch
+  control hashes preserved exactly. New TikTok URL remains empty; user supplies
+  real profile link in Footer Settings. No product/order/payment changes.
+- Safe evidence ignored under tmp/measurements-20261015/tiktok-prod-20261120/.
+  Password read via non-echoing prompt, not persisted in code/evidence. Schema
+  verification does not prove a saved live TikTok link or rendered frontend icon.
+
 ## TikTok Footer Backend And Local Migration - 2026-11-20
 
 - User authorized backend support and LOCAL migration after frontend TikTok icon
