@@ -404,6 +404,15 @@ class FooterSettingsSerializer(serializers.ModelSerializer):
                 }
             )
 
+        if obj.tiktok_url:
+            items.append(
+                {
+                    "type": "tiktok",
+                    "label": "TikTok",
+                    "url": obj.tiktok_url,
+                }
+            )
+
         return items
 
 

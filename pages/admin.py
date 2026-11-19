@@ -106,6 +106,7 @@ class FooterSettingsAdmin(admin.ModelAdmin):
                     "instagram_url",
                     "facebook_url",
                     "linkedin_url",
+                    "tiktok_url",
                     "copyright_text",
                 )
             },

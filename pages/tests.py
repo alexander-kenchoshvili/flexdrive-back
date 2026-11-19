@@ -710,6 +710,23 @@ class SitemapEntriesAPITests(APITestCase):
 
 
 class FooterAPITests(APITestCase):
+    def test_tiktok_is_optional_and_uses_the_saved_admin_url(self):
+        settings, _ = FooterSettings.objects.update_or_create(
+            pk=1, defaults={"tiktok_url": "https://www.tiktok.com/@flexdrive-test"},
+        )
+        response = self.client.get(reverse("footer"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [item for item in response.data["socials"] if item["type"] == "tiktok"],
+            [{"type": "tiktok", "label": "TikTok", "url": settings.tiktok_url}],
+        )
+        for empty_value in (None, ""):
+            settings.tiktok_url = empty_value
+            settings.save(update_fields=["tiktok_url"])
+            response = self.client.get(reverse("footer"))
+            self.assertEqual(response.status_code, 200)
+            self.assertFalse(any(item["type"] == "tiktok" for item in response.data["socials"]))
+
     def test_linkedin_is_optional_and_uses_the_saved_admin_url(self):
         settings, _ = FooterSettings.objects.update_or_create(
             pk=1, defaults={"linkedin_url": "https://www.linkedin.com/company/flexdrive-test/"},
@@ -853,6 +870,27 @@ class PublicPagesCacheTests(APITestCase):
 
     def tearDown(self):
         cache.clear()
+
+    def test_footer_cache_invalidates_when_tiktok_url_is_saved(self):
+        settings = FooterSettings.objects.create()
+        first_response = self.client.get(reverse("footer"))
+        cached_response = self.client.get(reverse("footer"))
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(first_response.headers["X-Cache-Status"], "MISS")
+        self.assertEqual(cached_response.headers["X-Cache-Status"], "HIT")
+        self.assertFalse(any(item["type"] == "tiktok" for item in cached_response.data["socials"]))
+
+        settings.tiktok_url = "https://www.tiktok.com/@flexdrive-test"
+        with self.captureOnCommitCallbacks(execute=True):
+            settings.save(update_fields=["tiktok_url"])
+
+        response = self.client.get(reverse("footer"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["X-Cache-Status"], "MISS")
+        self.assertEqual(
+            [item for item in response.data["socials"] if item["type"] == "tiktok"],
+            [{"type": "tiktok", "label": "TikTok", "url": settings.tiktok_url}],
+        )
 
     def test_menu_endpoint_returns_miss_then_hit_and_invalidates_on_page_save(self):
         page = Page.objects.create(

@@ -1,5 +1,23 @@
 # Project Instructions
 
+## TikTok Footer Backend And Local Migration - 2026-11-20
+
+- User authorized backend support and LOCAL migration after frontend TikTok icon
+  work. Added optional FooterSettings.tiktok_url, admin Socials & Legal field and
+  conditional socials entry type=tiktok/label=TikTok/url=saved URL. Both frontend
+  footer/contact already consume this response. No new page, ENV or profile URL.
+- New pages0086_footersettings_tiktok_url adds one nullable URL column. Verified
+  local SQLite target and exact forward plan; local pages0085_launch_control was
+  absent and required first. Applied ONLY0085+0086. Local access guard remains
+  disabled; prerequisite singleton has public_open=false/preview_version=1.
+- NEW local SQLite connection verifies both migration records/new column, all
+  original footer values unchanged, TikTok URL empty. User supplies the real link
+  in Footer Settings. Existing save signal invalidates footer cache.
+-7 focused footer/cache/visibility tests and pages migration-drift/whitespace
+  checks pass. Existing CKEditor/staticfiles warnings remain. No production DB,
+  provider, deployment/push/build operation. User owns both deploys, then production
+  migration0086 is still required; do not claim production schema applied.
+
 ## Vehicle Demand Production Migration Applied - 2026-11-18
 
 - User reported red report-load error after a friend's search, then confirmed
