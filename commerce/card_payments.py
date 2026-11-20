@@ -680,6 +680,7 @@ def _build_checkout_snapshot(
         ),
         "buyer": {
             "buyer_type": validated_data.get("buyer_type", "individual"),
+            "personal_number": validated_data.get("personal_number", ""),
             "company_name": validated_data.get("company_name", ""),
             "company_is_vat_registered": validated_data.get("company_is_vat_registered"),
             "company_identification_code": validated_data.get(

@@ -700,6 +700,8 @@ def _create_order_from_paid_snapshot(payment):
         user_id=reservation.user_id,
         checkout_source=source,
         buyer_type=buyer_type,
+        personal_number=(str(buyer.get("personal_number") or "")
+                         if buyer_type == OrderBuyerType.INDIVIDUAL else ""),
         company_name=str(buyer.get("company_name") or ""),
         company_is_vat_registered=buyer.get("company_is_vat_registered"),
         company_identification_code=str(

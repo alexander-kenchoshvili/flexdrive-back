@@ -550,6 +550,7 @@ class BogPaymentsClientTests(SimpleTestCase):
             {
                 "order_id": "order-1",
                 "buyer": {"email": "customer@example.com"},
+                "personal_number": "00000000001",
                 "actions": [
                     {
                         "action_id": "action-1",
@@ -561,6 +562,7 @@ class BogPaymentsClientTests(SimpleTestCase):
 
         self.assertEqual(redacted["order_id"], "order-1")
         self.assertEqual(redacted["buyer"], "[REDACTED]")
+        self.assertEqual(redacted["personal_number"], "[REDACTED]")
         self.assertEqual(
             redacted["actions"][0]["payer_identifier"],
             "[REDACTED]",

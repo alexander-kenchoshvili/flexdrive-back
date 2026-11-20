@@ -125,6 +125,8 @@ class ProfileAPITests(APITestCase):
         self.assertEqual(response.cookies["refresh_token"].value, "")
 
     def test_delete_profile_releases_active_reservations_and_anonymizes_history(self):
+        from commerce.models import Order
+        order = Order.objects.create(user=self.user, personal_number="00000000001", subtotal=1, total=1)
         active_reservation = StockReservation.objects.create(
             user=self.user,
             status=StockReservationStatus.ACTIVE,
@@ -151,6 +153,8 @@ class ProfileAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        order.refresh_from_db()
+        self.assertEqual(order.personal_number, "")
         active_reservation.refresh_from_db()
         completed_reservation.refresh_from_db()
         guest_reservation.refresh_from_db()

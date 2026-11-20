@@ -35,6 +35,7 @@ SENSITIVE_KEYS = {
     "payer_identifier",
     "phone",
     "phone_number",
+    "personal_number",
     "secret",
     "secret_key",
 }

@@ -11,6 +11,7 @@ from django.views.decorators.http import require_GET
 from .accounting_reports import ReportPeriod, TBILISI
 from .accounting_ledger import build_ledger, visible_columns
 from .accounting_access import can_view_accounting
+from .accounting_buyers import buyer_fields
 
 
 class AccountingFilterForm(forms.Form):
@@ -53,6 +54,7 @@ def order_block(group, columns):
         values = [r[column] for r in rows]
         subtotal.append(None if any(v is None for v in values) else sum(values, Decimal(0)))
     return {"event_id": group["event_id"], "number": first[1], "date": first[0], "status": first[15],
+            "buyer_fields": buyer_fields(group["buyer"]),
             "line_count": len(rows), "unit_count": sum(abs(r[4]) for r in rows),
             "buyer_type": first[16], "buyer_vat": first[17],
             "is_company": first[16] == "იურიდიული პირი",

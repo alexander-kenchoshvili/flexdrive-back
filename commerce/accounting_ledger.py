@@ -5,6 +5,7 @@ from .models import PaymentTransaction
 from .accounting_reports import event_queryset, order_row, _allocation, _bounded, MAX_REPORT_ROWS, TBILISI
 from .return_costs import return_cost_report
 from .courier_reporting import booking_report
+from .accounting_buyers import order_buyer
 
 HEADERS = ["თარიღი", "შეკვეთა", "პროდუქტი", "SKU", "რაოდენობა", "შესაძენი ერთეული ₾",
            "გასაყიდი ერთეული ₾", "შესაძენი ჯამი ₾", "გასაყიდი ჯამი ₾",
@@ -32,7 +33,7 @@ def build_ledger(period, status, sku=""):
     if sku:
         qs = qs.filter(Q(order__items__internal_sku__icontains=sku) | Q(order__items__sku__icontains=sku)
                        | Q(order__items__product_name__icontains=sku)).distinct()
-    rows, groups = [], []
+    rows, groups, buyers = [], [], {}
     events = _bounded(qs, MAX_REPORT_ROWS)
     events.sort(key=lambda p: (p.refunded_at if p.action == "refund" else p.captured_at, p.pk))
     for payment in events:
@@ -75,8 +76,11 @@ def build_ledger(period, status, sku=""):
                 allocation["retained_delivery_fee"] if first and refund and allocation else (Decimal(0) if first and not refund and allocation else None),
             ])
         if len(rows) > group_start:
+            buyer = order_buyer(payment.order)
+            buyers[payment.order_id] = buyer
             groups.append({"event_id": payment.pk, "delivery_provider": order["delivery_provider"],
-                           "original_total": payment.order.total, "refund": refund, "rows": rows[group_start:]})
+                           "original_total": payment.order.total, "refund": refund, "rows": rows[group_start:],
+                           "buyer": buyer})
     totals = ["სულ", None, None, None, sum(r[4] for r in rows), None, None]
     for column in range(7, 15):
         values = [row[column] for row in rows]
@@ -99,4 +103,4 @@ def build_ledger(period, status, sku=""):
     bookings = booking_report(period) if not sku else None
     return {"headers": HEADERS, "rows": rows, "groups": groups, "totals": totals, "period": period,
             "status": status, "sku": sku, "order_count": len({p.order_id for p in events}), "return_costs": costs,
-            "courier_bookings": bookings}
+            "courier_bookings": bookings, "buyers": list(buyers.values())}

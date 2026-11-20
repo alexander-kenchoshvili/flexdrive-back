@@ -17,6 +17,9 @@
 <div><span class="accounting-order-kicker">შეკვეთა</span><h3 id="order-{{ group.event_id }}">{{ group.number }}</h3></div>
 <div class="accounting-order-meta"><span>{{ group.date }}</span><span>{{ group.buyer_type }}</span>{% if group.is_company %}<span>კომპანია დღგ-ის გადამხდელია: <strong>{{ group.buyer_vat }}</strong></span>{% endif %}<strong class="accounting-order-status">{{ group.status }}</strong><span>{{ group.line_count }} პროდუქტის პოზიცია · {{ group.unit_count }} ერთეული</span></div>
 </header>
+<dl class="accounting-buyer" aria-label="მყიდველის მონაცემები">
+{% for label,value in group.buyer_fields %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endfor %}
+</dl>
 <div class="accounting-table" role="region" aria-label="{{ group.number }} — პროდუქტები" tabindex="0"><table>
 <thead><tr>{% for header in product_headers %}<th scope="col">{{ header }}</th>{% endfor %}</tr></thead>
 <tbody>{% for row in group.rows %}<tr>{% for value in row %}<td>{{ value }}</td>{% endfor %}</tr>{% endfor %}</tbody>

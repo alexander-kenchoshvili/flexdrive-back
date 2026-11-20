@@ -8,6 +8,7 @@ import re
 from django.http import HttpResponse
 from .accounting_ledger import HEADERS, visible_columns
 from .accounting_reports import TBILISI
+from .accounting_buyers import BUYER_COLUMNS
 
 NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -28,7 +29,7 @@ def xml(element):
 HEADER_ROW = 7
 
 
-def workbook_bytes(sheets, *, introduction=(), bands=(), introductions=None):
+def workbook_bytes(sheets, *, introduction=(), bands=(), introductions=None, detail_sheets=()):
     output = BytesIO()
     with ZipFile(output, "w", ZIP_DEFLATED) as archive:
         content = Element("Types", xmlns="http://schemas.openxmlformats.org/package/2006/content-types")
@@ -50,22 +51,30 @@ def workbook_bytes(sheets, *, introduction=(), bands=(), introductions=None):
             SubElement(properties, "pageSetUpPr", fitToPage="1")
             views = SubElement(sheet, "sheetViews")
             view = SubElement(views, "sheetView", workbookViewId="0", showGridLines="0", zoomScale="85")
-            SubElement(view, "pane", xSplit="4", ySplit=str(HEADER_ROW), topLeftCell="E8", activePane="bottomRight", state="frozen")
-            SubElement(view, "selection", pane="bottomRight", activeCell="E8", sqref="E8")
+            first_scroll_cell = "B8" if name in detail_sheets else "E8"
+            SubElement(view, "pane", xSplit="1" if name in detail_sheets else "4", ySplit=str(HEADER_ROW),
+                       topLeftCell=first_scroll_cell, activePane="bottomRight", state="frozen")
+            SubElement(view, "selection", pane="bottomRight", activeCell=first_scroll_cell, sqref=first_scroll_cell)
             cols = SubElement(sheet, "cols")
             widths = (21, 27, 38, 24, 12, 17, 17, 18, 18, 23, 23, 18, 18, 16, 21, 17)
+            width_by_header = dict(zip(HEADERS, (*widths, 23, 30)))
+            if name in detail_sheets:
+                width_by_header.update({label: width for _, label, width in BUYER_COLUMNS})
             for j, header in enumerate(headers, 1):
-                SubElement(cols, "col", min=str(j), max=str(j), width=str(dict(zip(HEADERS, (*widths, 23, 30))).get(header, 20)), customWidth="1")
+                SubElement(cols, "col", min=str(j), max=str(j), width=str(width_by_header.get(header, 20)), customWidth="1")
             data = SubElement(sheet, "sheetData")
             prefix = [[value] for value in sheet_introduction]
             prefix += [[] for _ in range(HEADER_ROW - 1 - len(prefix))]
             last_row = HEADER_ROW + len(rows)
             for row_index, values in enumerate([*prefix, headers, *rows], 1):
                 is_header = row_index == HEADER_ROW
-                is_total = row_index == last_row
+                is_total = row_index == last_row and name not in detail_sheets
                 data_index = row_index - HEADER_ROW - 1
                 shaded = 0 <= data_index < len(bands) and bands[data_index] % 2 == 1
-                height = 34 if row_index == 1 else (54 if is_header else (32 if row_index < HEADER_ROW else 36))
+                if name in detail_sheets:
+                    shaded = data_index >= 0 and data_index % 2 == 1
+                height = 34 if row_index == 1 else (54 if is_header else (32 if row_index < HEADER_ROW else
+                         48 if name in detail_sheets else 36))
                 row = SubElement(data, "row", r=str(row_index), ht=str(height), customHeight="1")
                 for j, value in enumerate(values, 1):
                     numeric = isinstance(value, (Decimal, int)) and not isinstance(value, bool)
@@ -79,6 +88,8 @@ def workbook_bytes(sheets, *, introduction=(), bands=(), introductions=None):
                         style = 6 if shaded else 2
                     elif numeric:
                         style = 10 if shaded else 9
+                    elif name in detail_sheets:
+                        style = 12 if shaded else 11  # Explicit Excel text format retains leading zeroes.
                     else:
                         style = 5 if shaded else 0
                     node = SubElement(row, "c", r=f"{column_name(j)}{row_index}",
@@ -93,7 +104,8 @@ def workbook_bytes(sheets, *, introduction=(), bands=(), introductions=None):
                         text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", str(value))[:32767]
                         SubElement(SubElement(node, "is"), "t", attrib={"xml:space": "preserve"}).text = text
             # Summary stays outside the filter so sorting/filtering cannot treat it as a sale.
-            SubElement(sheet, "autoFilter", ref=f"A{HEADER_ROW}:{column_name(len(headers))}{max(HEADER_ROW, last_row - 1)}")
+            filter_end = last_row if name in detail_sheets else last_row - 1
+            SubElement(sheet, "autoFilter", ref=f"A{HEADER_ROW}:{column_name(len(headers))}{max(HEADER_ROW, filter_end)}")
             merges = SubElement(sheet, "mergeCells", count=str(len(sheet_introduction)))
             for row_index in range(1, len(sheet_introduction) + 1):
                 SubElement(merges, "mergeCell", ref=f"A{row_index}:{column_name(len(headers))}{row_index}")
@@ -140,12 +152,12 @@ def styles_xml():
     SubElement(borders, "border")
     base = SubElement(styles, "cellStyleXfs", count="1")
     SubElement(base, "xf", numFmtId="0", fontId="0", fillId="0", borderId="0")
-    xfs = SubElement(styles, "cellXfs", count="11")
+    xfs = SubElement(styles, "cellXfs", count="13")
     for font, fill, number in ((0,0,0),(1,2,0),(0,0,164),(2,2,0),(0,0,0),
-                               (0,3,0),(0,3,164),(1,2,0),(1,2,164),(0,0,3),(0,3,3)):
+                               (0,3,0),(0,3,164),(1,2,0),(1,2,164),(0,0,3),(0,3,3),(0,0,49),(0,3,49)):
         xf = SubElement(xfs, "xf", fontId=str(font), fillId=str(fill), numFmtId=str(number),
                         borderId="0", xfId="0", applyAlignment="1", applyNumberFormat="1", applyFill="1", applyFont="1")
-        SubElement(xf, "alignment", vertical="center", horizontal="right" if number else "left", wrapText="1")
+        SubElement(xf, "alignment", vertical="center", horizontal="right" if number and number != 49 else "left", wrapText="1")
     names = SubElement(styles, "cellStyles", count="1")
     SubElement(names, "cellStyle", name="Normal", xfId="0", builtinId="0")
     return xml(styles)
@@ -177,6 +189,12 @@ def export_response(report):
         "ოპერატორის დაფიქსირებული თანხები ლარში; ინვოისის გადახდას არ ადასტურებს.",
         "უცნობი ხარჯი ნულის ნაცვლად ცარიელია; ასეთ შემთხვევაში სრული ჯამიც უცნობია."]
     introductions = {"უკუმიტანის ხარჯი": cost_introduction}
+    buyers = report.get("buyers", [])
+    sheets.append(("მყიდველები", [label for _, label, _ in BUYER_COLUMNS],
+                   [[buyer[key] or None for key, _, _ in BUYER_COLUMNS] for buyer in buyers]))
+    introductions["მყიდველები"] = ["FlexDrive — მყიდველის მონაცემები", introduction[1], introduction[2],
+        "შეკვეთაზე შენახული მონაცემები ზედნადების მოსამზადებლად; თითო შეკვეთაზე ერთი ჩანაწერია.",
+        "ცარიელი ველი ნიშნავს, რომ მონაცემი არ არის შენახული ან ამ ტიპის მყიდველს არ ეხება."]
     bookings = report.get("courier_bookings")
     if bookings is not None and bookings["rows"]:
         booking_rows = [[row["date"], row["order_number"], row["stage_label"], Decimal(row["customer_delivery"]),
@@ -190,7 +208,7 @@ def export_response(report):
             "გაუქმებული გზავნილები ჯამში არ შედის; შესაძლო საკურიერო ხარჯი ცალკე შესაჯერებელია.",
             "უცნობი ფასი ცარიელია და სრულ ჯამს უცნობს ტოვებს."]
     response = HttpResponse(workbook_bytes(sheets, introduction=introduction, bands=bands,
-                            introductions=introductions),
+                            introductions=introductions, detail_sheets={"მყიდველები"}),
                             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     response["Content-Disposition"] = f'attachment; filename="FlexDrive-{report["status"]}-{period.start}-{period.end}.xlsx"'
     return response

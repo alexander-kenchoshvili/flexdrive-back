@@ -15,7 +15,7 @@ from django.utils import timezone
 from django.utils.text import capfirst
 
 from .courier_state import has_unsettled_courier_shipment
-from .models import Order, OrderItem, OrderReturn, WingoShipment
+from .models import Order, OrderItem, OrderReturn, PaymentTransaction, WingoShipment
 from .test_wingo import reference_client
 from .test_wingo_checkout import item
 from .wingo import MAX_LABEL_BYTES, WingoClient, WingoError, WingoResponseError, WingoTransportError
@@ -111,6 +111,7 @@ class WingoShipmentFixture(TestCase):
         self.location = resolve_delivery_location(mapping.region_id, mapping.pk)
         quote = build_delivery_quote(source="cart", items=[item()], region=self.location, city=self.location)
         self.order = Order.objects.create(order_number="ORDER-WINGO-1", first_name="სატესტო", last_name="მიმღები",
+            personal_number="00000000001",
             phone="+995 555 000 002", city="თბილისი", address_line="სატესტო მისამართი",
             payment_status="paid", payment_method="card", status="confirmed", subtotal=100, total=146,
             **delivery_order_fields(quote))
@@ -166,6 +167,8 @@ class WingoShipmentTests(WingoShipmentFixture):
         self.assertEqual((payload["deliveryTypeId"], payload["recipientPaymentDue"], payload["packageCount"]), (1, 0, 2))
         self.assertEqual(payload["weightRangeId"], 6)
         self.assertEqual(payload["products"], [{"productName": "სატესტო ნაწილი", "quantity": 2}])
+        self.assertNotIn("personal_number", payload)
+        self.assertNotIn(self.order.personal_number, str(payload))
         self.assertEqual(payload["recipientPhone"], "+995555000002")
         self.assertNotIn("serviceFee", payload)
         self.assertNotIn("deliveryDate", payload)
@@ -455,6 +458,47 @@ class WingoOrderAdminTests(WingoShipmentFixture):
 
     def url(self, action):
         return reverse(f"admin:commerce_order_wingo_{action}", args=[self.order.pk])
+
+    def test_vehicle_and_payment_display_preserves_booked_order_and_label(self):
+        from catalog.models import Category, Product, ProductFitment, VehicleMake, VehicleModel
+
+        category = Category.objects.create(name="Parts", slug="admin-display-parts")
+        product = Product.objects.create(category=category, name="Part", slug="admin-display-part",
+                                         sku="DISPLAY-SUPPLIER", price=50, supplier_price=24)
+        make = VehicleMake.objects.create(name="Volkswagen", slug="admin-display-vw")
+        for name, slug, start, end in (("Jetta <GLI>", "jetta", 2015, 2018), ("Golf", "golf", 2017, 2017)):
+            model = VehicleModel.objects.create(make=make, name=name, slug=slug)
+            ProductFitment.objects.create(product=product, vehicle_model=model, year_from=start, year_to=end)
+        OrderItem.objects.filter(order=self.order).update(product=product)
+        payment = PaymentTransaction.objects.create(order=self.order, provider="bog", action="sale",
+                                                     status="paid", amount=self.order.total)
+        shipment = self.submit()
+        tables = (Order, OrderItem, PaymentTransaction, WingoShipment, Product)
+        before = {model: list(model.objects.order_by("pk").values()) for model in tables}
+        page = self.client.get(reverse("admin:commerce_order_change", args=[self.order.pk]))
+        self.assertContains(page, "Volkswagen Jetta &lt;GLI&gt; — 2015–2018")
+        self.assertContains(page, "Volkswagen Golf — 2017")
+        self.assertNotContains(page, "Jetta <GLI>")
+        self.assertContains(page, reverse("admin:catalog_product_change", args=[product.pk]))
+        self.assertContains(page, f"საქართველოს ბანკი — გადახდა — გადახდილია — შეკვეთა {self.order.order_number}")
+        self.assertNotContains(page, f"bog:sale:paid ({self.order.pk})")
+        self.assertContains(page, "სტიკერის გახსნა / ბეჭდვა — A4")
+        self.assertNotContains(page, ">Wingo-ში გაგზავნა</a>")
+
+        # Printing an existing shipment still reads the same provider identity;
+        # opening the improved admin must not book again or rewrite business data.
+        self.carrier.get_order.return_value = self.result(shipment.request_payload)
+        self.carrier.get_label.return_value = PDF
+        with patch("commerce.wingo_shipments.WingoClient.from_settings", return_value=self.carrier):
+            response = self.client.get(self.url("label"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(b"".join(response.streaming_content), PDF)
+        self.carrier.get_label.assert_called_once_with(shipment.provider_order_id, size="a4")
+        self.carrier.create_order.assert_called_once()
+        self.assertEqual({model: list(model.objects.order_by("pk").values()) for model in tables}, before)
+        payment.status = "refunded"
+        payment.action = "refund"
+        self.assertIn("თანხის დაბრუნება — დაბრუნებულია", str(payment))
 
     def test_paid_order_shows_georgian_button_and_confirmation_without_network(self):
         with patch("commerce.wingo_order_admin.submit_shipment") as submit:

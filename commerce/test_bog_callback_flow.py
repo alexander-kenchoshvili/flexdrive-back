@@ -181,6 +181,7 @@ class BogCallbackFlowTests(APITransactionTestCase):
         )
         return {
             "first_name": "Nino",
+            "personal_number": "00000000001",
             "last_name": "Beridze",
             "email": "nino@example.com",
             "phone": "555123456",
@@ -411,6 +412,98 @@ class BogCallbackFlowTests(APITransactionTestCase):
         serializer = CheckoutSerializer(data={**payload, "buyer_type": "individual", "company_is_vat_registered": True})
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertIsNone(serializer.validated_data["company_is_vat_registered"])
+
+    def test_individual_personal_number_validation_and_fingerprint(self):
+        from .serializers import CheckoutSerializer
+        from .services import build_checkout_request_fingerprint
+
+        cart = Cart.objects.create(user=self.user)
+        CartItem.objects.create(cart=cart, product=self.product, quantity=1, unit_price_snapshot=self.product.price)
+        payload = {**self._checkout_payload(), "payment_method": "cash_on_delivery"}
+        for number in ("", "123", "0000000000A", "００００００００００１", None):
+            serializer = CheckoutSerializer(data={**payload, "personal_number": number})
+            self.assertFalse(serializer.is_valid())
+            self.assertIn("personal_number", serializer.errors)
+        missing = {key: value for key, value in payload.items() if key != "personal_number"}
+        serializer = CheckoutSerializer(data=missing)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("personal_number", serializer.errors)
+        valid = CheckoutSerializer(data=payload)
+        self.assertTrue(valid.is_valid(), valid.errors)
+        self.assertEqual(valid.validated_data["personal_number"], "00000000001")
+        data = valid.validated_data
+        first = build_checkout_request_fingerprint(source="cart", validated_data=data)
+        self.assertNotEqual(first, build_checkout_request_fingerprint(
+            source="cart", validated_data={**data, "personal_number": "00000000002"}))
+        old = {key: value for key, value in data.items() if key != "personal_number"}
+        self.assertEqual(build_checkout_request_fingerprint(source="cart", validated_data=old),
+                         build_checkout_request_fingerprint(source="cart", validated_data={**old, "personal_number": ""}))
+        legal = CheckoutSerializer(data={**payload, "buyer_type": "legal_entity", "company_name": "Test LLC",
+            "company_identification_code": "123456789", "company_is_vat_registered": False})
+        self.assertTrue(legal.is_valid(), legal.errors)
+        self.assertEqual(legal.validated_data["personal_number"], "")
+
+    def _assert_personal_number_payment(self, source, *, legacy=False):
+        _, response, payment = (self._start_cart_payment() if source == "cart" else self._start_buy_now_payment())
+        self.assertEqual(response.status_code, 201, response.data)
+        number = "00000000001"
+        self.assertEqual(payment.checkout_snapshot["buyer"]["personal_number"], number)
+        self.assertNotIn(number, str(self.provider_client.create_order.call_args))
+        self.assertNotIn(number, str(response.data))
+        if legacy:
+            snapshot = payment.checkout_snapshot
+            snapshot["buyer"].pop("personal_number")
+            snapshot.pop("integrity_hash")
+            snapshot["integrity_hash"] = _snapshot_hash(snapshot)
+            PaymentTransaction.objects.filter(pk=payment.pk).update(checkout_snapshot=snapshot)
+        completed = self._signed_callback_request(self._callback_payload(payment))
+        self.assertEqual(completed.status_code, 200, completed.data)
+        order = Order.objects.get()
+        self.assertEqual(order.personal_number, "" if legacy else number)
+        from .serializers import OrderSummarySerializer, PublicOrderSummarySerializer, OrderLookupSummarySerializer
+        from .receipts import build_receipt_snapshot, get_receipt_eligibility
+        for serializer in (OrderSummarySerializer, PublicOrderSummarySerializer, OrderLookupSummarySerializer):
+            self.assertNotIn("personal_number", serializer(order).data)
+        self.assertNotIn(number, str(completed.data))
+        # A normal receipt is not a transport waybill; keep its existing data contract.
+        self.assertNotIn("personal_number", str(build_receipt_snapshot(order, get_receipt_eligibility(order))))
+
+    def test_personal_number_survives_cart_bank_confirmation_privately(self):
+        self._assert_personal_number_payment("cart")
+
+    def test_personal_number_survives_buy_now_bank_confirmation_privately(self):
+        self._assert_personal_number_payment("buy_now")
+
+    def test_legacy_in_flight_bank_snapshot_without_personal_number_still_completes(self):
+        self._assert_personal_number_payment("cart", legacy=True)
+
+    def _assert_guest_personal_number_checkout(self, source):
+        from .services import CART_TOKEN_COOKIE_NAME, BUY_NOW_TOKEN_COOKIE_NAME
+        token = uuid.uuid4()
+        self.client.force_authenticate(user=None)
+        if source == "cart":
+            cart = Cart.objects.create(guest_token=token)
+            CartItem.objects.create(cart=cart, product=self.product, quantity=1, unit_price_snapshot=self.product.price)
+            items = cart.items.select_related("product").all()
+            self.client.cookies[CART_TOKEN_COOKIE_NAME] = str(token)
+            endpoint = "commerce-order-checkout"
+        else:
+            session = BuyNowSession.objects.create(guest_token=token, product=self.product, quantity=1,
+                                                   unit_price_snapshot=self.product.price)
+            items = [session]
+            self.client.cookies[BUY_NOW_TOKEN_COOKIE_NAME] = str(token)
+            endpoint = "commerce-buy-now-checkout"
+        payload = {**self._checkout_payload(source=source, items=items), "payment_method": "cash_on_delivery"}
+        response = self.client.post(reverse(endpoint), payload, format="json", HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()))
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(Order.objects.get().personal_number, "00000000001")
+        self.assertNotIn("personal_number", response.data)
+
+    def test_guest_cart_checkout_saves_personal_number_privately(self):
+        self._assert_guest_personal_number_checkout("cart")
+
+    def test_guest_buy_now_checkout_saves_personal_number_privately(self):
+        self._assert_guest_personal_number_checkout("buy_now")
 
     def _assert_guest_company_vat_checkout(self, source, answer):
         from .services import CART_TOKEN_COOKIE_NAME, BUY_NOW_TOKEN_COOKIE_NAME

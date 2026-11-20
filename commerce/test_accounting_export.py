@@ -11,6 +11,58 @@ from .models import Order, OrderItem
 
 
 class AccountingExportTests(AccountingAdminTests):
+    def test_private_buyer_details_and_text_ids_export_once_per_order(self):
+        from .accounting_buyers import BUYER_COLUMNS
+        Order.objects.filter(pk=self.order.pk).update(first_name="Nino <Buyer>", last_name="Beridze",
+            personal_number="00000000001", city="თბილისი", address_line='=HYPERLINK("private")', phone="555000001")
+        self.refund()
+        self.client.force_login(self.superuser)
+        params = {"status": "all", "end": "2026-10-31"}
+        page = self.get(**params)
+        self.assertContains(page, "Nino &lt;Buyer&gt;")
+        self.assertNotContains(page, "Nino <Buyer>")
+        self.assertContains(page, "00000000001")
+        self.assertEqual(page.context["totals"][14], "0.00")
+        response = self.get(export="xlsx", **params)
+        ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+        with ZipFile(BytesIO(response.content)) as archive:
+            book = ET.fromstring(archive.read("xl/workbook.xml"))
+            sheet_id = next(sheet.get("sheetId") for sheet in book.findall("s:sheets/s:sheet", ns)
+                            if sheet.get("name") == "მყიდველები")
+            sheet = ET.fromstring(archive.read(f"xl/worksheets/sheet{sheet_id}.xml"))
+            self.assertEqual(len(sheet.findall('.//s:row', ns)), 8)
+            headers = [cell.find("s:is/s:t", ns).text for cell in sheet.findall('.//s:row[@r="7"]/s:c', ns)]
+            self.assertEqual(headers, [label for _, label, _ in BUYER_COLUMNS])
+            cells = sheet.findall('.//s:row[@r="8"]/s:c', ns)
+            self.assertEqual(cells[6].get("t"), "inlineStr")
+            self.assertEqual(cells[6].find("s:is/s:t", ns).text, "00000000001")
+            styles = ET.fromstring(archive.read("xl/styles.xml"))
+            self.assertEqual(styles.find("s:cellXfs", ns)[int(cells[6].get("s"))].get("numFmtId"), "49")
+            self.assertEqual(cells[7].find("s:is/s:t", ns).text, 'თბილისი, =HYPERLINK("private")')
+            self.assertEqual(sheet.find("s:autoFilter", ns).get("ref"), "A7:I8")
+            self.assertFalse(sheet.findall(".//s:f", ns))
+            self.assertNotEqual(cells[6].get("s"), "7")  # Last buyer is data, never a financial total.
+
+    def test_legal_buyer_exports_contact_and_company_id_without_personal_number(self):
+        Order.objects.filter(pk=self.order.pk).update(buyer_type="legal_entity", company_name="Test LLC",
+            company_identification_code="012345678", personal_number="00000000001", first_name="Contact",
+            last_name="Person", city="თბილისი", address_line="Street 1")
+        self.client.force_login(self.superuser)
+        page = self.get()
+        self.assertContains(page, "Test LLC")
+        self.assertContains(page, "012345678")
+        self.assertNotContains(page, "00000000001")
+        response = self.get(export="xlsx")
+        with ZipFile(BytesIO(response.content)) as archive:
+            ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+            sheet = ET.fromstring(archive.read("xl/worksheets/sheet3.xml"))
+            self.assertEqual(sheet.find('.//s:c[@r="D8"]/s:is/s:t', ns).text, "012345678")
+            self.assertIsNone(sheet.find('.//s:c[@r="G8"]/s:is', ns))
+        # An old individual order with no number remains reportable and printable.
+        Order.objects.filter(pk=self.order.pk).update(buyer_type="individual", personal_number="")
+        self.assertEqual(self.get().status_code, 200)
+        self.assertEqual(self.get(export="xlsx").status_code, 200)
+
     def test_purchase_visibility_matches_html_and_export(self):
         from .accounting_ledger import HEADERS
         self.client.force_login(self.superuser)
@@ -66,7 +118,7 @@ class AccountingExportTests(AccountingAdminTests):
         with ZipFile(BytesIO(response.content)) as archive:
             for name in archive.namelist():
                 ET.fromstring(archive.read(name))
-            self.assertEqual(len([n for n in archive.namelist() if n.startswith("xl/worksheets/")]), 2)
+            self.assertEqual(len([n for n in archive.namelist() if n.startswith("xl/worksheets/")]), 3)
             sheet = ET.fromstring(archive.read("xl/worksheets/sheet1.xml"))
             self.assertFalse(sheet.findall(".//s:f", ns))
             self.assertEqual(sheet.find('.//s:c[@r="K8"]/s:v', ns).text, "16.95")

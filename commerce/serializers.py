@@ -96,6 +96,9 @@ class WishlistItemCreateSerializer(serializers.Serializer):
 
 
 class CheckoutSerializer(serializers.Serializer):
+    personal_number = serializers.CharField(
+        max_length=11, allow_blank=True, required=False, default="", write_only=True,
+    )
     company_is_vat_registered = serializers.BooleanField(
         required=False, allow_null=True, default=None,
     )
@@ -163,8 +166,12 @@ class CheckoutSerializer(serializers.Serializer):
             attrs["company_name"] = ""
             attrs["company_identification_code"] = ""
             attrs["company_is_vat_registered"] = None
+            number = attrs.get("personal_number", "")
+            if not (len(number) == 11 and number.isascii() and number.isdigit()):
+                raise serializers.ValidationError({"personal_number": "შეიყვანე 11-ნიშნა პირადი ნომერი."})
             return attrs
 
+        attrs["personal_number"] = ""
         company_name = str(attrs.get("company_name", "")).strip()
         company_identification_code = str(
             attrs.get("company_identification_code", "")

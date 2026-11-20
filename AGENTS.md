@@ -1,5 +1,50 @@
 # Project Instructions
 
+## Checkout Personal Number And Accountant Buyer Details Prepared - 2026-11-20
+
+- User requested mandatory individual personal number for transport waybills and
+  buyer identity/address in accountant HTML/XLSX. Paired cart/Buy Now forms use an
+  individual-only11 ASCII digit text input + Georgian purpose hint; legal company
+  ID/VAT remains. Format validation only, no passport or identity verification.
+- New commerce0046 adds blank-compatible Order.personal_number. Private original
+  card checkout snapshot -> confirmed order and both COD paths retain it; changed
+  number changes request fingerprint. Old blank fingerprints/bank snapshots and
+  orders remain valid; no guessed/backfilled number or existing order edits.
+- Private accountant blocks show saved names/contact, delivery address, phone,
+  personal OR company ID/name. Excel adds one row per order on named მყიდველები
+  sheet with explicit text IDs, complete filters/frozen order column; financial
+  columns/calculations/refund signs unchanged. Existing report permission retained.
+- Number excluded from API summaries/receipts/profile/browser drafts/analytics/
+  bank/Wingo requests. Buyer-type switch clears it; account deletion clears new
+  order field. pages0087 appends privacy purpose notice, preserving other content.
+-160 targeted backend tests pass; final50 export/privacy/Wingo-accounting/menu
+  checks (overlapping) +1 redaction pass. Frontend23 checks/scoped ESLint/strict
+  app vue-tsc pass; migration drift/whitespace clean. Independent XLSX reader
+  proves exact leading-zero IDs/text/filter/freeze. Artifact preview has numeric
+  string rendering limitation; native Excel/browser/full build not run.
+- No local/prod migration, live DB/provider action, order/stock/payment mutation,
+  ENV, commit/push/deploy. BOTH repos + new commerce0046/pages0087 migrations
+  required; migrate before new backend, frontend promptly for required input.
+  Existing Render build.sh already runs migrate. User owns deploy. Current real
+  order stays blank unless user obtains and enters genuine number in admin.
+  docs/CHECKOUT_BUYER_WAYBILL.md has scope/rollout/limits; QA artifacts ignored.
+
+## Order Admin Vehicle And Payment Display Prepared - 2026-11-20
+
+- User requested both display fixes after sending the real order to Wingo.
+  Order items now show all linked current catalog make/model/year/engine fitments
+  and a product admin link. Explicit catalog label; not a snapshot or proof of the
+  buyer's actual vehicle. Missing product/fitments have clear fallback text.
+- PaymentTransaction string now shows Georgian provider/action/status plus public
+  order number, replacing bog:sale:paid (internal order ID). Reservation fallback
+  stays explicitly identified. Inline related data is fetched in batches.
+- 57 Wingo shipment/admin/navigation tests pass, including an existing booked
+  shipment -> improved order page -> same PDF label, no second booking and exact
+  order/item/payment/shipment/product record equality. HTML escaping verified.
+  Existing CKEditor/staticfiles warnings remain. No live browser/provider/DB,
+  payment/stock/order action, frontend, ENV, push or deploy. Backend deploy needed;
+  no migration. Existing Wingo label routes/permissions/client remain unchanged.
+
 ## Admin Navigation Labels English Then Georgian - 2026-11-20
 
 - User found Georgian-only navigation confusing and explicitly requested English

@@ -246,6 +246,9 @@ def build_checkout_request_fingerprint(*, source, validated_data):
             for field in fields
         },
     }
+    # Old in-flight requests without a personal number keep their original hash.
+    if validated_data.get("personal_number"):
+        payload["personal_number"] = validated_data["personal_number"]
     # Preserve fingerprints for existing requests without a declared VAT status.
     if validated_data.get("company_is_vat_registered") is not None:
         payload["company_is_vat_registered"] = validated_data["company_is_vat_registered"]
@@ -1107,6 +1110,7 @@ def create_order_from_cart(
     order = Order.objects.create(
         user=user if user and user.is_authenticated else None,
         buyer_type=validated_data.get("buyer_type", OrderBuyerType.INDIVIDUAL),
+        personal_number=validated_data.get("personal_number", ""),
         company_name=validated_data.get("company_name", ""),
         company_is_vat_registered=validated_data.get("company_is_vat_registered"),
         company_identification_code=validated_data.get(
@@ -1251,6 +1255,7 @@ def create_order_from_buy_now_session(
         user=user if user and user.is_authenticated else None,
         checkout_source=OrderCheckoutSource.BUY_NOW,
         buyer_type=validated_data.get("buyer_type", OrderBuyerType.INDIVIDUAL),
+        personal_number=validated_data.get("personal_number", ""),
         company_name=validated_data.get("company_name", ""),
         company_is_vat_registered=validated_data.get("company_is_vat_registered"),
         company_identification_code=validated_data.get(

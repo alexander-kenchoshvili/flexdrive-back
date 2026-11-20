@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator
+from django.core.validators import MinValueValidator, RegexValidator
 from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -528,6 +528,11 @@ class Order(TimeStampedModel):
     )
     company_name = models.CharField(max_length=255, blank=True, default="")
     company_identification_code = models.CharField(max_length=32, blank=True, default="")
+    personal_number = models.CharField(
+        "Personal number — პირადი ნომერი", max_length=11, blank=True, default="",
+        validators=[RegexValidator(r"\A[0-9]{11}\Z", "შეიყვანე 11-ნიშნა პირადი ნომერი.")],
+        help_text="ფიზიკური პირის ნომერი ტრანსპორტირების ზედნადების მოსამზადებლად; ძველ შეკვეთებზე შეიძლება ცარიელი იყოს.",
+    )
     company_is_vat_registered = models.BooleanField(
         "დღგ-ის გადამხდელი (მყიდველის მითითებით)",
         null=True, blank=True, default=None,
@@ -1097,8 +1102,23 @@ class PaymentTransaction(TimeStampedModel):
         ]
 
     def __str__(self):
-        target = self.order_id or self.reservation_id or "unbound"
-        return f"{self.provider}:{self.action}:{self.status} ({target})"
+        provider = "საქართველოს ბანკი" if self.provider == PaymentProvider.BOG else self.get_provider_display()
+        action = {
+            "authorize": "ავტორიზაცია", "capture": "თანხის ჩამოჭრა", "sale": "გადახდა",
+            "cancel": "გაუქმება", "refund": "თანხის დაბრუნება",
+        }.get(self.action, self.get_action_display())
+        status = {
+            "pending": "მოლოდინში", "authorized": "ავტორიზებულია", "paid": "გადახდილია",
+            "failed": "წარუმატებელია", "cancelled": "გაუქმებულია",
+            "refund_pending": "დაბრუნება მოლოდინშია", "refunded": "დაბრუნებულია",
+        }.get(self.status, self.get_status_display())
+        if self.order_id:
+            target = f"შეკვეთა {self.order.order_number}"
+        elif self.reservation_id:
+            target = f"ჯავშანი #{self.reservation_id}"
+        else:
+            target = "შეკვეთასთან / ჯავშანთან დაუკავშირებელია"
+        return f"{provider} — {action} — {status} — {target}"
 
     def delete(self, *args, allow_hard_delete=False, **kwargs):
         if not allow_hard_delete:

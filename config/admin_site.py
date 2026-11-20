@@ -11,7 +11,7 @@ NAVIGATION = {
         "OwnedStockLot": "Owned Stock Lots — FlexDrive-ის მარაგი",
         "WingoReferenceData": "Wingo Tariffs — Wingo-ს ტარიფები",
         "Cart": "Carts — კალათები",
-        "CheckoutAttempt": "Checkout Attempts — შეკვეთის გაფორმების მცდელობები",
+        "CheckoutAttempt": "Checkout Attempts — შეკვეთის დუბლირებისგან დაცვა",
         "StockReservation": "Stock Reservations — მარაგის ჯავშნები",
         "SupplierStockHold": "Supplier Stock Holds — Cross Motors-ის დროებითი ჩამოკლებები",
     }),

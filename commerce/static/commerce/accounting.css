@@ -24,6 +24,9 @@
 .accounting-order-kicker { display: block; font-size: 12px; color: var(--body-quiet-color); margin-bottom: 6px; }
 .accounting-order-heading h3 { margin: 0; font-size: 19px; color: var(--body-fg); }
 .accounting-order-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; }
+.accounting-buyer { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 14px 24px; margin: 0; padding: 16px 20px; border-bottom: 1px solid var(--hairline-color); }
+.accounting-buyer dt { color: var(--body-quiet-color); font-size: 12px; margin-bottom: 6px; }
+.accounting-buyer dd { margin: 0; line-height: 1.6; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .accounting-order-status { border: 1px solid var(--hairline-color); padding: 6px 10px; border-radius: 5px; background: var(--body-bg); }
 .accounting-order .accounting-table { border: 0; }
 .accounting-order .accounting-table th, .accounting-order .accounting-table td { min-width: 72px; }

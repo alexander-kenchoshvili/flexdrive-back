@@ -3,10 +3,13 @@ from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
+from django.db.models import Prefetch
 from django.http import Http404, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.html import format_html, format_html_join
+
+from catalog.models import ProductFitment
 
 from .bog_callbacks import BogCallbackError, reconcile_bog_payment
 from .bog_payments import BogPaymentError
@@ -83,10 +86,32 @@ class CartAdmin(admin.ModelAdmin):
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
-    fields = ("product_name", "sku", "internal_sku", "unit_price", "quantity", "line_total",
+    fields = ("product_name", "vehicle_details", "sku", "internal_sku", "unit_price", "quantity", "line_total",
               "purchase_unit_gross", "purchase_cost_source", "purchase_cost_recorded_at")
     readonly_fields = fields
     can_delete = False
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("product").prefetch_related(
+            Prefetch("product__fitments", queryset=ProductFitment.objects.select_related(
+                "vehicle_model__make", "engine",
+            )),
+        )
+
+    @admin.display(description="Vehicle — მარკა / მოდელი / წლები (კატალოგიდან)")
+    def vehicle_details(self, obj):
+        if not obj.product_id:
+            return "პროდუქტი აღარ არის მიბმული"
+        fitments = []
+        for fitment in obj.product.fitments.all():
+            years = (str(fitment.year_from) if fitment.year_from == fitment.year_to
+                     else f"{fitment.year_from}–{fitment.year_to}")
+            engine = f" — {fitment.engine.name}" if fitment.engine_id else ""
+            fitments.append((f"{fitment.vehicle_model} — {years}{engine}",))
+        details = (format_html_join("", "<div>{}</div>", fitments) if fitments
+                   else "მარკა / მოდელი მითითებული არ არის")
+        return format_html('{}<a href="{}">პროდუქტის გახსნა</a>', details,
+                           reverse("admin:catalog_product_change", args=[obj.product_id]))
 
 
 class PaymentTransactionInline(admin.TabularInline):
@@ -106,6 +131,9 @@ class PaymentTransactionInline(admin.TabularInline):
     )
     readonly_fields = fields
     can_delete = False
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("order")
 
 
 class OrderReceiptInline(admin.StackedInline):
@@ -263,7 +291,7 @@ class OrderAdmin(OrderWingoAdminMixin, admin.ModelAdmin):
                 )
             },
         ),
-        ("Customer", {"fields": ("first_name", "last_name", "email", "phone")}),
+        ("Customer", {"fields": ("first_name", "last_name", "personal_number", "email", "phone")}),
         (
             "Delivery",
             {
