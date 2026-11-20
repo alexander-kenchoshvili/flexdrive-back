@@ -1,6 +1,16 @@
 # Checkout buyer details for transport waybills
 
-Prepared 2026-11-20; not deployed or migrated on local/production databases.
+Prepared 2026-11-20. Both migrations have now been applied to the verified local
+workspace SQLite database. At the user's explicit request, both were also applied
+to the supplied production PostgreSQL database in one transaction with bounded
+lock/statement timeouts. A new read-only production connection verified both
+records, the varchar(11) column and exactly one privacy notice. Original order
+fields and unrelated CMS/launch-control hashes were preserved; existing numbers
+remain blank. No production deployment or live checkout/UI check was performed.
+For local SQLite, a fresh read-only connection verified the two records, the new
+column, blank numbers on old orders, one privacy notice, and unchanged hashes of
+all original order/item/payment/Wingo/product/user/CMS records. A local SQLite
+backup and safe result are kept in the ignored QA folder noted below.
 
 Both cart and Buy Now checkout require an individual's 11-digit ASCII personal
 number. It is text throughout, preserving leading zeroes. The Georgian input hint
@@ -53,7 +63,7 @@ Render build configuration uses `build.sh`, which already runs
 logs rather than assuming the configured production build is unchanged.
 
 No RS/waybill integration, provider mutation, payment/refund/stock change, real
-customer data entry, commit, push or deployment was performed.
+customer identity entry, commit, push or deployment was performed.
 
 Validation: 160 targeted bank callback, guest checkout, Wingo, accounting and
 account-deletion tests passed; the final export/notice/Wingo-accounting/navigation

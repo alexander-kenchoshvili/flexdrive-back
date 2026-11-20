@@ -229,6 +229,12 @@ class BusinessPagesView(BusinessAnalyticsView):
         return build_page_report(period)
 
 
+class BusinessDevicesView(BusinessAnalyticsView):
+    def build_report(self, period):
+        from .devices import build_device_report
+        return build_device_report(period)
+
+
 class BusinessVehicleDemandView(BusinessAnalyticsView):
     def build_report(self, period):
         from .vehicle_demand import build_vehicle_demand

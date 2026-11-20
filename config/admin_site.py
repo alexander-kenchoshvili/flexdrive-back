@@ -56,6 +56,8 @@ NAVIGATION = {
 
 
 class FlexDriveAdminSite(AdminSite):
+    site_header = "FlexDrive Admin — თბილისის დრო (UTC+04:00)"
+
     def get_app_list(self, request, app_label=None):
         # Filter through Django's existing permission checks before presentation.
         app_list = super().get_app_list(request, app_label)

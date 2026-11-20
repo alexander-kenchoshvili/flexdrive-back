@@ -1,5 +1,115 @@
 # Project Instructions
 
+## Admin Tbilisi Time And Aggregate Device Statistics - 2026-11-20
+
+- User requested Tbilisi admin times, plain payment failure explanations and
+  mobile/desktop visits and purchases. No bank message authorized; none sent.
+- New request-scoped AdminTimezoneMiddleware applies Asia/Tbilisi only under
+  /manager-fd/ (including accountant), restores prior zone; visible admin header
+  says UTC+04:00. Global TIME_ZONE=UTC/USE_TZ, stored timestamps and API clocks stay.
+- New private business/devices report uses existing read-only GA4 reader, fixed
+  property/host, existing period/session/no-store/cache rules. Bounded aggregate
+  sessions/ecommercePurchases grouped mobile/desktop/tablet/unknown; no raw source
+  labels, per-order inference, new tracking, cookies, model, migration or ENV.
+  Paired frontend Users card gives separate counts/shares and coverage warnings.
+- Actual GA4 Nov1-20 read:97sessions,84mobile/11desktop/2tablet; one desktop-category
+  purchase, not an identified order. No financial completeness claim. Successful
+  zero vs unavailable/stale/thresholded data remain distinct, zero-total share dash.
+-8 admin/timezone/navigation +25device/page/analytics backend +16frontend checks,
+  scoped ESLint/strict app vue-tsc pass. No full build/browser/push/deploy. Both
+  deploys required, no migration. docs/ADMIN_TIMEZONE_AND_DEVICE_REPORT.md details.
+
+## Payment Times Corroborated With Bank Callback UTC - 2026-11-20
+
+- User questioned rejection cause and early-morning admin times. Fresh production
+  READ ONLY confirms starts09:15:51/09:18:05/10:09:30 Tbilisi; rejection updates
+  09:17:02/09:19:20/10:10:42. Bank signed callback request times agree within1sec.
+  Success7 starts10:15:43, bank success callback/order2 creation/capture10:19:43.
+  Admin uses hardcoded Django TIME_ZONE UTC (no activation override); business
+  dates explicitly Asia/Tbilisi.06:15/06:19 UTC correspond10:15/10:19 Tbilisi;
+  payment Created at is initiation, not completed purchase. No timezone edit.
+- Official https://api.bog.ge/docs/payments/response-codes confirms108
+  Authentication Declined, separate109 Technical Issue. Stored payment detail
+  code_description repeats generic reason; no additional3DS/ACS/authentication
+  fields found. Exact issuer/OTP/app/merchant subcause still NOT established.
+  Local BOG credentials absent, so no fresh authenticated bank API read attempted.
+- Prepared bank-support-request.txt with three bank order IDs/times in ignored
+  personal-number-20261120 QA dir, no customer/card/password data. Not sent.
+  No production write/provider action/source fix/deploy; only evidence/docs.
+
+## Business Payment Reasons And Attempt History Prepared - 2026-11-20
+
+- User requested visible failure explanations/checkout behavior and fast-service
+  audit. Private Operations adds saved allowlisted bank reason, snapshot delivery
+  type/product+delivery amounts, chronological attempt expansion and later paid
+  order. Failed historical rows/counts remain unchanged, not unique/lost buyers.
+- Conservative existing owner hash + exact source cart/Buy Now ID + identical
+  product/quantity/unit-price/currency within24h. One bounded400-candidate SELECT,
+  max12 entries, explicit limits. No PII/raw error/provider payload/identity digest
+  in response, new collection/click tracking/persisted correlation. Unknown old
+  snapshots stay unknown; refunds retain their current settlement label.
+- New report verified against real production using DB-enforced READ ONLY and
+  SELECT-only wrapper:4 SELECTs link failed4/5/6 to paid7/order2; old1 stays alone.
+  Existing three bank108 Authentication Declined failures do not prove a fast
+  delivery defect or that changing delivery fixed authentication. Selector edits
+  do not set failed; bank callback does. Fast success/price confirmation test passes.
+-39 backend +10 frontend render/composable tests, scoped ESLint, strict app
+  vue-tsc, migration drift/whitespace pass. Existing CKEditor/staticfiles warnings.
+  No browser/full build/prod write/bank request/reconciliation/push/deploy. No new
+  migration/ENV. BOTH repos need deploy; user owns it. Details and matching limits
+  docs/BUSINESS_PAYMENT_ATTEMPTS.md; redacted evidence in existing ignored QA dir.
+
+## Failed Payment Attempts Diagnosed Read Only - 2026-11-20
+
+- User asked about Operations failed payments. READ ONLY production snapshot:
+  sales4/5/6 each79 GEL, verified saved bank callback rejected/code108/reason
+  Authentication Declined; no order/capture, reservations released. Same entered
+  phone and checkout owner fingerprint across4/5/6 and later successful sale7.
+  This links checkout context, not independently verified person identity.
+- Same FD-04-0383 item1x60 throughout. Failed attempts used fast delivery19;
+  successful sale7 used standard9, total69, bank completed/code100 at10:19 Tbilisi
+  and existing order2. Delivery price difference is not proof it caused rejection.
+  Exact OTP/3DS/issuer subreason not established by generic authentication decline.
+- Attention count4 includes old Oct19 sale1/279 GEL/reject_reason expiration.
+  Panel's generic warning hides bank reason and is current snapshot, not a unique
+  failed-buyer count. No source/DB/provider mutation/reconciliation/event replay.
+  Redacted evidence/helper ignored under personal-number-20261120 QA directory;
+  no names/phone/email/card/token/password in saved diagnosis. Password prompted
+  without echo; no new bank API call. Public docs search gave no further cause.
+
+## Buyer Details Production Migrations Applied - 2026-11-20
+
+- User explicitly supplied production DB connection and authorized immediate
+  migrations. Fresh READ ONLY preflight confirmed commerce0045/pages0086 present,
+  commerce0046/pages0087 absent, no personal_number column or waybill notice.
+- Exact forward plan ONLY commerce0046_order_personal_number and
+  pages0087_personal_number_waybill_notice. Applied both in one PostgreSQL
+  transaction with5s lock/30s statement timeouts and normal Django migrate
+  metadata handling. All original order fields and unrelated CMS/launch-control
+  hashes preserved; existing personal numbers blank. No payment/Wingo/provider
+  action, fake identity, new deployment or ENV edit.
+- NEW REPEATABLE READ READ ONLY connection verifies both migrations, non-null
+  varchar(11) personal_number, exactly one privacy notice. This verifies schema,
+  not live form rendering/new checkout or accountant download. Earlier pending
+  production notes below are historical. Password read via non-echoing prompt;
+  not saved in helpers/evidence. Safe evidence ignored under existing
+  tmp/measurements-20261015/personal-number-20261120/.
+
+## Buyer Details Local Migrations Applied - 2026-11-20
+
+- User asked about local migration readiness before push/deploy. Verified actual
+  configured target is ONLY workspace db.sqlite3, exact forward plan ONLY
+  commerce0046_order_personal_number + pages0087_personal_number_waybill_notice.
+  Backed up local SQLite in ignored QA folder and applied both successfully.
+- NEW read-only connection verifies both migration records/new field/one privacy
+  notice. Hashes of all original order/item/payment/Wingo/product/user/CMS rows
+  unchanged; old personal numbers remain blank. No production/provider/deploy
+  action. This supersedes earlier local-migration-pending status below.
+- Existing frontend BaseInput renders personal-number field + Georgian waybill
+  hint in both checkout paths; shared light/dark/responsive/error styles retained.
+  No browser visual review performed. Production migration status remains to be
+  checked after user deploy; configured Render build.sh already runs migrate.
+
 ## Checkout Personal Number And Accountant Buyer Details Prepared - 2026-11-20
 
 - User requested mandatory individual personal number for transport waybills and

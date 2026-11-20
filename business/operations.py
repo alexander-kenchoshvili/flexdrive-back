@@ -13,6 +13,7 @@ from django.core.exceptions import ValidationError
 from commerce.courier_reporting import shipment_report
 
 from .reports import TBILISI, _money
+from .payment_attempts import payment_contexts
 
 PAGE_SIZE = 20
 PAYMENT_LABELS = {
@@ -142,6 +143,9 @@ def _payments(options):
     selected = options.get("payments", "attention")
     filters = {"attention": PENDING | Q(status="failed") | ISSUES, "pending": PENDING, "failed": Q(status="failed"), "issues": ISSUES}
     payments = payments.filter(filters[selected]).select_related("order").order_by("-updated_at", "-pk")
+    page = Paginator(payments, PAGE_SIZE).get_page(options.get("payments_page", 1))
+    page_payments = list(page.object_list)
+    contexts = payment_contexts(page_payments, PAYMENT_LABELS)
 
     def serialize(payment):
         issue = ISSUE_LABELS.get(payment.reconciliation_issue, "შენახულია გადასამოწმებელი ჩანაწერი.") if payment.reconciliation_issue else None
@@ -156,9 +160,11 @@ def _payments(options):
                 "created_at": payment.created_at.isoformat(), "updated_at": payment.updated_at.isoformat(),
                 "expires_at": payment.expires_at.isoformat() if payment.expires_at else None,
                 "issue": issue,
+                "attempt_context": contexts.get(payment.pk),
                 "checked_at": payment.reconciliation_attempted_at.isoformat() if payment.reconciliation_attempted_at else None}
 
-    return {"summary": summary, "filter": selected, **_page(payments, options.get("payments_page", 1), serialize)}
+    return {"summary": summary, "filter": selected, "items": [serialize(payment) for payment in page_payments],
+            "total": page.paginator.count, "page": page.number, "pages": page.paginator.num_pages, "page_size": PAGE_SIZE}
 
 
 def _count(value):

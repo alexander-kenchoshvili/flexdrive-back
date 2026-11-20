@@ -592,6 +592,7 @@ MIDDLEWARE = [
     'common.middleware.ApiCsrfProtectionMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'common.admin_timezone.AdminTimezoneMiddleware',
     'commerce.accounting_access.AccountantAdminMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
