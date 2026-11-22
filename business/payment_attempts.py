@@ -56,7 +56,11 @@ def failure_reason(payment):
         return {"kind": "authentication_declined", "code": code,
                 "label": "ბანკის ავთენტიფიკაცია არ დადასტურდა",
                 "detail": "ბანკის პასუხია Authentication Declined. კონკრეტული SMS-ის, აპის ან სხვა შემოწმების მიზეზი ამ პასუხით არ განისაზღვრება."}
-    if rejected and reason == "expiration":
+    if rejected and code == "109":
+        return {"kind": "bank_technical", "code": code,
+                "label": "ბანკმა ტექნიკური შეცდომა დააფიქსირა",
+                "detail": "ბანკის პასუხში დაფიქსირდა ტექნიკური ხარვეზი."}
+    if rejected and (reason == "expiration" or code == "110"):
         return {"kind": "expired", "code": code, "label": "ბანკში გადახდის ვადა ამოიწურა",
                 "detail": "ბანკის შენახული პასუხია expiration; ეს ბარათის მოქმედების ვადის გასვლას არ ადასტურებს."}
     if rejected:
@@ -69,7 +73,7 @@ def failure_reason(payment):
             "detail": "ბანკის შესაბამისი პასუხი ან მიზეზი ამ ანგარიშისთვის არ არის შენახული."}
 
 
-def _identity(payment):
+def _identity(payment, *, max_items=100):
     if payment.provider != "bog" or payment.action != "sale" or payment.currency != "GEL":
         return None
     snapshot = _dict(payment.checkout_snapshot)
@@ -81,7 +85,8 @@ def _identity(payment):
     summary = checkout_summary(payment)
     if (not isinstance(owner, str) or not re.fullmatch(r"[a-f0-9]{64}", owner)
             or not isinstance(source, str) or source not in {"cart", "buy_now"} or not isinstance(items, list)
-            or type(reference) is not int or reference <= 0 or not 1 <= len(items) <= 100 or summary is None):
+            or type(reference) is not int or reference <= 0 or not items
+            or (max_items is not None and len(items) > max_items) or summary is None):
         return None
     basket, subtotal = [], Decimal(0)
     for raw_item in items:

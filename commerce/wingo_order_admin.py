@@ -13,10 +13,22 @@ from .wingo import WingoClient, WingoError
 from .wingo_shipments import (
     CREATION_UNCONFIRMED_MESSAGE, can_submit, get_shipment_label, recover_submission, submit_shipment,
 )
-from .wingo_tracking import STATUS_LABELS, sync_shipment
+from .wingo_tracking import STATUS_LABELS, WingoTrackingError, provider_datetime, sync_shipment
 from .wingo_services import booking_deadline, delivery_summary
 from .delivery_quote_data import DeliveryQuoteError
 from .courier_state import wingo_cancellation_verified
+
+
+def _wingo_status_time(shipment, status):
+    for observation in shipment.tracking_history:
+        if observation.get("status") != status or observation.get("result") != "synced":
+            continue
+        try:
+            updated_at = provider_datetime(observation.get("provider_updated_at"))
+        except WingoTrackingError:
+            continue
+        return timezone.localtime(updated_at).strftime("%d.%m.%Y %H:%M:%S")
+    return "—"
 
 
 class WingoPrepareForm(forms.Form):
@@ -89,12 +101,15 @@ class OrderWingoAdminMixin:
             "{}<p><strong>{}</strong></p><p>გზავნილის ნომერი: {}<br>შეფუთვები: {}<br>"
             "მომხმარებლის მიერ გადახდილი მიტანა: {} ₾<br>შენახული საკურიერო ტარიფი: {} ₾<br>"
             "Wingo-ში დაფიქსირებული ფასი: {}<br>სხვაობა ტარიფთან: {}<br>"
-            "გზავნილის დადასტურების დრო: {}<br>Wingo-ს სტატუსი: {}<br>გაუქმების დადასტურება: {}<br>"
+            "გზავნილის დადასტურების დრო: {}<br>Wingo-ს სტატუსი: {}<br>"
+            "ჩასაბარებლად გატანის დრო (Wingo): <strong>{}</strong><br>"
+            "ჩაბარების დრო (Wingo): <strong>{}</strong><br>გაუქმების დადასტურება: {}<br>"
             "ბოლო წარმატებული შემოწმება: {}</p><p>{}</p><p>{}</p><p>{}</p><p>{}</p>"
             "<p>ბოლო 20 დაკვირვება (შემოწმების დრო):</p><ul>{}</ul>",
             intro, shipment.get_state_display(), shipment.tracking_number or "—", shipment.parcel_count,
             obj.delivery_price, obj.carrier_delivery_cost, price, difference,
             shipment.submitted_at or "—", STATUS_LABELS.get(shipment.carrier_status, "ჯერ არ დადასტურებულა"),
+            _wingo_status_time(shipment, 6), _wingo_status_time(shipment, 9),
             shipment.cancellation_verified_at if wingo_cancellation_verified(shipment) else "ჯერ არ დადასტურებულა",
             shipment.tracking_checked_at or "—", shipment.last_error, shipment.tracking_error,
             pending, automatic, history)

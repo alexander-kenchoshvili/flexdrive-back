@@ -1,4 +1,5 @@
 from django.urls import path
+from .checkout_views import BusinessCheckoutView, CheckoutProgressView
 from .views import BusinessDecisionView, BusinessSearchConsoleView, BusinessPagesView, BusinessDevicesView
 from .views import BusinessVehicleDemandView
 from .views import BusinessAccessView, BusinessLoginView, BusinessLogoutView, BusinessSessionView, BusinessReportView, BusinessOperationsView, BusinessAnalyticsView, BusinessMarketingView
@@ -6,6 +7,8 @@ from .views import BusinessAccessView, BusinessLoginView, BusinessLogoutView, Bu
 app_name = "business"
 
 urlpatterns = [
+    path("checkout/", BusinessCheckoutView.as_view(), name="checkout"),
+    path("checkout-progress/", CheckoutProgressView.as_view(), name="checkout-progress"),
     path("devices/", BusinessDevicesView.as_view(), name="devices"),
     path("vehicle-demand/", BusinessVehicleDemandView.as_view(), name="vehicle-demand"),
     path("pages/", BusinessPagesView.as_view(), name="pages"),

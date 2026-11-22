@@ -174,13 +174,18 @@ class BusinessReportView(BusinessAPIView):
 
 
 class BusinessAnalyticsView(BusinessAPIView):
+    input_serializer = BusinessReportInput
+
     def build_report(self, period):
         return build_analytics_report(period)
+
+    def get_report(self, period, values):
+        return self.build_report(period)
 
     def get(self, request):
         from django.utils import timezone
 
-        payload = BusinessReportInput(data=request.query_params)
+        payload = self.input_serializer(data=request.query_params)
         if not payload.is_valid():
             return Response({"detail": "მიუთითეთ სწორი საწყისი და საბოლოო თარიღები."}, status=400)
         values = payload.validated_data
@@ -193,7 +198,7 @@ class BusinessAnalyticsView(BusinessAPIView):
                 raise ValueError("Future report")
         except (ValueError, OverflowError):
             return Response({"detail": "აირჩიეთ სწორი პერიოდი, არაუმეტეს 366 დღისა და დღევანდელ დღემდე."}, status=400)
-        return Response(self.build_report(period))
+        return Response(self.get_report(period, values))
 
 
 class BusinessMarketingView(BusinessAnalyticsView):

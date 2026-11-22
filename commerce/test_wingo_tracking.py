@@ -2,7 +2,7 @@ import copy
 import hashlib
 import hmac
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -415,6 +415,30 @@ class WingoTrackingAdminTests(WingoTrackingFixture):
         self.assertContains(response, "ბოლო წარმატებული შემოწმება")
         self.assertContains(response, "ბოლო 20 დაკვირვება")
         self.carrier.get_order.assert_called_once()
+
+    def test_delivery_times_use_confirmed_wingo_updates_in_tbilisi(self):
+        self.clock = datetime.fromisoformat("2026-11-21T07:52:35+00:00")
+        order_url = reverse("admin:commerce_order_change", args=[self.order.pk])
+        self.sync(3)
+        self.assertEqual(self.sync(9), "review")
+        response = self.client.get(order_url)
+        self.assertContains(response, "ჩასაბარებლად გატანის დრო (Wingo): <strong>—</strong>")
+        self.assertContains(response, "ჩაბარების დრო (Wingo): <strong>—</strong>")
+
+        self.assertEqual(self.sync(6, 1), "synced")
+        self.assertEqual(self.sync(7, 60), "synced")
+        self.assertEqual(self.sync(9, 120), "synced")
+        dispatched = "ჩასაბარებლად გატანის დრო (Wingo): <strong>21.11.2026 11:52:36</strong>"
+        delivered = "ჩაბარების დრო (Wingo): <strong>21.11.2026 11:54:35</strong>"
+        response = self.client.get(order_url)
+        self.assertContains(response, dispatched)
+        self.assertContains(response, delivered)
+
+        self.sync(9, 150)
+        self.sync(11, 180)
+        response = self.client.get(order_url)
+        self.assertContains(response, dispatched)
+        self.assertContains(response, delivered)
 
     def test_unprocessed_notification_is_visible_to_operator(self):
         WingoShipment.objects.filter(pk=self.shipment.pk).update(webhook_received_at=timezone.now())

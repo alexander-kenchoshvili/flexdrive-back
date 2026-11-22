@@ -29,3 +29,16 @@ class VehicleInterest(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=("day", "session_digest", "vehicle_key"), name="business_unique_vehicle_interest")]
         indexes = [models.Index(fields=("day", "make", "model", "year"), name="business_vehicle_period")]
+
+
+class CheckoutProgress(models.Model):
+    """Small, consented observations from a customer's existing checkout."""
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    basket_key = models.CharField(max_length=64)
+    event_key = models.CharField(max_length=64, unique=True)
+    source = models.CharField(max_length=8)
+    stage = models.CharField(max_length=24)
+    items = models.JSONField()
+    delivery_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True)
+    delivery_service = models.CharField(max_length=8, blank=True)

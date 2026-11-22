@@ -804,6 +804,7 @@ REST_FRAMEWORK = {
         'catalog_search': '100000/min' if TESTING else '30/min',
         'vin_lookup': '100000/min' if TESTING else '10/min',
         'vehicle_interest': '100000/min' if TESTING else '30/min',
+        'checkout_progress': '100000/min' if TESTING else '30/min',
         'business_login': '5/min',
         'business_login_account': '5/min',
         'business_dashboard': '120/min',
