@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import logging
 import secrets
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -37,6 +38,7 @@ from .facebook_auth import (
     build_facebook_oauth_authorization_url,
     exchange_facebook_authorization_code,
     fetch_facebook_profile,
+    fetch_facebook_email_permission,
     parse_facebook_signed_request,
 )
 from .google_auth import (
@@ -191,13 +193,16 @@ def _load_oauth_state(raw_state, *, salt):
     )
 
 
-def _build_oauth_state(*, next_path, return_path, salt):
+def _build_oauth_state(*, next_path, return_path, salt, facebook_email_retry=False):
+    payload = {
+        "nonce": secrets.token_urlsafe(18),
+        "next": _normalize_frontend_path(next_path),
+        "return_path": _normalize_frontend_path(return_path, default="/login"),
+    }
+    if facebook_email_retry:
+        payload["facebook_email_retry"] = True
     return signing.dumps(
-        {
-            "nonce": secrets.token_urlsafe(18),
-            "next": _normalize_frontend_path(next_path),
-            "return_path": _normalize_frontend_path(return_path, default="/login"),
-        },
+        payload,
         salt=salt,
         compress=True,
     )
@@ -466,13 +471,17 @@ class FacebookOAuthStartAPIView(APIView):
             default="/login",
         )
 
+        rerequest_email = request.GET.get("rerequest_email") == "1"
         try:
             state = _build_oauth_state(
                 next_path=next_path,
                 return_path=return_path,
                 salt=FACEBOOK_OAUTH_STATE_SALT,
+                facebook_email_retry=rerequest_email,
             )
-            authorization_url = build_facebook_oauth_authorization_url(state=state)
+            authorization_url = build_facebook_oauth_authorization_url(
+                state=state, rerequest_email=rerequest_email,
+            )
         except FacebookAuthConfigurationError as exc:
             return HttpResponseRedirect(
                 _build_frontend_error_url(
@@ -542,6 +551,23 @@ class FacebookOAuthCallbackAPIView(APIView):
                 request.GET.get("code"),
             )
             profile = fetch_facebook_profile(access_token)
+            if isinstance(profile, dict) and profile.get("id") and not str(profile.get("email") or "").strip():
+                permission_status = fetch_facebook_email_permission(access_token)
+                retried = state_payload.get("facebook_email_retry") is True
+                # These are fixed enums only: no ID, email, code, token or raw exception.
+                logging.getLogger(__name__).warning(
+                    "facebook_email_missing permission_status=%s rerequest=%s",
+                    permission_status, retried,
+                )
+                if permission_status == "granted":
+                    message = "facebook_email_unavailable"
+                elif permission_status == "unavailable":
+                    message = "facebook_email_check_unavailable"
+                elif retried:
+                    message = "facebook_email_retry_failed"
+                else:
+                    message = f"facebook_email_{permission_status}"
+                return self._error_redirect(return_path, message)
             serializer = FacebookAuthSerializer(data={"profile": profile})
             serializer.is_valid(raise_exception=True)
             tokens = serializer.save()

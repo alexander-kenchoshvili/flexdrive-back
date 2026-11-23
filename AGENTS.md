@@ -1,5 +1,26 @@
 # Project Instructions
 
+## Facebook Public Access Increased; Missing Email Diagnosis Prepared - 2026-11-23
+
+- User authorized Meta fixes. Published app1321658899670696 initially had email
+  and public_profile Ready for testing. Increased both existing permissions;
+  user completed password reauthentication. Both persist as Ready to publish.
+  App stays published; no unpublish/re-publish, new scopes or credentials.
+- Friend now reaches site missing-email error instead of Meta Feature unavailable.
+  User confirms email exists and sharing was allowed. Exact token grant/Meta
+  omission cause NOT established; do not claim friend declined or lacks email.
+- Paired source adds missing-email-only read of /me/permissions, allowlisted enum
+  diagnostic/no PII/token/raw payload; Georgian distinction for granted-but-absent
+  email vs missing grant/check failure. Explicit user retry only missing grants,
+  auth_type=rerequest/same scopes, signed retry context/no automatic prompt loop.
+  No account/fake email/verification bypass on failure; no migration/new ENV.
+- Source NOT deployed; BOTH repo push/deploy user-owned, then fresh friend attempt
+  needed for exact diagnosis. Live DO backend/front healthy, managed Postgres and
+  Valkey both DO; no production DB/ENV/provider data mutation. Data Use Checkup
+  due2027-01-22 remains incomplete; no terms/policy attestation submitted. User
+  confirms no national-security disclosure; internal policies still unknown.
+- docs/FACEBOOK_LOGIN_EMAIL_2026-11-23.md contains evidence, scope and next check.
+
 ## Admin Tbilisi Time And Aggregate Device Statistics - 2026-11-20
 
 - User requested Tbilisi admin times, plain payment failure explanations and

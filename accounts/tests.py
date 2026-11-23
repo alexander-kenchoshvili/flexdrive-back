@@ -915,8 +915,10 @@ class FacebookAuthAPITests(APITestCase):
     )
     @patch("accounts.views.fetch_facebook_profile")
     @patch("accounts.views.exchange_facebook_authorization_code")
+    @patch("accounts.views.fetch_facebook_email_permission", return_value="unavailable")
     def test_facebook_oauth_callback_rejects_missing_email(
         self,
+        mock_email_permission,
         mock_exchange_code,
         mock_fetch_profile,
     ):

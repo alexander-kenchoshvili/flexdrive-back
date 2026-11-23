@@ -77,18 +77,56 @@ def require_facebook_oauth_config():
     }
 
 
-def build_facebook_oauth_authorization_url(*, state):
+def build_facebook_oauth_authorization_url(*, state, rerequest_email=False):
     config = require_facebook_oauth_config()
-    query = urlencode(
-        {
-            "client_id": config["app_id"],
-            "redirect_uri": config["redirect_uri"],
-            "response_type": "code",
-            "scope": FACEBOOK_OAUTH_SCOPE,
-            "state": state,
-        }
-    )
+    parameters = {
+        "client_id": config["app_id"],
+        "redirect_uri": config["redirect_uri"],
+        "response_type": "code",
+        "scope": FACEBOOK_OAUTH_SCOPE,
+        "state": state,
+    }
+    if rerequest_email:
+        parameters["auth_type"] = "rerequest"
+    query = urlencode(parameters)
     return f"{_facebook_dialog_url()}?{query}"
+
+
+def fetch_facebook_email_permission(access_token):
+    """Read only the email grant status; never return or log provider payloads."""
+    if not access_token:
+        return "unavailable"
+    config = require_facebook_oauth_config()
+    try:
+        response = requests.get(
+            _facebook_graph_url("me/permissions"),
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={"appsecret_proof": _build_appsecret_proof(access_token, config["app_secret"])},
+            timeout=FACEBOOK_OAUTH_TIMEOUT_SECONDS,
+            allow_redirects=False,
+        )
+        response.raise_for_status()
+        if response.status_code != 200 or len(response.content) > 65536:
+            return "unavailable"
+        payload = response.json()
+    except (requests.RequestException, ValueError, TypeError):
+        return "unavailable"
+
+    rows = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(rows, list) or len(rows) > 50:
+        return "unavailable"
+    email_rows = [row for row in rows if isinstance(row, dict) and row.get("permission") == "email"]
+    if not email_rows:
+        # A malformed list is not evidence that a permission was refused.
+        if any(not isinstance(row, dict) or "permission" not in row or "status" not in row for row in rows):
+            return "unavailable"
+        return "not_granted"
+    if len(email_rows) != 1:
+        return "unavailable"
+    permission_status = email_rows[0].get("status")
+    if isinstance(permission_status, str) and permission_status in {"granted", "declined", "expired"}:
+        return permission_status
+    return "unavailable"
 
 
 def _base64_url_decode(value):
