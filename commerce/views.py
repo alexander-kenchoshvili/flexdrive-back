@@ -368,11 +368,15 @@ class CartItemListAPIView(CartResponseMixin, APIView):
         serializer = CartItemCreateSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
 
-        add_product_to_cart(
+        item = add_product_to_cart(
             cart=resolved_cart.cart,
             product=serializer.context["product"],
             quantity=serializer.validated_data["quantity"],
         )
+        if serializer.validated_data.get("analytics_consent"):
+            from business.cart_additions import record_cart_addition
+            record_cart_addition(request, item, serializer.validated_data["quantity"],
+                                 serializer.validated_data.get("analytics_event_id"))
         return self.build_cart_response(request, resolved_cart)
 
 

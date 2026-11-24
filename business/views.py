@@ -206,6 +206,12 @@ class BusinessMarketingView(BusinessAnalyticsView):
         return build_marketing_report(period)
 
 
+class BusinessAudienceView(BusinessAnalyticsView):
+    def build_report(self, period):
+        from .audience import build_audience_report
+        return build_audience_report(period)
+
+
 class BusinessDecisionView(BusinessAnalyticsView):
     def get(self, request, source):
         if source not in ("all", "google", "meta"):

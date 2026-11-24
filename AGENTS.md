@@ -1,5 +1,27 @@
 # Project Instructions
 
+## Business Panel Source Reorganization Prepared - 2026-11-25
+
+- Completed the approved ordered 20-step plan in docs/BUSINESS_PANEL_REORGANIZATION_PLAN.md.
+  Separate shop/Google/Meta/diagnostics navigation; old routes and all financial,
+  payment failure/attempt, checkout and VIN-demand details retained. Overview has
+  six linked source-labelled metrics and at most three factual attention links.
+- New private fixed-host GA4 audience report requests new/returning users directly,
+  daily counts and first-user source; no subtraction or summing unique users.
+  Meta objective/current status is optional metadata; failure retains existing
+  spend/results. Attribution/currency/timezone and low-sample limits remain explicit.
+- New business0004_cart_addition stores consented successful production cart
+  additions with observation-ID dedup, public product snapshot and keyed context;
+  no PII/raw guest token/VIN. Storage failure does not block shopping. Current
+  contents, additions, product interest and existing checkout diagnostics differ.
+  Exact bounded later-order evidence only; unknown is not lost revenue.
+- 49 focused backend checks pass; broader148 passed143 with5 pre-existing
+  setup/hardcoded-workbook-sheet failures documented in the plan. Frontend business
+  checks, scoped ESLint/strict app vue-tsc and migration drift checks pass.
+- No full build/browser/live events/local or production migration/ENV/provider
+  changes/cleanup/commit/push/deploy. User owns both deployments and business0004
+  migration (depends0003). Historic cart additions cannot be reconstructed.
+
 ## Admin Cart Contents Filter Prepared - 2026-11-24
 
 - User requested meaningful cart visibility/nonempty filtering. Existing cart

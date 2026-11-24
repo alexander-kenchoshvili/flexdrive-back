@@ -35,6 +35,8 @@ from .services import (
 class CartItemCreateSerializer(serializers.Serializer):
     product_id = serializers.IntegerField()
     quantity = serializers.IntegerField(min_value=1)
+    analytics_consent = serializers.BooleanField(required=False, default=False)
+    analytics_event_id = serializers.UUIDField(required=False)
 
     def validate_product_id(self, value):
         product = (

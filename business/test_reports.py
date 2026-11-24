@@ -51,7 +51,7 @@ class DashboardReportTests(TestCase):
                                                 delivery_margin=D(0), total=order.subtotal + D(12))
         PaymentTransaction.objects.filter(pk=sale.pk).update(amount=order.subtotal + D(12))
         create_shipment(order=order, tracking_number="000999", state="created", booked_price=D(12), submitted_at=sale.captured_at)
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(11):
             report = build_dashboard_report(self.september)
         self.assertEqual(report["summary"]["courier_payable"], "12.00")
         self.assertEqual(report["summary"]["buffer_received"], "0.00")
@@ -59,7 +59,7 @@ class DashboardReportTests(TestCase):
 
     def test_exact_vat_product_profit_and_delivery_split_once_per_order(self):
         self.sale(quantity=2)
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(11):
             report = build_dashboard_report(self.september)
         summary = report["summary"]
         self.assertEqual(summary["received"], "251.00")
@@ -124,7 +124,7 @@ class DashboardReportTests(TestCase):
                                  unit_price=D(236), quantity=1, line_total=D(236), purchase_unit_gross=D(118))
         Order.objects.filter(pk=order.pk).update(subtotal=D(472), total=D(487))
         PaymentTransaction.objects.filter(pk=sale.pk).update(amount=D(487))
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(11):
             report = build_dashboard_report(self.september)
         self.assertEqual(report["summary"]["product_profit_net"], "200.00")
         self.assertEqual(report["summary"]["sold_units"], 3)

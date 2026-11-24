@@ -208,6 +208,40 @@ def _ad_values(row):
             "landing_page_views": _action(row, "actions", action_type="landing_page_view")}
 
 
+def _campaign_metadata(session, node, identifiers):
+    if not identifiers:
+        return {}, "ready"
+    params = {"fields": "id,objective,effective_status", "limit": 100,
+              "filtering": json.dumps([{"field": "id", "operator": "IN", "value": sorted(identifiers)}])}
+    result, cursors = {}, set()
+    try:
+        for page in range(3):
+            body = _get(session, node + "/campaigns", params)
+            rows = _data(body)
+            if len(rows) > 100:
+                raise MetaUnavailable("invalid_response")
+            for row in rows:
+                identifier = str(row.get("id", ""))
+                objective, status = row.get("objective"), row.get("effective_status")
+                if identifier not in identifiers or identifier in result:
+                    raise MetaUnavailable("invalid_response")
+                result[identifier] = {
+                    "objective": objective if isinstance(objective, str) and objective in {"OUTCOME_SALES", "OUTCOME_TRAFFIC", "OUTCOME_ENGAGEMENT", "OUTCOME_LEADS", "OUTCOME_AWARENESS", "OUTCOME_APP_PROMOTION", "CONVERSIONS", "PRODUCT_CATALOG_SALES", "LINK_CLICKS", "REACH", "BRAND_AWARENESS", "POST_ENGAGEMENT", "VIDEO_VIEWS", "LEAD_GENERATION"} else None,
+                    "effective_status": status if isinstance(status, str) and status in {"ACTIVE", "PAUSED", "DELETED", "ARCHIVED", "IN_PROCESS", "WITH_ISSUES", "CAMPAIGN_PAUSED", "ADSET_PAUSED", "DISAPPROVED", "PENDING_REVIEW"} else None,
+                }
+            paging = body.get("paging", {})
+            if not paging.get("next"):
+                return result, "ready" if len(result) == len(identifiers) else "partial"
+            cursor = paging.get("cursors", {}).get("after")
+            if not isinstance(cursor, str) or not cursor or len(cursor) > 2048 or cursor in cursors:
+                raise MetaUnavailable("invalid_response")
+            cursors.add(cursor)
+            params = {**params, "after": cursor}
+    except (MetaUnavailable, TypeError, ValueError, AttributeError):
+        return result, "partial" if result else "unavailable"
+    return result, "partial"
+
+
 def _ads(token, period):
     fields = "spend,impressions,clicks,reach,actions,action_values"
     params = {"fields": fields, "time_range": json.dumps({"since": period.start.isoformat(), "until": period.end.isoformat()}),
@@ -281,10 +315,14 @@ def _ads(token, period):
             campaign_params = {**campaign_params, "after": cursor}
         if not summaries and campaigns:
             raise MetaUnavailable("invalid_response")
+        metadata, metadata_status = _campaign_metadata(session, node, seen)
+        for campaign in campaigns:
+            campaign.update(metadata.get(campaign["id"], {"objective": None, "effective_status": None}))
     campaigns.sort(key=lambda row: Decimal(row["spend"]), reverse=True)
     return {"status": "ready" if summaries else "empty", "currency": account["currency"],
             "timezone": account["timezone_name"], "summary": summary, "daily": daily,
-            "campaigns": campaigns, "campaigns_limited": limited}
+            "campaigns": campaigns, "campaigns_limited": limited, "campaign_metadata_status": metadata_status,
+            "attribution": {"click_days": 7, "view_days": 1, "report_time": "conversion"}}
 
 
 MESSAGES = {

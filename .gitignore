@@ -33,3 +33,5 @@ media/
 node_modules/
 /tmp/measurements-20261015/
 /outputs/measurement-types-20261015-2015/
+# Local business-panel edit staging and test logs.
+/tmp/business-panel-20261125/

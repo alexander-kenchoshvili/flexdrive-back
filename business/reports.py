@@ -3,14 +3,14 @@ from calendar import monthrange
 from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.utils import timezone
 
 from commerce.accounting_calculations import split_vat_inclusive
 from commerce.accounting_reports import (
     MAX_REPORT_ROWS, ReportPeriod, TBILISI, _allocation, _bounded, event_queryset, order_row,
 )
-from commerce.models import OrderReturnLine, OwnedStockLot
+from commerce.models import OrderReturnLine, OwnedStockLot, PaymentTransaction
 from commerce.return_costs import return_cost_report
 from commerce.courier_reporting import booking_report
 
@@ -239,7 +239,11 @@ def build_dashboard_report(period):
         delta = Decimal(value) - Decimal(old)
         comparisons[key] = {"delta": _money(delta),
                             "percent": _money(delta / abs(Decimal(old)) * 100) if Decimal(old) != 0 else None}
-    return {**current, "previous": before["summary"], "comparisons": comparisons,
+    # Operational attention is a current snapshot, not the selected sales period.
+    from .operations import ISSUES, PENDING
+    attention = PaymentTransaction.objects.filter(PENDING | Q(status="failed") | ISSUES).count()
+    return {**current, "payment_attention": attention,
+            "previous": before["summary"], "comparisons": comparisons,
             "period": {"start": period.start.isoformat(), "end": period.end.isoformat()},
             "previous_period": {"start": previous.start.isoformat(), "end": previous.end.isoformat()},
             "currency": "GEL", "vat_rate": 18, "timezone": "Asia/Tbilisi", "generated_at": timezone.now().isoformat()}

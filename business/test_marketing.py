@@ -77,6 +77,9 @@ class MarketingTests(SimpleTestCase):
                                       for metric, count in [("reach", 70), ("views", 120), ("total_interactions", 9)]]})
         if node == "act_" + AD_ID:
             return response({"id": node, "name": "FlexDrive", "currency": "USD", "timezone_name": "Asia/Tbilisi"})
+        if node == "act_" + AD_ID + "/campaigns":
+            return response({"data": [{"id": identifier, "objective": "OUTCOME_SALES", "effective_status": "PAUSED"}
+                                      for identifier in json.loads(params["filtering"])[0]["value"]]})
         if label == "summary":
             return response({"data": [ad_row()]})
         if label == "daily":
@@ -115,7 +118,17 @@ class MarketingTests(SimpleTestCase):
         self.assertNotIn(SECRET, serialized)
         self.assertNotIn(PAGE_SECRET, serialized)
         self.assertNotIn("access_token", serialized)
-        self.assertEqual(len(self.calls), 10)
+        self.assertEqual(len(self.calls), 11)
+        self.assertEqual(ads["campaigns"][0]["objective"], "OUTCOME_SALES")
+        self.assertEqual(ads["campaigns"][0]["effective_status"], "PAUSED")
+
+    def test_optional_campaign_metadata_failure_keeps_spend_and_results(self):
+        self.overrides["act_" + AD_ID + "/campaigns"] = response({"error": {"code": 200}}, 403)
+        ads = build_marketing_report(PERIOD)["ads"]
+        self.assertEqual(ads["status"], "ready")
+        self.assertEqual(ads["campaign_metadata_status"], "unavailable")
+        self.assertIsNone(ads["campaigns"][0]["objective"])
+        self.assertEqual(ads["summary"]["website_purchases"], "2.5")
 
     def test_valid_empty_ads_are_zero_and_missing_social_metrics_are_unknown(self):
         for label in ("summary", "daily", "campaigns", IG_ID + "/insights"):

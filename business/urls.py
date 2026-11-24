@@ -1,5 +1,6 @@
 from django.urls import path
-from .checkout_views import BusinessCheckoutView, CheckoutProgressView
+from .checkout_views import BusinessCartView, BusinessCheckoutView, CheckoutProgressView
+from .views import BusinessAudienceView
 from .views import BusinessDecisionView, BusinessSearchConsoleView, BusinessPagesView, BusinessDevicesView
 from .views import BusinessVehicleDemandView
 from .views import BusinessAccessView, BusinessLoginView, BusinessLogoutView, BusinessSessionView, BusinessReportView, BusinessOperationsView, BusinessAnalyticsView, BusinessMarketingView
@@ -7,6 +8,8 @@ from .views import BusinessAccessView, BusinessLoginView, BusinessLogoutView, Bu
 app_name = "business"
 
 urlpatterns = [
+    path("carts/", BusinessCartView.as_view(), name="carts"),
+    path("audience/", BusinessAudienceView.as_view(), name="audience"),
     path("checkout/", BusinessCheckoutView.as_view(), name="checkout"),
     path("checkout-progress/", CheckoutProgressView.as_view(), name="checkout-progress"),
     path("devices/", BusinessDevicesView.as_view(), name="devices"),

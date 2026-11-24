@@ -42,3 +42,21 @@ class CheckoutProgress(models.Model):
     items = models.JSONField()
     delivery_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True)
     delivery_service = models.CharField(max_length=8, blank=True)
+
+
+class CartAddition(models.Model):
+    """Consented successful additions, not visitors or abandoned revenue."""
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    event_key = models.CharField(max_length=64, unique=True)
+    cart_key = models.CharField(max_length=64)
+    cart = models.ForeignKey("commerce.Cart", null=True, on_delete=models.SET_NULL)
+    product = models.ForeignKey("catalog.Product", null=True, on_delete=models.SET_NULL)
+    source_item_id = models.PositiveBigIntegerField()
+    name = models.CharField(max_length=500)
+    sku = models.CharField(max_length=100, blank=True)
+    quantity = models.PositiveIntegerField()
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+
+    class Meta:
+        indexes = [models.Index(fields=["cart_key", "created_at"], name="business_cart_add_context")]
+        constraints = [models.CheckConstraint(condition=models.Q(quantity__gte=1), name="business_cart_add_positive")]

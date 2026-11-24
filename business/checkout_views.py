@@ -71,3 +71,17 @@ class BusinessCheckoutView(BusinessAnalyticsView):
 
     def get_report(self, period, values):
         return build_checkout_report(period, values)
+
+
+class BusinessCartInput(BusinessReportInput):
+    view = serializers.ChoiceField(choices=("contents", "additions", "products"), default="contents")
+    q = serializers.CharField(required=False, allow_blank=True, max_length=100, default="")
+    page = serializers.IntegerField(min_value=1, max_value=100000, default=1)
+
+
+class BusinessCartView(BusinessAnalyticsView):
+    input_serializer = BusinessCartInput
+
+    def get_report(self, period, values):
+        from .carts import build_cart_report
+        return build_cart_report(period, values)
