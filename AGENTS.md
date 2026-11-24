@@ -1,5 +1,20 @@
 # Project Instructions
 
+## Admin Cart Contents Filter Prepared - 2026-11-24
+
+- User requested meaningful cart visibility/nonempty filtering. Existing cart
+  admin now filters All/With products/Empty alongside active; shows current
+  product names/public FD codes/quantities, product+unit counts and account or
+  explicit unknown guest. Default All remains; guest token kept in detail/search.
+- At most5 preview products per cart, remaining-count cart link, batched user/item
+  reads, escaped text, existing detail/permissions retained. Current contents,
+  not addition history/unique buyers/online users/abandonment or purchases.
+-5 new cart-admin +8 existing navigation/timezone checks pass in isolated memory
+  SQLite; no per-row queries. Existing CKEditor/staticfiles warnings. No browser,
+  frontend/migration/ENV/prod/cleanup/push/deploy. Backend deploy user-owned.
+  Existing cleanup_carts command found; production schedule not established.
+  docs/ADMIN_CART_CONTENTS.md records scope and validation.
+
 ## Facebook Public Access Increased; Missing Email Diagnosis Prepared - 2026-11-23
 
 - User authorized Meta fixes. Published app1321658899670696 initially had email

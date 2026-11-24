@@ -3,7 +3,7 @@ from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.db.models import Prefetch
+from django.db.models import Count, Prefetch, Sum
 from django.http import Http404, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
@@ -74,13 +74,77 @@ class CartItemInline(admin.TabularInline):
     readonly_fields = ("created_at",)
 
 
+class CartContentsFilter(admin.SimpleListFilter):
+    title = "Contents — კალათის შიგთავსი"
+    parameter_name = "contents"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("nonempty", "With products — არაცარიელი"),
+            ("empty", "Empty — ცარიელი"),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == "nonempty":
+            return queryset.filter(admin_item_count__gt=0)
+        if self.value() == "empty":
+            return queryset.filter(admin_item_count=0)
+        return queryset
+
+
 @admin.register(Cart)
 class CartAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "guest_token", "is_active", "created_at", "updated_at")
-    list_filter = ("is_active",)
+    list_display = (
+        "id", "cart_owner", "product_preview", "product_count", "total_quantity",
+        "is_active", "created_at", "updated_at",
+    )
+    list_filter = (CartContentsFilter, "is_active")
     search_fields = ("user__email", "user__username", "guest_token")
     readonly_fields = ("created_at", "updated_at")
     inlines = (CartItemInline,)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("user").annotate(
+            admin_item_count=Count("items"),
+            admin_total_quantity=Sum("items__quantity", default=0),
+        ).prefetch_related(Prefetch(
+            "items",
+            queryset=CartItem.objects.select_related("product").order_by("created_at", "pk")[:5],
+            to_attr="admin_preview_items",
+        ))
+
+    @admin.display(description="Customer — მომხმარებელი", ordering="user__username")
+    def cart_owner(self, obj):
+        return str(obj.user) if obj.user_id else "სტუმარი — ვინაობა უცნობია"
+
+    @admin.display(description="Products — პროდუქტები")
+    def product_preview(self, obj):
+        if not obj.admin_item_count:
+            return "ცარიელია"
+        preview = format_html_join("", '<div><a href="{}">{} — {}</a> × {}</div>', (
+            (
+                reverse("admin:catalog_product_change", args=[item.product_id]),
+                item.product.internal_sku or "კოდი არ არის",
+                item.product.name,
+                item.quantity,
+            )
+            for item in obj.admin_preview_items
+        ))
+        remaining = obj.admin_item_count - len(obj.admin_preview_items)
+        if remaining:
+            return format_html(
+                '{}<div><a href="{}">კიდევ {} პროდუქტი — კალათის გახსნა</a></div>',
+                preview, reverse("admin:commerce_cart_change", args=[obj.pk]), remaining,
+            )
+        return preview
+
+    @admin.display(description="Products — პროდუქტის სახეობა", ordering="admin_item_count")
+    def product_count(self, obj):
+        return obj.admin_item_count
+
+    @admin.display(description="Units — ერთეული", ordering="admin_total_quantity")
+    def total_quantity(self, obj):
+        return obj.admin_total_quantity
 
 
 class OrderItemInline(admin.TabularInline):
