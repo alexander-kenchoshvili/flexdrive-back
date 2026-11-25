@@ -1,5 +1,21 @@
 # Project Instructions
 
+## Unified Mobile Search And Catalog Chips Prepared - 2026-11-25
+
+- Frontend-only,0–768px: outside home/catalog listing, one search-styled button
+  opens the existing full-height dialog with one editable shared query, existing
+  filters and fixed footer submit/clear. Separate detail trigger removed; initial
+  query focus, draft retention, existing VIN/submit/route handlers preserved.
+- Mobile catalog keeps direct header search/its own filter sheet. Duplicate query
+  banner hidden; query and existing filter-group chips remove individually.
+  Query removal clears the shared draft while preserving all other filters and
+  resets page. Vehicle chip retains original grouped reset. Badge counts filter
+  groups plus nondefault sorting; word chip is separate.769+ layouts preserved.
+-106 focused header/catalog checks, scoped ESLint and strict app vue-tsc pass.
+  Two new removal/Back cases plus updated existing interaction check. No full
+  build/browser visual review, backend logic/schema/ENV/provider action or deploy.
+  Frontend deployment only; no migration. Supersedes earlier mobile-sheet layout.
+
 ## Meta Statistics Read Access Verified - 2026-11-25
 
 - User assigned Analytics Reader to dataset and generated a new reporting token

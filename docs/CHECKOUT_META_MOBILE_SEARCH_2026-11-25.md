@@ -55,6 +55,19 @@ Official contracts:
 
 ## 3. Mobile search presentation only
 
+Updated after user approved the single-entry search panel: on non-home/non-listing
+mobile pages the header now contains one search-styled dialog trigger. The existing
+dialog fills the viewport, contains the sole editable query and existing filters,
+and has one fixed footer Search action. It focuses the query and shares the same
+draft/state/submit/VIN handlers; no standalone detail link or external submit.
+Catalog0–768 uses its existing direct query search and own filter sheet: compact
+query/filter-group chips replace the duplicate query banner and wide vehicle bar.
+Query removal clears the shared draft only and resets page; other chips reuse
+existing handlers. Count badge replaces the dot.769+ layouts are unchanged.
+106 focused header/catalog checks, scoped ESLint and strict app vue-tsc pass.
+No browser visual review/full build/deployment; frontend deployment only.
+The following paragraph records the earlier layout superseded by this update.
+
 For widths up to and including768px, non-home/non-catalog-listing pages retain
 the query input/search action and expose detailed filters through a bottom sheet.
 Home stays expanded; catalog listing/category pages retain their existing filter
