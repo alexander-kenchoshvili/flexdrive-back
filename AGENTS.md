@@ -1,5 +1,130 @@
 # Project Instructions
 
+## Meta Statistics Read Access Verified - 2026-11-25
+
+- User assigned Analytics Reader to dataset and generated a new reporting token
+  with additional ads_management. Old token remained denied after assignment;
+  new token has ads_read/read_insights/ads_management and both source-filtered
+  stats readers return ready with real November24–25 counts. No event sent.
+- Updated only BUSINESS_META_ACCESS_TOKEN in ignored local .env via hidden input;
+  CAPI setting preserved byte-for-byte. Fresh configured process also succeeds.
+  No credentials in tracked files/helpers/evidence. Production ENV/deployment
+  remain user-owned; update reporting key there, not META_CAPI_ACCESS_TOKEN.
+- This supersedes the historical stats blocker below. Successful reading is not
+  proof of tracking completeness, deduplication or main-host-only coverage.
+
+## Checkout Mobile Typography And Report Date Layout - 2026-11-25
+
+- User requested styling only0–768px inclusive. Both cart/Buy Now checkout hide
+  the intro title/teaser/count and buyer-type descriptions. Shared card/summary
+  headings use18px/24px; marked helper/terms/choice text and input hints12px/18px.
+  Navy action-bar total/label gain high-contrast light-theme colors; dark colors
+  and769+ presentation unchanged. Inputs, validation, prices and submit unchanged.
+- Seven business date forms share a scoped period-control grid; native dates
+  width100%/min-width0, labels stack at480px and below, actions follow, timestamp
+  spans the row. Uses existing design-system.css and explicit scope hooks; no JS.
+-52 existing checkout/business checks, CSS syntax, scoped ESLint/strict app
+  vue-tsc pass. No new tests, full build/browser visual review, backend/DB/ENV/
+  migration/provider action/commit/push/deploy. Frontend deployment required.
+
+## Checkout Last Step, Meta Events And Mobile Search Prepared - 2026-11-25
+
+- Completed source work in requested order: last saved checkout step/time is
+  highlighted from existing history; no inferred exit reason or new collection.
+  New private /business/meta-events API/page/menu separates allowlisted Pixel and
+  CAPI counts, status/freshness/daily data, last7 Tbilisi days, entire dataset scope.
+  Missing stays unknown; browser/server are not added as deduplicated purchases.
+- Initial credential returned HTTP400/code100 Permission denied for Pixel stats;
+  reader correctly returned unavailable/null. Later user-generated token with
+  ads_management successfully reads both sources; see verified-access note above.
+- Mobile search only0–768 inclusive: home remains expanded, catalog retains own
+  filters, internal detail/checkout/other pages use query + detail bottom sheet.
+  Same instance/state/VIN/filter/submit handlers; no second query/checkout form.
+  Drafts survive close/reopen/resize;769+ original inline layouts remain.
+-88 focused frontend navigation/auth/SSR/search checks and23 backend checkout/
+  Meta/marketing checks pass; scoped ESLint/strict app vue-tsc pass. Real Vue click
+  tests cover375/768/769, core boundaries320/768/769/1280, both checkout paths,
+  product detail, one navigation and VIN. No full build/browser visual review,
+  new tracking/provider events, DB/migration/ENV changes/commit/push/deploy.
+- Deploy both repos, no migration. Google devices/new-user views unchanged.
+  docs/CHECKOUT_META_MOBILE_SEARCH_2026-11-25.md records scope and verified access.
+
+## Dedicated Payment Problems Page Prepared - 2026-11-25
+
+- User requested direct access to payment failure investigation. New protected
+  /business/payments appears as გადახდის პრობლემები under Our shop. Overview
+  attention card/fact links point directly there. Login return whitelist/icon/
+  route dispatch and Foundation fallback types include the new section.
+- Reuses BusinessOperations payment mode and existing private operations API;
+  no second payment report or backend endpoint. Payments page retains existing
+  status filters, page controls, raw counts, grouped failures and collapsed full
+  history/later paid order. Other operational sections appear only in Operations,
+  which now has a direct payment-page link instead of the repeated payment list.
+- Auth expiry/denial returns to the correct page; ordinary Operations default
+  preserved.33 focused route/auth/SSR/payment/organization checks, scoped ESLint
+  and strict app vue-tsc pass. No full build/browser/new tracking/DB/API/schema/
+  migration/provider action/push/deploy. Frontend deployment required.
+
+## Registered Cart Owner Display Prepared - 2026-11-25
+
+- User explicitly requested whose account owns each registered current cart.
+  Private current-contents rows add optional owner_account with account ID,
+  saved first/last name and email. Frontend shows name/email under the cart;
+  blank name falls back to email, then account ID. Guests remain unknown.
+- Only existing dashboard permission/session/no-store report exposes this; no
+  phone/address/auth data or inferred guest/order identity. Addition history and
+  analytics storage/provider events remain unchanged. User data is prefetched in
+  one bounded page query (4 total with accounts, existing guest-only case3), no N+1.
+-9 focused backend source/cart/access checks and7 frontend organization/render
+  checks pass, including guest privacy and HTML escaping; scoped ESLint/strict
+  app vue-tsc pass. Both deployments needed; no migration, production read/write,
+  build/browser/commit/push/deploy. Previous payment-layout edits retained.
+
+## Payment Attempt Presentation Simplified - 2026-11-25
+
+- User requested removing repeated payment failure/history text. Operations now
+  groups failed sale rows without orders only when the backend supplies complete,
+  identical matched checkout-history IDs. Missing/overlapping/limited histories,
+  other states and already linked orders remain separate. Grouping is limited to
+  the current fetched page; pagination, raw totals and status filters unchanged.
+- Shared failure kind/code is shown once with an attempt count. One closed-by-
+  default history retains each ID/status/time/amount/delivery and later paid
+  order/refund settlement; different failure reasons remain attributable.
+- Missing order label now explains that a failed attempt did not create an order.
+  A paid sale without an order remains explicitly flagged for review; older or
+  other actions use a neutral missing-number label. No person identity inference.
+-12 focused operations/payment SSR/composable checks, scoped ESLint and strict app
+  vue-tsc pass. Frontend deployment required; no backend behavior/schema/migration,
+  financial calculation, payment action, build/browser/commit/push/deploy.
+
+## Business Cart Addition Production Migration Applied - 2026-11-25
+
+- User explicitly supplied production DB access and authorized migration. Fresh
+  DB-enforced READ ONLY preflight confirmed business0003 and commerce0046 applied,
+  business0004 absent and no business_cartaddition table. Exact forward plan only
+  business0004_cart_addition; no other migration or backward step.
+- Applied in one PostgreSQL transaction with 5s lock / 30s statement timeouts and
+  normal Django migrate metadata handling. Fresh independent REPEATABLE READ READ
+  ONLY connection verifies migration, exact columns, unique event key, positive
+  quantity, cart/product foreign keys and context index. No event backfill, cart
+  cleanup, order/payment/provider changes or deployment performed.
+- Password entered through a non-echoing prompt, never persisted in helper or
+  evidence. Guarded helper/safe result ignored in tmp/business-panel-20261125/.
+  This supersedes production-migration-pending notes below. Schema verification
+  does not prove frontend deployment, new event receipt or browser rendering.
+
+## Business Cart Addition Local Migration Applied - 2026-11-25
+
+- User explicitly authorized local migration. Verified configured target is only
+  workspace db.sqlite3; exact plan only business0004_cart_addition forward.
+  Backup saved in ignored tmp/business-panel-20261125 before applying.
+- Applied successfully. Fresh read-only SQLite connections confirm migration,
+  new empty business_cartaddition table/columns and unchanged original data.
+  Only expected migration record, CartAddition content type and four standard
+  Django permission rows added; existing metadata rows unchanged. No analytics
+  events, production migration, push or deployment. User owns both deploys and
+  production migration. This supersedes the earlier local-migration-pending note.
+
 ## Business Panel Source Reorganization Prepared - 2026-11-25
 
 - Completed the approved ordered 20-step plan in docs/BUSINESS_PANEL_REORGANIZATION_PLAN.md.

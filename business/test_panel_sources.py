@@ -76,6 +76,28 @@ class CartBusinessTests(TestCase):
         self.assertEqual(result["rows"][0]["items"][0]["sku"], self.product.internal_sku)
         self.assertNotIn(str(self.cart.guest_token), str(result))
         self.assertNotIn(self.product.sku, str(result))
+        self.assertIsNone(result["rows"][0]["owner_account"])
+
+    def test_current_account_owners_are_batched_and_limited_to_display_fields(self):
+        owners = []
+        for index in range(3):
+            user = get_user_model().objects.create_user(
+                username=f"cart-owner-{index}", email=f"owner{index}@example.com",
+                first_name="ანა" if index == 0 else "", last_name="მაისურაძე" if index == 0 else "",
+            )
+            cart = Cart.objects.create(user=user)
+            CartItem.objects.create(cart=cart, product=self.product, quantity=1)
+            owners.append((cart.pk, user))
+        with self.assertNumQueries(4):
+            result = build_cart_report(PERIOD, {})
+        rows = {row["id"]: row for row in result["rows"]}
+        for cart_id, user in owners:
+            self.assertEqual(rows[cart_id]["owner_account"], {
+                "id": user.pk, "name": user.get_full_name(), "email": user.email,
+            })
+        self.assertIsNone(rows[self.cart.pk]["owner_account"])
+        self.assertNotIn("password", str(result))
+        self.assertNotIn(str(self.cart.guest_token), str(result))
 
     def test_addition_totals_distinguish_actions_units_and_carts(self):
         for index, qty in enumerate((2, 3)):

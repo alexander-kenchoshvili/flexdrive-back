@@ -150,3 +150,40 @@ are explicitly not guaranteed to represent organic-only activity.
 Rollback: revert the frontend/backend source changes through the normal deployment
 workflow. Leave the new history table in place to preserve observations; do not
 reverse its migration or delete existing business data as a routine rollback.
+
+### Local migration follow-up — 2026-11-25
+
+At the user's explicit request, applied only business0004_cart_addition to the
+verified workspace db.sqlite3, after an ignored local backup. Fresh read-only
+verification confirms the migration and new empty table. All original data and
+metadata rows remain unchanged; only the expected migration record, content type
+and four standard Django permission records were added. No production migration
+or deployment performed. This supersedes local-migration-pending statements above.
+
+### Production migration follow-up — 2026-11-25
+
+At the user's explicit request, applied only business0004_cart_addition to the
+provided production PostgreSQL target. DB-enforced read-only preflight confirmed
+business0003 and commerce0046 prerequisites, no0004 record and no new table. Exact
+forward plan only0004, applied transactionally with 5-second lock and 30-second
+statement timeouts. A fresh independent REPEATABLE READ READ ONLY connection
+verified the migration, exact column types, unique event key, positive quantity
+constraint, product/cart foreign keys and context index. No history backfill,
+cleanup, payment/provider operation or deployment. Password was prompted without
+echo and not persisted. This supersedes production-migration-pending notes above;
+live frontend/report/event receipt remains separate from schema verification.
+
+### Registered cart owner follow-up — 2026-11-25
+
+At the user's explicit request, current nonempty carts now include the currently
+linked registered account's ID, saved first/last name and email on the existing
+private report. The frontend shows the name and email beneath the cart heading;
+missing names fall back to email, then the account ID. Guest identity is still
+unknown. This supersedes the earlier account-identity exclusion only for the
+private current-contents view; addition history, analytics records and provider
+events do not gain identity fields. Existing permissions and no-store remain.
+A batched, field-limited user prefetch adds at most one query for the page, not
+one per cart. Nine backend source/access/cart checks and seven frontend render/
+organization checks pass, plus scoped ESLint and strict app vue-tsc. Deploy both
+repositories; no migration is required. No live data read/write, build or browser
+verification was performed for this follow-up.

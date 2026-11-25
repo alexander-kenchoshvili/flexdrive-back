@@ -3,12 +3,19 @@ from django.core.paginator import Paginator
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
+from django.contrib.auth import get_user_model
 from django.db.models import Count, Exists, Max, Min, OuterRef, Prefetch, Q, Sum
 from django.db.models.functions import Greatest
 from django.utils import timezone
 
 from commerce.models import Cart, CartItem, PaymentTransaction
 from .models import CartAddition
+
+
+def _owner_account(cart):
+    if not cart.user_id:
+        return None
+    return {"id": cart.user_id, "name": cart.user.get_full_name().strip(), "email": cart.user.email}
 
 
 def build_cart_report(period, values):
@@ -25,9 +32,11 @@ def build_cart_report(period, values):
             Q(product__name__icontains=term) | Q(product__internal_sku__icontains=term))
         query = query.filter(Exists(matching))
     query = query.order_by("-last_change", "-pk").prefetch_related(Prefetch(
-        "items", queryset=CartItem.objects.select_related("product").order_by("pk")[:5], to_attr="preview_items"))
+        "items", queryset=CartItem.objects.select_related("product").order_by("pk")[:5], to_attr="preview_items"),
+        Prefetch("user", queryset=get_user_model().objects.only("id", "first_name", "last_name", "email")))
     page = Paginator(query, 20).get_page(values.get("page", 1))
     rows = [{"id": cart.pk, "owner": "ანგარიშის კალათა" if cart.user_id else "სტუმრის კალათა — ვინაობა უცნობია",
+             "owner_account": _owner_account(cart),
              "updated_at": cart.last_change.isoformat(), "products": cart.report_item_count, "units": cart.units,
              "items": [{"name": item.product.name, "sku": item.product.internal_sku or "",
                         "quantity": item.quantity} for item in cart.preview_items],

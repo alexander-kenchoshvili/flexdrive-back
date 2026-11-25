@@ -35,3 +35,5 @@ node_modules/
 /outputs/measurement-types-20261015-2015/
 # Local business-panel edit staging and test logs.
 /tmp/business-panel-20261125/
+/tmp/payment-attempt-layout-20261125/
+/tmp/cart-account-display-20261125/

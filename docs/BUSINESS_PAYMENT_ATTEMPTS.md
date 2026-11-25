@@ -71,3 +71,42 @@ attempts4/5/6 to successful7, and kept old Oct19 expiration attempt1 separate.
 Only redacted IDs/reason categories were saved in ignored
 `tmp/measurements-20261015/personal-number-20261120/`. No production writes,
 bank API requests, provider events, reconciliation, commit, push or deployment.
+
+## Presentation follow-up — 2026-11-25
+
+Operations groups failed sale rows without orders when the backend provides the
+same complete checkout history on the current page. This reuses established
+matches only; missing, partial, overlapping, limited or already-order-linked rows
+are not merged. Stored records, raw attempt totals, filters and pagination stay
+unchanged. The group lists its visible attempt IDs and counts; amounts are per
+attempt and never summed into a loss. History may include a later paid record
+which is outside the current failure filter, explicitly identified as a result.
+
+A shared bank reason appears once with its frequency. Each group has one closed
+history with chronological IDs/statuses/times/amounts/delivery details and saved
+confirmation/order/refund settlement. Identical reasons are not repeated for
+each timeline entry; different reasons remain attached to their entries. Long
+bank explanations and match/causality/coverage caveats remain inside the history.
+
+The ambiguous missing-order text is replaced with "ამ მცდელობით შეკვეთა არ
+შექმნილა" (plural for a group). This describes that failed sale attempt, not the
+absence of a later successful order. A paid sale lacking an order is explicitly
+flagged for review; legacy/other actions get a neutral missing-number label.
+
+12 focused frontend SSR/composable checks, scoped ESLint and strict app vue-tsc
+pass. Frontend deployment only; no new backend logic, migration, production
+write, payment/provider action, full build or browser verification.
+
+## Dedicated payment page — 2026-11-25
+
+At the user's request, payment diagnostics now live at `/business/payments`,
+with a direct Our shop menu entry (გადახდის პრობლემები). Overview payment cards
+and attention facts link there. Operations retains a link, while returns, stock,
+shipments and sync status stay on the Operations page. The existing component
+uses an explicit payment-only mode; both views reuse the unchanged protected
+operations endpoint and its raw summary/filter/pagination semantics. Existing
+grouped reasons, chronological history and later successful orders are retained.
+No new identity matching or person details are introduced. Auth expiry/denial
+retains the correct return destination.33 focused existing/new route, permission,
+SSR mode, grouping and source checks pass, as do scoped ESLint and strict app
+vue-tsc. Deploy frontend; no new migration/backend behavior or provider operation.

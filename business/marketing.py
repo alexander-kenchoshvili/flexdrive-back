@@ -65,7 +65,8 @@ def _get(session, node, params=None, *, token=None):
         if response.status_code != 200 or "error" in body:
             error = body.get("error", {})
             code = error.get("code") if isinstance(error, dict) else None
-            raise MetaUnavailable("access" if code in (10, 102, 190, 200) or response.status_code in (401, 403)
+            denied = code == 100 and str(error.get("message", "")).casefold() == "(#100) permission denied"
+            raise MetaUnavailable("access" if denied or code in (10, 102, 190, 200) or response.status_code in (401, 403)
                                   else "quota" if code in (4, 17, 32, 613, 80001, 80002, 80004) or response.status_code == 429
                                   else "unavailable")
         return body

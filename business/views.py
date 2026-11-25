@@ -212,6 +212,12 @@ class BusinessAudienceView(BusinessAnalyticsView):
         return build_audience_report(period)
 
 
+class BusinessMetaEventsView(BusinessAnalyticsView):
+    def build_report(self, period):
+        from .meta_events import build_meta_events_report
+        return build_meta_events_report(period)
+
+
 class BusinessDecisionView(BusinessAnalyticsView):
     def get(self, request, source):
         if source not in ("all", "google", "meta"):

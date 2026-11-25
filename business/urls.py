@@ -1,6 +1,6 @@
 from django.urls import path
 from .checkout_views import BusinessCartView, BusinessCheckoutView, CheckoutProgressView
-from .views import BusinessAudienceView
+from .views import BusinessAudienceView, BusinessMetaEventsView
 from .views import BusinessDecisionView, BusinessSearchConsoleView, BusinessPagesView, BusinessDevicesView
 from .views import BusinessVehicleDemandView
 from .views import BusinessAccessView, BusinessLoginView, BusinessLogoutView, BusinessSessionView, BusinessReportView, BusinessOperationsView, BusinessAnalyticsView, BusinessMarketingView
@@ -8,6 +8,7 @@ from .views import BusinessAccessView, BusinessLoginView, BusinessLogoutView, Bu
 app_name = "business"
 
 urlpatterns = [
+    path("meta-events/", BusinessMetaEventsView.as_view(), name="meta-events"),
     path("carts/", BusinessCartView.as_view(), name="carts"),
     path("audience/", BusinessAudienceView.as_view(), name="audience"),
     path("checkout/", BusinessCheckoutView.as_view(), name="checkout"),
