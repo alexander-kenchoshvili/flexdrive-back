@@ -47,6 +47,7 @@ from .models import (
 from .payment_providers import get_provider_method_for_action
 from .meta_conversions import send_meta_purchase_event
 from .supplier_stock import release_order_supplier_stock_holds
+from .credo_guards import has_unresolved_credo_application, unresolved_credo_applications
 
 logger = logging.getLogger(__name__)
 
@@ -1870,6 +1871,9 @@ def can_cancel_order(order):
     from .courier_state import has_unsettled_courier_shipment
     if has_unsettled_courier_shipment(order):
         return False
+    if order.payment_method == OrderPaymentMethod.CREDO:
+        # Bank cancellation/return must be reconciled before restoring inventory.
+        return False
     if (
         order.payment_method != OrderPaymentMethod.CASH_ON_DELIVERY
         and order.payment_status
@@ -1887,6 +1891,19 @@ def can_cancel_order(order):
     )
 
 
+def has_credo_fulfillment_authorization(order, *, for_new_shipment=False):
+    """Signature authorizes shipping; it does not assert cash settlement."""
+    if (order.payment_method != OrderPaymentMethod.CREDO or order.stock_restored_at
+            or order.payment_status not in {OrderPaymentStatus.PENDING, OrderPaymentStatus.PAID}):
+        return False
+    from .models import CredoApplication
+    return CredoApplication.objects.filter(
+        order_id=order.pk, bank_status__in=(12,) if for_new_shipment else (12, 5), needs_review=False,
+        checkout_attempt__order_id=order.pk, reservation__completed_order_id=order.pk,
+        reservation__status=StockReservationStatus.COMPLETED,
+    ).exists()
+
+
 def can_transition_order_status(order, next_status):
     if next_status == order.status:
         return True
@@ -1897,6 +1914,14 @@ def can_transition_order_status(order, next_status):
     if next_status == OrderStatus.CANCELLED:
         return False
 
+    credo_fulfillment = False
+    if order.payment_method == OrderPaymentMethod.CREDO and next_status in {
+        OrderStatus.CONFIRMED, OrderStatus.PROCESSING, OrderStatus.SHIPPED, OrderStatus.DELIVERED,
+    }:
+        credo_fulfillment = has_credo_fulfillment_authorization(order)
+        if not credo_fulfillment:
+            return False
+
     if (
         order.payment_method != OrderPaymentMethod.CASH_ON_DELIVERY
         and next_status
@@ -1906,6 +1931,7 @@ def can_transition_order_status(order, next_status):
             OrderStatus.DELIVERED,
         }
         and order.payment_status != OrderPaymentStatus.PAID
+        and not credo_fulfillment
     ):
         return False
 
@@ -2137,6 +2163,7 @@ def _get_existing_active_reservation_ids(
         queryset = queryset.exclude(
             pk__in=active_online_reservation_ids,
         )
+        queryset = queryset.exclude(pk__in=unresolved_credo_applications().values("reservation_id"))
     return list(queryset.values_list("id", flat=True))
 
 
@@ -2166,13 +2193,16 @@ def ensure_no_active_online_payment(*, source, owner_kwargs, product_ids=None):
         }
         if not normalized_product_ids:
             return
+        product_ids = normalized_product_ids
         active_payments = active_payments.filter(
             reservation_id__in=StockReservationItem.objects.filter(
                 product_id__in=normalized_product_ids,
             ).values("reservation_id"),
         )
 
-    if active_payments.exists():
+    if active_payments.exists() or has_unresolved_credo_application(
+        source=source, owner_filter=payment_owner_filter, product_ids=product_ids,
+    ):
         raise CheckoutPaymentInProgress()
 
 

@@ -166,7 +166,7 @@ def styles_xml():
 def export_response(report):
     period = report["period"]
     name = {"paid": "წარმატებული", "refunded": "დაბრუნებული", "all": "ყველა"}[report["status"]]
-    columns = visible_columns(report.get("show_purchase", False))
+    columns = visible_columns(report.get("show_purchase", False), include_credo=any(row[23] is not None for row in report["rows"]))
     headers = [report["headers"][i] for i in columns]
     rows = [[row[i] for i in columns] for row in report["rows"] + [report["totals"]]]
     introduction = ["FlexDrive — ბუღალტრული ანგარიშგება",
@@ -189,6 +189,19 @@ def export_response(report):
         "ოპერატორის დაფიქსირებული თანხები ლარში; ინვოისის გადახდას არ ადასტურებს.",
         "უცნობი ხარჯი ნულის ნაცვლად ცარიელია; ასეთ შემთხვევაში სრული ჯამიც უცნობია."]
     introductions = {"უკუმიტანის ხარჯი": cost_introduction}
+    financing = report.get("credo_financing")
+    if financing and financing["rows"]:
+        financing_rows = [[r["created_at"].astimezone(TBILISI).strftime("%d.%m.%Y"), r["order_number"], r["offer"],
+            r["gross"], r["expected_fee"], r["expected_net"], "კი" if r["bank_completed"] else "არა",
+            r["actual_fee"], r["actual_net"], r["received_on"].isoformat() if r["received_on"] else None,
+            "კი" if r["needs_review"] else "არა"] for r in financing["rows"]]
+        sheets.append(("კრედოს დაფინანსება", ["შექმნა", "შეკვეთა", "საწყისი შეთავაზება", "სრული დაფინანსება ₾",
+            "მოსალოდნელი 3% ₾", "მოსალოდნელი ჩარიცხვა ₾", "ბანკში დასრულებული", "ამონაწერის საკომისიო ₾",
+            "ამონაწერის ჩარიცხვა ₾", "ამონაწერის თარიღი", "გადასამოწმებელი"], financing_rows))
+        introductions["კრედოს დაფინანსება"] = ["FlexDrive — კრედოს დაფინანსება", introduction[1],
+            "განაცხადის შექმნის თარიღით, მიმდინარე მდგომარეობა; მთავარ ფულადი მოძრაობის ჯამს არ ემატება.",
+            "3% ბიზნესის ხარჯია, მომხმარებლის დამატება 0. მოსალოდნელი თანხა ამონაწერით დადასტურებულ ჩარიცხვას არ ნიშნავს.",
+            "ფაქტობრივი უცნობი თანხა ცარიელია. საკომისიოს დღგ/საგადასახადო მოპყრობა აქ არ განისაზღვრება."]
     buyers = report.get("buyers", [])
     sheets.append(("მყიდველები", [label for _, label, _ in BUYER_COLUMNS],
                    [[buyer[key] or None for key, _, _ in BUYER_COLUMNS] for buyer in buyers]))
@@ -208,7 +221,7 @@ def export_response(report):
             "გაუქმებული გზავნილები ჯამში არ შედის; შესაძლო საკურიერო ხარჯი ცალკე შესაჯერებელია.",
             "უცნობი ფასი ცარიელია და სრულ ჯამს უცნობს ტოვებს."]
     response = HttpResponse(workbook_bytes(sheets, introduction=introduction, bands=bands,
-                            introductions=introductions, detail_sheets={"მყიდველები"}),
+                            introductions=introductions, detail_sheets={"მყიდველები", "კრედოს დაფინანსება"}),
                             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     response["Content-Disposition"] = f'attachment; filename="FlexDrive-{report["status"]}-{period.start}-{period.end}.xlsx"'
     return response

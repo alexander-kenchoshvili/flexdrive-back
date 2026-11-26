@@ -1,13 +1,21 @@
 from django.db import transaction
 from django.utils import timezone
 
-from commerce.models import Order, StockReservation, StockReservationStatus
+from commerce.models import CredoApplication, Order, StockReservation, StockReservationStatus
 
 
 @transaction.atomic
 def delete_user_account(user):
     user_model = type(user)
     locked_user = user_model.objects.select_for_update().get(pk=user.pk)
+
+    # A closed account must not later be reconstructed from financing snapshots.
+    # Preserve bank IDs/status for reconciliation, erase the private checkout,
+    # and block automatic fulfillment. Do not pretend the bank loan was cancelled.
+    CredoApplication.objects.filter(reservation__user=locked_user).update(
+        checkout_snapshot={}, snapshot_digest="", needs_review=True,
+        last_issue="credo_owner_account_deleted", updated_at=timezone.now(),
+    )
 
     active_reservation_ids = list(
         StockReservation.objects.select_for_update()

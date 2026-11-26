@@ -1,0 +1,52 @@
+[
+  {
+    "source": "Credo logo geo (1).pdf",
+    "asset": "credo-ge.svg",
+    "bounds": [
+      14.672798538208008,
+      10.971599960327149,
+      824.008411026001,
+      141.15469703674316
+    ],
+    "source_sha256": "bba8037e12eb324a6d980be9e4c99f97d53dadaa90b996e262d0d3b2334dc869",
+    "paths": 13,
+    "raster_images": 0,
+    "size": 20497,
+    "preview": "credo-ge.png",
+    "gradient": "Original PDF radial shading converted to native SVG radialGradient with 259 RGB stops"
+  },
+  {
+    "source": "Credo logo eng (1).pdf",
+    "asset": "credo-en.svg",
+    "bounds": [
+      237.89730110168458,
+      224.185493850708,
+      603.9923778533936,
+      283.7122875213623
+    ],
+    "source_sha256": "eea12589a58bc53ed223935466d5722a935af4f0c66c6d7d906181a883635ef7",
+    "paths": 12,
+    "raster_images": 0,
+    "size": 19056,
+    "preview": "credo-en.png",
+    "gradient": "Original PDF radial shading converted to native SVG radialGradient with 259 RGB stops"
+  },
+  {
+    "source": "დაყავი.pdf",
+    "asset": "dayavi.svg",
+    "bounds": [
+      490.4900520324707,
+      229.76037673950196,
+      931.5604240417481,
+      406.5530693054199
+    ],
+    "presentation_background_removed": true,
+    "selected_mark": "upper",
+    "source_sha256": "320b3605f9fb67032248b0382579aa78c9158b95d6917cd614d47519844d2b76",
+    "paths": 12,
+    "raster_images": 0,
+    "size": 4361,
+    "preview": "dayavi.png",
+    "duplicate_source": "დაყავი (2).pdf"
+  }
+]

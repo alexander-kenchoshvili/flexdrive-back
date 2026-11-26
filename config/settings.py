@@ -21,6 +21,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
+from .credo import load_credo_environment
 load_dotenv()
 
 SUPPORTED_APP_ENVIRONMENTS = frozenset({"development", "staging", "production"})
@@ -388,6 +389,9 @@ CROSSMOTORS_SALE_HOLD_SECONDS = max(
 # Set to true in the environment to re-enable cash checkout for testing.
 CASH_ON_DELIVERY_ENABLED = _parse_bool_env("CASH_ON_DELIVERY_ENABLED", False)
 BOG_PAYMENTS_ENABLED = _parse_bool_env("BOG_PAYMENTS_ENABLED", False)
+# Separate fail-closed Credo controls; credentials alone cannot enable checkout.
+globals().update(load_credo_environment(os.environ))
+
 BOG_RECONCILIATION_ALERT_EMAIL = os.getenv("BOG_RECONCILIATION_ALERT_EMAIL", "").strip()
 BOG_CLIENT_ID = os.getenv("BOG_CLIENT_ID", "").strip()
 BOG_CLIENT_SECRET = os.getenv("BOG_CLIENT_SECRET", "").strip()

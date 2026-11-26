@@ -42,6 +42,7 @@ from .services import (
     transition_order_status,
 )
 from .supplier_stock import release_supplier_stock_hold
+from .credo_admin import CredoApplicationInline
 
 admin.site.index_template = "admin/commerce/accounting/index.html"
 
@@ -329,7 +330,7 @@ class OrderAdmin(OrderWingoAdminMixin, admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
-    inlines = (OrderItemInline, PaymentTransactionInline, OrderReceiptInline)
+    inlines = (OrderItemInline, CredoApplicationInline, PaymentTransactionInline, OrderReceiptInline)
 
     fieldsets = (
         (

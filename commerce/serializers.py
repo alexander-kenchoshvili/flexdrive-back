@@ -152,6 +152,8 @@ class CheckoutSerializer(serializers.Serializer):
             raise serializers.ValidationError("ნაღდი ანგარიშსწორებით გადახდა ამჟამად მიუწვდომელია.")
         if value == OrderPaymentMethod.CARD:
             raise serializers.ValidationError("Card payments are temporarily unavailable.")
+        if value == OrderPaymentMethod.CREDO:
+            raise serializers.ValidationError("კრედოს დაფინანსება ამჟამად მიუწვდომელია.")
         return value
 
     def validate(self, attrs):
@@ -225,6 +227,14 @@ class CardPaymentCheckoutSerializer(CheckoutSerializer):
     payment_method = serializers.ChoiceField(
         choices=((OrderPaymentMethod.CARD, "Card"),),
     )
+
+    def validate_payment_method(self, value):
+        return value
+
+
+class CredoCheckoutSerializer(CheckoutSerializer):
+    payment_method = serializers.ChoiceField(choices=((OrderPaymentMethod.CREDO, "Credo"),))
+    requested_offer = serializers.ChoiceField(choices=("installment", "dayavi"))
 
     def validate_payment_method(self, value):
         return value
@@ -679,7 +689,16 @@ class OrderListSummarySerializer(serializers.Serializer):
     last_order_at = serializers.DateTimeField(allow_null=True)
 
 
-class OrderSummarySerializer(DeliverySummaryMixin, RefundSummaryMixin, serializers.ModelSerializer):
+class CredoPurchaseEligibilityMixin(serializers.Serializer):
+    def to_representation(self, obj):
+        data = super().to_representation(obj)
+        if obj.payment_method == "credo":
+            from .credo_finance import is_credo_purchase_eligible
+            data["purchase_eligible"] = is_credo_purchase_eligible(obj)
+        return data
+
+
+class OrderSummarySerializer(CredoPurchaseEligibilityMixin, DeliverySummaryMixin, RefundSummaryMixin, serializers.ModelSerializer):
     public_token = serializers.UUIDField(read_only=True)
     subtotal = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
@@ -720,7 +739,7 @@ class OrderSummarySerializer(DeliverySummaryMixin, RefundSummaryMixin, serialize
         )
 
 
-class PublicOrderSummarySerializer(DeliverySummaryMixin, RefundSummaryMixin, serializers.ModelSerializer):
+class PublicOrderSummarySerializer(CredoPurchaseEligibilityMixin, DeliverySummaryMixin, RefundSummaryMixin, serializers.ModelSerializer):
     public_token = serializers.UUIDField(read_only=True)
     subtotal = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)

@@ -122,6 +122,8 @@ def _display_datetime(value):
 def _payment_method_label(method):
     if method == OrderPaymentMethod.CARD:
         return "საბანკო ბარათი"
+    if method == OrderPaymentMethod.CREDO:
+        return "კრედოს დაფინანსება"
     return "ნაღდი ანგარიშსწორება"
 
 
@@ -148,17 +150,21 @@ def get_receipt_eligibility(order):
         )
 
     if (
-        order.payment_method == OrderPaymentMethod.CARD
+        order.payment_method in (OrderPaymentMethod.CARD, OrderPaymentMethod.CREDO)
         and order.payment_status == OrderPaymentStatus.PAID
     ):
         payment = (
             order.payment_transactions.filter(
-                payment_method=OrderPaymentMethod.CARD,
+                payment_method=order.payment_method,
                 status=PaymentTransactionStatus.PAID,
             )
             .order_by("-captured_at", "-created_at", "-id")
             .first()
         )
+        if order.payment_method == OrderPaymentMethod.CREDO and (
+            payment is None or payment.provider != "credo" or not hasattr(payment, "credo_settlement")
+        ):
+            payment = None
         if payment is None:
             raise ReceiptUnavailableError(
                 "receipt_paid_transaction_missing",
@@ -351,6 +357,9 @@ def receipt_cookie_name(order):
 
 
 def authorize_receipt_request(request, receipt):
+    from .credo_access import has_credo_order_access
+    if has_credo_order_access(request, receipt.order):
+        return
     if (
         request.user.is_authenticated
         and receipt.order.user_id == request.user.id
@@ -384,7 +393,8 @@ def has_order_receipt_access(order, request):
             return True
         except ReceiptAccessError:
             return False
-    if request.user.is_authenticated and order.user_id == request.user.id:
+    from .credo_access import has_credo_order_access
+    if (request.user.is_authenticated and order.user_id == request.user.id) or has_credo_order_access(request, order):
         try:
             get_receipt_eligibility(order)
             return True

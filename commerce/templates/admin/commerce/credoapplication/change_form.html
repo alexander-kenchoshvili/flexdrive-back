@@ -1,0 +1,5 @@
+{% extends "admin/change_form.html" %}
+{% block object-tools-items %}
+{% if can_confirm_statement %}<li><a href="{{ statement_url }}">ჩარიცხვის დადასტურება ამონაწერით</a></li>{% endif %}
+{{ block.super }}
+{% endblock %}

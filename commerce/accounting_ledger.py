@@ -13,11 +13,13 @@ HEADERS = ["თარიღი", "შეკვეთა", "პროდუქტ
            "ჩექაუთის საკურიერო ტარიფი ₾", "ბუფერი ₾", "გადახდილი / დაბრუნებული თანხა ₾", "გადახდა", "მყიდველის ტიპი", "მყიდველი კომპანია დღგ-ის გადამხდელია",
            "უკუმიტანისთვის დაქვითული ₾", "უკუმიტანის ხარჯი (საინფორმაციო) ₾",
            "Wingo-ს ფასი (საინფორმაციო) ₾", "ფასთა სხვაობა (საინფორმაციო) ₾",
-           "პირველი მიტანისთვის დაქვითული (მიტანის ნაშთში შედის) ₾"]
+           "პირველი მიტანისთვის დაქვითული (მიტანის ნაშთში შედის) ₾",
+           "კრედოს საკომისიო — დადასტურებული ₾", "კრედოს ჩარიცხვა — დადასტურებული ₾",
+           "პროდუქტების მარჟა კრედოს საკომისიოს გამოკლებით ₾"]
 
 
-def visible_columns(show_purchase=False):
-    return [i for i in range(len(HEADERS)) if show_purchase or i not in (5, 7)]
+def visible_columns(show_purchase=False, *, include_credo=False):
+    return [i for i in range(len(HEADERS)) if (show_purchase or i not in (5, 7)) and (include_credo or i < 23)]
 
 
 def build_ledger(period, status, sku=""):
@@ -46,6 +48,10 @@ def build_ledger(period, status, sku=""):
         difference = booked_price - payment.order.carrier_delivery_cost if booked_price is not None else None
         sign = -1 if refund and status == "all" else 1
         occurred = payment.refunded_at if refund else payment.captured_at
+        settlement = getattr(payment, "credo_settlement", None) if payment.provider == "credo" else None
+        known_margins = [line["amounts"].net_markup for line in order["lines"]]
+        margin_after_fee = (sign*(sum(known_margins, Decimal(0))-(settlement.fee_amount if settlement else Decimal(0)))
+                            if allocation and all(v is not None for v in known_margins) else None)
         lines = [line for line in order["lines"] if not sku or sku.casefold() in line["internal_sku"].casefold()
                  or sku.casefold() in line["supplier_sku"].casefold()
                  or sku.casefold() in line["name"].casefold()]
@@ -56,7 +62,7 @@ def build_ledger(period, status, sku=""):
             internal = order["delivery_provider"] == "internal"
             courier = order["delivery_provider"] in {"easyway", "redcap", "wingo"}
             rows.append([
-                occurred.astimezone(TBILISI).strftime("%d.%m.%Y %H:%M"), order["order_number"],
+                occurred.astimezone(TBILISI).strftime("%d.%m.%Y" if settlement else "%d.%m.%Y %H:%M"), order["order_number"],
                 line["name"], line["internal_sku"], line["quantity"] * sign,
                 purchase.gross / line["quantity"] if purchase else None, a.sale.gross / line["quantity"],
                 purchase.gross * sign if purchase and allocation else None, a.sale.gross * sign if allocation else None,
@@ -74,6 +80,9 @@ def build_ledger(period, status, sku=""):
                 allocation["return_delivery_cost"] if first and refund and allocation else (Decimal(0) if first and not refund else None),
                 booked_price if first else None, difference if first else None,
                 allocation["retained_delivery_fee"] if first and refund and allocation else (Decimal(0) if first and not refund and allocation else None),
+                settlement.fee_amount if first and settlement else None,
+                settlement.net_amount if first and settlement else None,
+                margin_after_fee if first else None,
             ])
         if len(rows) > group_start:
             buyer = order_buyer(payment.order)
@@ -101,6 +110,11 @@ def build_ledger(period, status, sku=""):
                   else sum(delivery_fees, Decimal(0)))
     costs = return_cost_report(period) if not sku else None
     bookings = booking_report(period) if not sku else None
+    for column in (23, 24, 25):
+        values = [row[column] for row in rows if row[14] is not None] if column == 25 else [row[column] for row in rows if row[23] is not None]
+        totals.append(None if sku or any(value is None for value in values) else sum(values, Decimal(0)))
+    from .credo_finance import credo_financing_report
+    financing = credo_financing_report(period, sku)
     return {"headers": HEADERS, "rows": rows, "groups": groups, "totals": totals, "period": period,
             "status": status, "sku": sku, "order_count": len({p.order_id for p in events}), "return_costs": costs,
-            "courier_bookings": bookings, "buyers": list(buyers.values())}
+            "courier_bookings": bookings, "buyers": list(buyers.values()), "credo_financing": financing}

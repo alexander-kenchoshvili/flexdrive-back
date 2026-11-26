@@ -1,5 +1,217 @@
 # Project Instructions
 
+## Credo And Georgian Company Name PRODUCTION Migrations Applied - 2026-11-26
+
+- Owner explicitly supplied production DB access and authorized required migrations.
+  Clarified sequence: migrate production first, then owner pushes/deploys backend.
+  Fresh TLS/DB-enforced REPEATABLE READ READ ONLY preflight verified intended DO
+  defaultdb, commerce0046/pages0087 present, all3 targets/new Credo tables absent.
+  Exact forward plan ONLY commerce0047_credo_application,0048_credo_statement_
+  settlement and pages0088_georgian_legal_company_name; no other/backward migration.
+- Applied all3 in one PostgreSQL transaction,5s lock/30s statement timeouts, normal
+  Django metadata/post_migrate. Backed up affected CMS rows/schema/metadata in
+  ignored tmp/business-panel-20261125/credo-production-7ca6a44477/ before changes.
+  This is an affected-data backup, not a full production database dump.
+- Independent fresh READ ONLY verification: exact current model columns on both
+  new EMPTY Credo tables; expected financial constraints; original table columns/
+  constraints unchanged; exactly2 literal company-name replacements, all other
+  CMS fields/timestamps preserved. Exactly3 migration records,2 content types and
+  8 standard permissions added; no permission assignments/order/stock/payment or
+  provider action. Original metadata rows preserved. Safe result.json saved.
+- Password only hidden input/in-memory, never file/ENV/command-line/evidence.
+  First read-only preflight ended without writes before the successful apply run.
+  No bank HTTP, production ENV, server restart, commit/push/deploy by agent.
+  Production DB is ready for owner backend deploy; cron/public flags still later
+  stages. Owner explicitly declined further signature testing; do not reimpose it
+  as a rollout approval gate. Signed-path live coverage remains unverified.
+  Supersedes earlier production-migrations-pending notes for these3 migrations.
+
+## Credo LOCAL Pilot Activated By Owner - 2026-11-26
+
+- Owner accepted the checked candidate create URL and explicitly requested final
+  local activation without waiting for bank URL reply. Updated ONLY ignored local
+  .env Credo config: both request flags ON, TEST_MODE ON, explicit order/status/
+  redirect URLs and3600s LOCAL stock hold. Exact credentials and every unrelated
+  ENV binding preserved byte-for-byte. No authenticated create/status call made.
+- Fresh process with HTTP forbidden verifies development/exact workspace SQLite,
+  both migrations, zero applications, configured client and API availability TRUE
+  for both offers.20 config/local-pilot tests pass in isolated memory DB with
+  request flags explicitly overridden OFF for test baseline. No source/schema/
+  working-business-data/production/deploy change. Existing backend must restart
+  and browser refresh for current checkout to read new availability.
+- Hidden local watch_credo_local_tests process launched with30s interval/4h bound;
+  PID32704, started2026-11-26T12:37:18.9378621Z, expected end~20:37 Tbilisi. Startup
+  log verified, no applications => no HTTP. Reusable ignored PowerShell launcher
+  tmp/business-panel-20261125/start_credo_local_watcher.ps1 prevents duplicate PID
+  reuse by comparing typed UTC StartTime, metadata/logs in credo-local-activation-
+  20261126 subdir. After expiry/reboot it must be restarted for another test.
+- Agent created NO loan/order. User performs next real checkout/signature in bank
+  coordinated test. No shipment; bank cancels, then audited local closure command
+  handles stock. Full valid signed POST remains unverified until that user test.
+  This supersedes earlier flags-OFF/job-not-running/local-URL-wait notes.
+
+## Credo Candidate Create URL Checked Without Credentials - 2026-11-26
+
+- Owner explicitly requested a benign URL check while bank reply was pending.
+  HEAD/credentialless GET https://ganvadeba.credo.ge/widget_api/order.php return
+  HTTP400 JSON {status:400,data:[],errors:{code:INVALID_PARAMETERS,message:BAD_REQUEST}}.
+  One nonexistent same-directory comparison path returns HTTP404 HTML. This is
+  strong evidence the documented order.php handler exists at that full URL, but
+  a valid authenticated create POST remains untested. No Shop ID/key/signature/
+  order/customer data or POST sent; no application/order created or flags enabled.
+- Candidate can be proposed for the owner-coordinated first live test; do not
+  call authenticated create until that stage. ENV still unchanged/flags OFF.
+  Bank reports no post-signature return URL feature; prepared new-tab local-status
+  return flow applies. Earlier notes saying no provider HTTP precede this probe.
+
+## Credo Customer Confirmation Wording Corrected - 2026-11-26
+
+- Owner rejected exposing merchant settlement wait to customers. Frontend shared
+  public presentation now says "განვადება გაფორმებულია" for Credo pending AND paid;
+  success confirms order received/preparing delivery and agreed bank schedule.
+  Initial active orders only receive preparation copy; other lifecycle text stays.
+  Card/cancellation/refund labels preserved. Internal payment_status/accounting,
+  bank status and test configuration unchanged. Supersedes public pending-label
+  wording in the previous pilot note. Bank URL/return reply still awaited.
+-46 existing frontend checkout checks plus scoped ESLint/strict app vue-tsc verify
+  the presentation change. No backend/DB/ENV/provider/server/browser/deploy action.
+
+## Credo Local Pilot Closure And Return Flow Prepared - 2026-11-26
+
+- Owner requested local pilot preparation/activation, no agent-created bank loan.
+  Public create docs still show only /widget_api/order.php with servers:[]. Owner
+  asked bank for full POST URL and return/success URL configuration; awaiting reply.
+  BOTH local flags therefore still OFF/test mode ON; secret/.env unchanged.
+- Frontend status page keeps local tab open and offers explicit secure new-tab
+  bank link with clear instructions. Returning focus refreshes; trusted12/5 with
+  valid order UUID automatically opens success. Pending Credo still says awaiting
+  settlement, never paid. No undocumented return param or automatic bank return.
+- New watch_credo_local_tests command: exact workspace SQLite/development/DEBUG/
+  test mode only, test cases only,30s default/4h bounded, existing status GET lease.
+  No application means no HTTP. Prepared, NOT running; no provider request made.
+- New close_cancelled_credo_test command/service: local only, staff permissions,
+  explicit no-dispatch confirmation/reference and fresh trusted bank7 after12.
+  Dry run default; commit atomically restores stock once/cancels order/payment,
+  audits and invalidates stale lease. No shipment/return/financial/funding evidence
+  allowed. Production signed conflicts/return blocks unchanged. Never cancels bank.
+-87 backend regression +12 final local-pilot and46 frontend checks pass; scoped
+  ESLint/strict app vue-tsc passed main UI change. No new migration, working DB
+  mutation, bank/Wingo/tracking event, browser/server/job, production ENV or deploy.
+  Canonical plan records exact next setup/commands; activate after bank URL reply.
+
+## Shared OG Image Prepared In Frontend - 2026-11-26
+
+- Owner selected the generated modern champagne-silver car with headlight,
+  mirror and grille. Paired frontend bundles the approved raster as
+  public/images/social/flexdrive-og-modern-v1.jpg (1200x630 JPEG,166103 bytes).
+- Frontend-only social-image rule: genuine product photos and real BlogInner
+  article SEO/cover selection stay dynamic; all other pages use the common
+  banner, ignoring old CMS page/category/site and image-ENV preview overrides.
+  Missing real photos also use it, without inventing Product schema photos.
+- Shared reactive OG/Twitter helper emits absolute URLs, correct banner dimensions/
+  type/alt; dynamic photos do not inherit unknown dimensions. Category image
+  override removed. Existing titles/canonicals/robots/access/tracking unchanged.
+-90 relevant frontend checks, scoped ESLint, strict app vue-tsc and whitespace
+  checks pass. Final JPEG visually inspected. No browser/full build/server start,
+  backend source/schema/DB/ENV action, crawler refresh, commit/push/deploy.
+- Only FRONTEND deployment needed for this task; no new migration/ENV/CMS upload.
+  Post-deploy initial HTML/image availability and social-cache refresh remain.
+  Frontend docs/SOCIAL_PREVIEW_IMAGE.md records rules and deployment checks.
+  Existing unrelated checkout/Credo/HeaderSearch work preserved.
+
+## Credo Local Migrations Applied - 2026-11-25
+
+- User explicitly authorized LOCAL migrations. Fresh preflight verified only
+  workspace db.sqlite3, predecessor commerce0046 and exact forward plan ONLY
+  commerce0047_credo_application +0048_credo_statement_settlement.
+- Consistent SQLite backup verified in ignored tmp/business-panel-20261125/
+  credo-local-migration-205fc13202/before.sqlite3. Both migrations applied with
+  normal Django metadata/post_migrate handling in one IMMEDIATE transaction.
+  Fresh independent READ ONLY verifies exact model columns, new empty tables,
+  balance constraint, restored FK enforcement, foreign_key_check/quick_check OK.
+- All original table schemas/business rows/existing metadata preserved. Only two
+  migration records, two content types and eight model permission rows added;
+  no permission assignments, orders, stock, payments or fake finance data changed.
+  Fresh read-only ORM joins work; no pending local migrations. Django check has
+  only existing CKEditor warning. This supersedes local-pending notes below.
+- No bank/provider HTTP, tracking event, production DB/ENV, deployment or commit.
+  Both Credo request flags remain OFF/test mode ON. Production migrations remain
+  user-owned/pending. Next: owner review and controlled-test access/configuration,
+  then agreed production rollout and separately authorized first bank request.
+
+## Credo Checkout And Merchant Operations Prepared - 2026-11-25
+
+- User approved phased implementation of docs/CREDO_INTEGRATION_PLAN.md. Steps1–9
+  server preparation includes private CredoApplication/commerce0047 migration,
+  strict status policy, widget client, frozen checkout/reservation, single order
+  creation and bounded leased status polling with mocked checks. No live start.
+  Signature12 is fulfillment readiness; completed5 is separate funding evidence.
+  Regressions/conflicts need review; no blind create retry, raw bank PII or secrets.
+- Owner chose one Shop ID/both offers, Georgian Credo + Dayavi logos only, and
+  one financed total including delivery. Client represents delivery as one named
+  basket line; bank acceptance remains for agreed live test. Pricing decision
+  RESOLVED: owner explicitly chose merchant absorbs3%, no customer markup
+  for either offer. COD is legacy retained code, unused on site;
+  current active payment is card only. Provider lacks sandbox; live test/cancel agreed
+  generally, but no real bank/API request, production migration or deployment action.
+  User explicitly supplied credentials and authorized local protected configuration;
+  values stored only in ignored/untracked backend .env through non-echoing input.
+  Never repeat values or move them to code/docs/frontend/Git. Other ENV preserved.
+- SVGs extracted under artifacts/credo-logos. Frontend public/payments has only
+  credo-ge/dayavi. Both choices now connect to gated owner-bound start POSTs and
+  /checkout/credo/<uuid>. config/credo.py/settings now map strict independent flags,
+  exact credential strings, HTTPS URLs, bounded timeouts and explicit optional TTL.
+  New starts OFF/status HTTP OFF/test mode ON. No actual schedule or pilot access
+  policy yet; do not enable real starts before restricted test access is prepared.
+  Existing BOG/COD selection/handlers preserved. User wants short stage updates
+  and a pause for credentials/price decisions; remaining bank details must not
+  block independent preparation. Frontend HeaderSearch was already modified;
+  preserve that unrelated change.
+- Trusted12/5 observations create one pending Credo order with frozen prices/costs
+  and fresh stock checks. Bank5 remains funding evidence, separate from cash.
+  Shared guards block unresolved same-context Credo/BOG/COD attempts even after
+  hold expiry. Account erase clears private snapshot and prevents later revival.
+  Owner-bound local GET is no-store; no browser bank calls or private bank info.
+- Submission claims once before HTTP; timeout/crash is readback-only, never a
+  second POST. A signed HttpOnly scoped30-day cookie preserves application access
+  after the short Buy Now session. Foreign UUIDs cannot authorize access. Local
+  result URL is replaced before external navigation so Back/reload cannot loop.
+- Read-only Credo admin/Order inline exposes safe state and next action under
+  its own view permission. Wingo can book valid signed12/pending orders once,
+  recipientPaymentDue0; completed5 never offers another outbound parcel. No auto
+  booking or merchant-portal dispatch marking. Credo cancellation/return routes
+  are blocked until a bank-specific workflow exists; do not reuse BOG refunds.
+- Step9 prepares a frozen merchant-paid3% forecast and explicit immutable
+  CredoStatementSettlement/commerce0048. Staff with separate add-settlement and
+  view-application permissions confirm actual fee/net/date/reference from statement;
+  no auto-confirmation from bank5. Gross=fee+net; one atomic/idempotent cash row,
+  then order paid. Date-only bank evidence is displayed without a bank clock.
+- Accounting/Excel separate expected and actuals; original product/delivery totals
+  stay intact. One fee per order reduces the margin column; partial SKU searches
+  never allocate full fees. BOG-only export columns remain unchanged. Bank5-real-
+  consented Purchase queues once after commit using existing shared event ID;
+  browser requires server purchase_eligible. Test/review cases cannot emit. No
+  guarantee of external exactly-once delivery. Credo receipt needs actual payment
+  and existing owner/receipt proof or its scoped signed checkout cookie.
+- IMPORTANT: apply commerce0047 AND new0048 BEFORE starting this backend, even with Credo
+  disabled, because shared guards query its table. BOTH now applied locally,
+  verified above; production still pending. Local credentials only; no production
+  ENV, bank requests, schedule, deploy or commit.
+- Broad381 and focused131 backend checks,43 frontend checks, scoped ESLint and
+  strict app vue-tsc pass. Earlier broad267/final117 also passed. Additional
+  unchanged test_card_payment_flow has29 setup errors from missing internal_sku
+  against existing catalog0024 trigger and one SQLite concurrency skip; do not
+  claim full suite success. PostgreSQL concurrency remains unverified. Details
+  and phased rollout requirements are in docs/CREDO_INTEGRATION_PLAN.md.
+-79 focused configuration/start/status/BOG checks pass after ENV mapping, plus
+  fresh process exact credential/disabled-flag verification with HTTP forbidden.
+  Public docs GETs only: create spec has /widget_api/order.php but servers:[];
+  complete create URL remains explicit/blank until confirmed before live testing.
+  Status/redirect origins come from public docs; never probe APIs without agreement.
+- No browser/full build/native Excel rendering; Artifact runtime unavailable,
+  XML numeric/blank/filter checks passed. Local migration now verified; production
+  remains pending. Do not enable flags or call bank without the agreed next stage.
+
 ## Unified Mobile Search And Catalog Chips Prepared - 2026-11-25
 
 - Frontend-only,0–768px: outside home/catalog listing, one search-styled button

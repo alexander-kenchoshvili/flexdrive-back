@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from catalog.models import Product, TimeStampedModel
 from .accounting_snapshots import COST_FIELDS
+from .credo_status import CredoStatus
 
 
 class WingoReferenceData(models.Model):
@@ -145,6 +146,7 @@ class ProtectedFinancialManager(models.Manager.from_queryset(ProtectedFinancialQ
 class OrderPaymentMethod(models.TextChoices):
     CASH_ON_DELIVERY = "cash_on_delivery", "Cash on delivery"
     CARD = "card", "Card"
+    CREDO = "credo", "კრედოს დაფინანსება"
 
 
 class OrderPaymentStatus(models.TextChoices):
@@ -186,6 +188,7 @@ class PaymentProvider(models.TextChoices):
     MOCK = "mock", "Mock"
     MANUAL = "manual", "Manual"
     BOG = "bog", "Bank of Georgia"
+    CREDO = "credo", "Credo Bank"
 
 
 class PaymentTransactionAction(models.TextChoices):
@@ -992,6 +995,111 @@ class StockReservationItem(TimeStampedModel):
         return self.unit_price_snapshot * self.quantity
 
 
+class CredoApplication(TimeStampedModel):
+    """Private financing lifecycle, separate from cash receipt transactions.
+
+    Bank response PII is never copied here; checkout_snapshot is our own private
+    checkout evidence and follows the account-erasure policy. Cash settlement
+    and customer-facing availability are separate from this lifecycle record.
+    """
+
+    class Offer(models.TextChoices):
+        DAYAVI = "dayavi", "დაყავი"
+        INSTALLMENT = "installment", "კრედოს განვადება"
+
+    class SubmissionState(models.TextChoices):
+        PREPARED = "prepared", "მომზადებულია"
+        SUBMITTING = "submitting", "იგზავნება"
+        SUBMITTED = "submitted", "გაგზავნილია ბანკში"
+        UNKNOWN = "unknown", "შექმნის შედეგი გადასამოწმებელია"
+        FAILED = "failed", "შექმნა ვერ შესრულდა"
+
+    objects = ProtectedFinancialManager()
+    public_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    checkout_attempt = models.OneToOneField(
+        CheckoutAttempt, on_delete=models.PROTECT, related_name="credo_application",
+    )
+    reservation = models.OneToOneField(
+        StockReservation, on_delete=models.PROTECT, related_name="credo_application",
+    )
+    order = models.OneToOneField(
+        Order, on_delete=models.PROTECT, related_name="credo_application", null=True, blank=True,
+    )
+    merchant_id = models.CharField(max_length=64, validators=[RegexValidator(r"\A[0-9]+\Z")])
+    order_code = models.CharField(
+        max_length=50, unique=True, validators=[RegexValidator(r"\A[A-Za-z0-9_]{1,50}\Z")],
+    )
+    requested_offer = models.CharField(max_length=16, choices=Offer.choices)
+    requested_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    currency = models.CharField(max_length=3, default="GEL")
+    checkout_snapshot = models.JSONField(default=dict, blank=True)
+    snapshot_digest = models.CharField(
+        max_length=64, blank=True, validators=[RegexValidator(r"\A[0-9a-f]{64}\Z")],
+    )
+    submission_state = models.CharField(
+        max_length=16, choices=SubmissionState.choices, default=SubmissionState.PREPARED,
+    )
+    redirect_url = models.URLField(max_length=500, blank=True)
+    bank_status = models.SmallIntegerField(
+        null=True, blank=True, choices=[(code.value, code.name) for code in CredoStatus],
+    )
+    last_observed_status = models.IntegerField(null=True, blank=True)
+    needs_review = models.BooleanField(default=False)
+    last_issue = models.CharField(max_length=80, blank=True)
+    is_test = models.BooleanField(default=False, editable=False)
+    start_attempted_at = models.DateTimeField(null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    signed_at = models.DateTimeField(null=True, blank=True)
+    funding_completed_at = models.DateTimeField(null=True, blank=True)
+    merchant_fee_rate = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal("0.0300"), editable=False)
+    purchase_queued_at = models.DateTimeField(null=True, blank=True, editable=False)
+    bank_checked_at = models.DateTimeField(null=True, blank=True)
+    bank_check_attempted_at = models.DateTimeField(null=True, blank=True)
+    bank_check_lock_until = models.DateTimeField(null=True, blank=True)
+    bank_check_token = models.UUIDField(null=True, editable=False)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+        constraints = [
+            models.CheckConstraint(condition=Q(requested_amount__gt=0), name="credo_requested_amount_positive"),
+            models.CheckConstraint(condition=Q(currency="GEL"), name="credo_currency_gel"),
+            models.CheckConstraint(
+                condition=Q(requested_offer__in=("dayavi", "installment")), name="credo_requested_offer_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(submission_state__in=("prepared", "submitting", "submitted", "unknown", "failed")),
+                name="credo_submission_state_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(bank_status__isnull=True) | Q(bank_status__in=[code.value for code in CredoStatus]),
+                name="credo_effective_status_known",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["submission_state", "created_at"], name="credo_submission_created_idx"),
+            models.Index(fields=["bank_status", "bank_check_attempted_at"], name="credo_status_check_idx"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if not isinstance(self.checkout_snapshot, dict):
+            raise ValidationError({"checkout_snapshot": "Checkout evidence must be an object."})
+        if self.checkout_attempt_id and self.reservation_id:
+            if self.checkout_attempt.source != self.reservation.source:
+                raise ValidationError("Financing attempt and reservation must have the same checkout source.")
+        if self.order_id and self.checkout_attempt_id:
+            if self.checkout_attempt.order_id != self.order_id:
+                raise ValidationError("Financing order must match the checkout attempt order.")
+
+    def __str__(self):
+        return f"Credo — {self.order_code}"
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Hard deletion is disabled for financing applications.")
+
+
 class PaymentTransaction(TimeStampedModel):
     objects = ProtectedFinancialManager()
 
@@ -1126,6 +1234,47 @@ class PaymentTransaction(TimeStampedModel):
                 "Hard deletion is disabled for payment transactions."
             )
         return super().delete(*args, **kwargs)
+
+
+class CredoStatementSettlementQuerySet(ProtectedFinancialQuerySet):
+    def update(self, **kwargs):
+        if any(key not in {"confirmed_by", "confirmed_by_id"} or value is not None for key, value in kwargs.items()):
+            raise ValidationError("Confirmed Credo statement allocations cannot be edited.")
+        return super().update(**kwargs)
+
+
+class CredoStatementSettlement(TimeStampedModel):
+    """Immutable per-application statement allocation; bank status alone is insufficient."""
+
+    objects = CredoStatementSettlementQuerySet.as_manager()
+    application = models.OneToOneField(CredoApplication, on_delete=models.PROTECT, related_name="statement_settlement")
+    payment = models.OneToOneField(PaymentTransaction, on_delete=models.PROTECT, related_name="credo_settlement")
+    gross_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    fee_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    net_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    received_on = models.DateField()
+    statement_reference = models.CharField(max_length=120)
+    confirmed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="credo_settlements_confirmed")
+
+    class Meta:
+        ordering = ("-received_on", "-pk")
+        constraints = [
+            models.CheckConstraint(condition=Q(gross_amount__gt=0), name="credo_settlement_gross_positive"),
+            models.CheckConstraint(condition=Q(fee_amount__gte=0), name="credo_settlement_fee_nonnegative"),
+            models.CheckConstraint(condition=Q(net_amount__gt=0), name="credo_settlement_net_positive"),
+            models.CheckConstraint(condition=Q(gross_amount=models.F("fee_amount") + models.F("net_amount")), name="credo_settlement_balanced"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError("Confirmed Credo statement allocations cannot be edited.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Confirmed Credo statement allocations cannot be deleted.")
+
+    def __str__(self):
+        return f"Credo statement — {self.application.order_code}"
 
 
 class OrderReceipt(TimeStampedModel):

@@ -8,6 +8,8 @@ NAVIGATION = {
         "Order": "Orders — შეკვეთები",
         "OrderReturn": "Returns — დაბრუნებები",
         "PaymentTransaction": "Payment Transactions — გადახდები და თანხის დაბრუნებები",
+        "CredoApplication": "Credo Applications — კრედოს განაცხადები",
+        "CredoStatementSettlement": "Credo Settlements — კრედოს ჩარიცხვები",
         "OwnedStockLot": "Owned Stock Lots — FlexDrive-ის მარაგი",
         "WingoReferenceData": "Wingo Tariffs — Wingo-ს ტარიფები",
         "Cart": "Carts — კალათები",

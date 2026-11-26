@@ -74,6 +74,8 @@ def prepare_order_return(*, order, disposition, actor, wingo_return_tracking_num
     if disposition not in ReturnDisposition.values:
         raise ValidationError("აირჩიეთ ნივთების მდგომარეობა.")
     locked_order = Order.objects.select_for_update().get(pk=order.pk)
+    if locked_order.payment_method == "credo":
+        raise ValidationError("კრედოს შეკვეთის გაუქმება/დაბრუნება ჯერ ბანკთან შეთანხმებულ პროცესს მოითხოვს.")
     existing = OrderReturn.objects.filter(order=locked_order).first()
     wingo_return = locked_order.delivery_provider == "wingo" and disposition == ReturnDisposition.FROM_CUSTOMER
     if wingo_return_tracking_number is not None and not wingo_return:

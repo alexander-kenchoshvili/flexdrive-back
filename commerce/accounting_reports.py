@@ -79,7 +79,7 @@ def _search_orders(queryset, search):
 
 def order_queryset(period, search=""):
     receipts = PaymentTransaction.objects.filter(order_id=OuterRef("pk"), action__in=RECEIPT_ACTIONS,
-                                                  status__in=RECEIVED_STATUSES, captured_at__isnull=False)
+                                                  status__in=RECEIVED_STATUSES, captured_at__isnull=False).exclude(provider="credo", credo_settlement__isnull=True)
     refunds = PaymentTransaction.objects.filter(order_id=OuterRef("pk"), action="refund", status="refunded", refunded_at__isnull=False)
     orders = Order.objects.annotate(accounting_paid=Exists(receipts), accounting_refunded=Exists(refunds)).filter(
         Q(accounting_paid=True) | Q(accounting_refunded=True))
@@ -92,10 +92,10 @@ def event_queryset(period, search=""):
     receipts = Q(action__in=RECEIPT_ACTIONS, status__in=RECEIVED_STATUSES,
                  captured_at__gte=lower, captured_at__lt=upper)
     refunds = Q(action="refund", status="refunded", refunded_at__gte=lower, refunded_at__lt=upper)
-    queryset = PaymentTransaction.objects.filter(receipts | refunds)
+    queryset = PaymentTransaction.objects.filter(receipts | refunds).exclude(provider="credo", credo_settlement__isnull=True)
     if search:
         queryset = queryset.filter(order_id__in=_search_orders(Order.objects.all(), search).values("pk"))
-    return queryset.select_related("order").prefetch_related(
+    return queryset.select_related("order", "credo_settlement").prefetch_related(
         Prefetch("order__items", queryset=OrderItem.objects.select_related("inventory")), "order__payment_transactions",
     ).order_by("pk")
 
@@ -238,6 +238,7 @@ def _allocation(payment, row):
 def _cash_totals():
     return {
         "received": ZERO, "refunded": ZERO, "net_received": ZERO,
+        "gross_received": ZERO, "merchant_fee": ZERO,
         "delivery_received": ZERO, "delivery_refunded": ZERO, "net_delivery": ZERO,
         "buffer_received": ZERO, "buffer_refunded": ZERO, "net_buffer": ZERO,
         "product_received": ZERO, "product_refunded": ZERO,
@@ -260,17 +261,25 @@ def build_cash_report(period, *, tax_rates=None, limit=MAX_REPORT_ROWS, search="
     events, currencies = [], {}
     for payment in _bounded(event_queryset(period, search), limit):
         refund = payment.action == "refund"
+        credo_settlement = getattr(payment, "credo_settlement", None) if payment.provider == "credo" else None
+        cash_amount = credo_settlement.net_amount if credo_settlement else payment.amount
         row = order_row(payment.order, tax_rates=tax_rates) if payment.order_id else None
         allocation, issue = _allocation(payment, row)
         event = {
             "transaction_id": payment.pk, "order_id": payment.order_id,
             "kind": "refund" if refund else "receipt", "currency": payment.currency,
-            "amount": payment.amount, "occurred_at": payment.refunded_at if refund else payment.captured_at,
+            "amount": cash_amount, "gross_amount": payment.amount,
+            "merchant_fee": credo_settlement.fee_amount if credo_settlement else ZERO,
+            "occurred_at": payment.refunded_at if refund else payment.captured_at,
+            "date_precision": "date" if credo_settlement else "timestamp",
             "allocation": allocation, "issues": (issue,) if issue else (),
         }
         events.append(event)
         totals = currencies.setdefault(payment.currency, _cash_totals())
-        totals["refunded" if refund else "received"] += payment.amount
+        totals["refunded" if refund else "received"] += cash_amount
+        if not refund:
+            totals["gross_received"] += payment.amount
+            totals["merchant_fee"] += credo_settlement.fee_amount if credo_settlement else ZERO
         suffix = "refunded" if refund else "received"
         if allocation is None:
             totals["unallocated_" + suffix] += payment.amount

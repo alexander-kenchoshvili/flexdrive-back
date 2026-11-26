@@ -67,7 +67,11 @@ def order_block(group, columns):
                     ("უკუმიტანისთვის დაქვითული", display(first[18])), ("უკუმიტანის ხარჯი", display(first[19]))]
                    if group.get("refund") else [])
                 + ([("Wingo-ს ფასი — საინფორმაციო", display(first[20])), ("ფასთა სხვაობა", display(first[21]))]
-                   if provider == "wingo" else [])}
+                   if provider == "wingo" else [])
+                + ([("კრედოს საკომისიო — ბიზნესის ხარჯი", display(first[23])),
+                    ("ბანკიდან ჩარიცხული", display(first[24])),
+                    ("პროდუქტების მარჟა კრედოს საკომისიოს შემდეგ", display(first[25]))]
+                   if len(first) > 23 and first[23] is not None else [])}
 
 
 @require_GET
@@ -87,9 +91,9 @@ def accounting_view(request):
             context["error"] = "შეამცირეთ არჩეული პერიოდი ან გადაამოწმეთ მონაცემები ადმინისტრატორთან."
         else:
             report["show_purchase"] = form.cleaned_data["show_purchase"]
-            columns = visible_columns(report["show_purchase"])
+            columns = visible_columns(report["show_purchase"], include_credo=any(row[23] is not None for row in report["rows"]))
             product_columns = [i for i in columns if 2 <= i <= 10]
-            total_columns = [i for i in columns if i == 4 or 7 <= i <= 14 or i in {18, 22}]
+            total_columns = [i for i in columns if i == 4 or 7 <= i <= 14 or i in {18, 22, 23, 24, 25}]
             if request.GET.get("export") == "xlsx":
                 from .accounting_export import export_response
                 return export_response(report)
@@ -97,6 +101,7 @@ def accounting_view(request):
             context.update(period=form.period, status=report["status"], sku=report["sku"], order_count=report["order_count"],
                 return_costs=report["return_costs"],
                 courier_bookings=report["courier_bookings"],
+                credo_financing=report["credo_financing"],
                 headers=report["headers"], rows=[[display(v) for v in row] for group in page for row in group["rows"]],
                 groups=[order_block(group, product_columns) for group in page],
                 product_headers=[report["headers"][i] for i in product_columns],

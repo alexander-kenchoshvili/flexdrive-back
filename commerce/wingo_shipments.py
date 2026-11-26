@@ -27,7 +27,12 @@ CREATION_UNCONFIRMED_MESSAGE = (
 
 
 def _eligible(order):
-    return (order.delivery_provider == "wingo" and order.payment_status == "paid"
+    from .services import has_credo_fulfillment_authorization
+    # Credo completion follows receipt. A first/late completed observation must
+    # never invite another outbound parcel; reconcile actual delivery manually.
+    payment_ready = (has_credo_fulfillment_authorization(order, for_new_shipment=True) if order.payment_method == "credo"
+                     else order.payment_status == "paid")
+    return (order.delivery_provider == "wingo" and payment_ready
             and order.status in {"new", "confirmed", "processing"}
             and not order.stock_restored_at and not OrderReturn.objects.filter(order=order).exists())
 

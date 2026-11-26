@@ -40,6 +40,15 @@
 {% for cost in return_costs.rows|slice:":20" %}<tr><td>{{ cost.recorded_at|date:"d.m.Y H:i" }}</td><td>{{ cost.order_number }}</td><td>{{ cost.cost|default_if_none:"—" }}</td></tr>{% empty %}<tr><td colspan="3">ამ პერიოდში ხარჯი არ დაფიქსირებულა.</td></tr>{% endfor %}
 </tbody></table></div><p>პირველი 20 ჩანაწერი; სრული სია Excel-ის ცალკე ფურცელზეა.</p></section>
 {% endif %}
+{% if credo_financing.rows %}
+<section class="accounting-period-total" aria-label="კრედოს დაფინანსება"><h2>კრედო — მოსალოდნელი და დადასტურებული თანხები</h2>
+<p>განაცხადის შექმნის პერიოდი, მიმდინარე მდგომარეობა. ქვემოთ მოცემული მოსალოდნელი თანხები მიღებულ ფულად არ ითვლება.</p>
+<p>მოსალოდნელი ჩარიცხვა დაუდასტურებელ განაცხადებზე: {{ credo_financing.pending_expected_net }} ₾. ამ განაცხადებზე ამონაწერით დადასტურებულია: {{ credo_financing.confirmed_net }} ₾.</p>
+<div style="overflow-x:auto"><table><thead><tr><th>შეკვეთა</th><th>დაფინანსება ₾</th><th>მოსალოდნელი 3% ₾</th><th>მოსალოდნელი ჩარიცხვა ₾</th><th>ბანკში დასრულებულია</th><th>დადასტურებული საკომისიო ₾</th><th>დადასტურებული ჩარიცხვა ₾</th><th>ამონაწერის თარიღი</th></tr></thead><tbody>
+{% for row in credo_financing.rows|slice:":20" %}<tr><td>{{ row.order_number }}</td><td>{{ row.gross }}</td><td>{{ row.expected_fee }}</td><td>{{ row.expected_net }}</td><td>{{ row.bank_completed|yesno:"კი,არა" }}</td><td>{{ row.actual_fee|default_if_none:"—" }}</td><td>{{ row.actual_net|default_if_none:"—" }}</td><td>{{ row.received_on|date:"d.m.Y"|default:"—" }}</td></tr>{% endfor %}
+</tbody></table></div><p>პირველი 20 ჩანაწერი. სრული სია Excel-ის „კრედოს დაფინანსება“ ფურცელზეა. პროდუქტის მარჟა კრედოს დადასტურებული საკომისიოს გამოკლებით ცალკე ჩანს; საგადასახადო მოპყრობა აქ არ განისაზღვრება.</p>
+</section>
+{% endif %}
 {% if courier_bookings != None %}
 <section class="accounting-period-total" aria-label="Wingo გზავნილების ფასები"><h2>Wingo — პერიოდში შექმნილი გზავნილები</h2>
 <p>ჯამი: <strong>{{ courier_bookings.total|default_if_none:"—" }} ₾</strong> · ფასთა სხვაობა: {{ courier_bookings.difference|default_if_none:"—" }} ₾.
