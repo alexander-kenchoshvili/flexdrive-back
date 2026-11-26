@@ -1,5 +1,30 @@
 # Project Instructions
 
+## Credo Refresh And Existing Shared Payment Cron Prepared - 2026-11-26
+
+- Owner rejected a separate paid worker/new cron and explicitly requested code.
+  New owner-bound POST /api/commerce/payments/credo/<uuid>/refresh/ uses existing
+  CSRF middleware, status flag, shared DB30s cooldown/lease and trusted bank GET.
+  Original GET remains purely local/read-only. UUID alone cannot access; scoped
+  guest cookie/account accepted. Final/review/signed browser states skip HTTP.
+  Errors cannot become denial; no create retry, funding/cash shortcut or PII leak.
+- Frontend status composable now calls protected POST every8s while visible;
+  server throttles real bank reads to>=30s across tabs and cron. Hidden tabs stop
+  requests and refresh on return. Manual-only button loading from prior fix stays;
+  new automatic updates do not change button loading/width. Existing success flow.
+- New reconcile_payments command for EXISTING bog-payment-reconciliation job:
+  bounded120s Credo batch first, then unchanged BOG command/default600s budget.
+  Credo30s retry is shared with browser, avoiding an extra15m cooldown after close.
+  Each provider still runs if other fails; aggregate nonzero retains job alerts.
+  Disabled Credo skips safely; dry-run invokes both child dry-runs with no HTTP.
+  Raise existing job's12m timeout to15m when changing its command (both budgets
+  plus startup/in-flight requests); keep existing15m schedule/component/size.
+-105 backend regression and47 frontend checks, scoped ESLint/strict app vue-tsc
+  pass; migration drift clean. No new migration/ENV/DB/provider operation, browser,
+  push/deploy or DO edit. Owner must deploy BOTH repos before job command change.
+  No paid worker/new job created. Canonical plan/PAYMENT_RECONCILIATION.md have
+  exact combined command. Public flags still user-owned/disabled until setup.
+
 ## Credo And Georgian Company Name PRODUCTION Migrations Applied - 2026-11-26
 
 - Owner explicitly supplied production DB access and authorized required migrations.

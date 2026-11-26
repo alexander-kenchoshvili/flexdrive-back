@@ -1,5 +1,25 @@
 # გაურკვეველი BOG გადახდების პერიოდული შემოწმება
 
+## საერთო BOG/Credo ბრძანება მომზადებულია — 2026-11-26
+
+ორივე რეპოს განახლებული კოდის deployment-ის შემდეგ არსებული payment job-ის
+Run command ჩანაცვლდეს შემდეგით:
+
+```text
+python manage.py reconcile_payments --limit 100 --min-age-minutes 10 --retry-minutes 15 --max-seconds 600
+```
+
+არსებული15წუთიანი გრაფიკი/კომპონენტი/ზომა რჩება. ძველი12წუთიანი timeout15წუთამდე
+გაიზარდოს ორი batch-ისა და startup/in-flight მოთხოვნების მოსათავსებლად.
+Wrapper ჯერ ამოწმებს Credo-ს (120წმ budget), შემდეგ უცვლელ BOG ბრძანებას
+არსებული პარამეტრებით (600წმ budget). ერთის შეცდომა მეორეს არ გამოტოვებს;
+საერთო error exit ინარჩუნებს job-ის failure alert-ს. Credo status გამორთული
+თუა, მხოლოდ Credo გამოტოვდება. `--dry-run` ორივეზე მხოლოდ ბაზას კითხულობს,
+HTTP/write/email გარეშე. ახალი Worker/job ან მიგრაცია არ არის.
+პროდაქშენის job ამ კოდურ ეტაპზე არ შეცვლილა. ღია Credo გვერდი იყენებს
+owner/CSRF-ით დაცულ POST-სა და საერთო30წამიან cooldown-ს; დახურული გვერდის
+განაცხადები ამ არსებულ Cron-ს მიჰყვება.
+
 2026-11-15: production `bog-payment-reconciliation` შექმნილია DigitalOcean-ში,
 512MB, `*/15 * * * *`, timeout12m. Dry-run და რეალური ბრძანების საწყისი გაშვება
 წარმატებულია, ყველა counter0. საბოლოო schedule deployment Live; პირველი15წუთიანი

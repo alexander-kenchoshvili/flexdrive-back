@@ -1,5 +1,7 @@
 """Owner-bound local state and gated financing start; no browser bank evidence."""
 
+from datetime import timedelta
+
 from django.conf import settings
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
@@ -18,7 +20,8 @@ from .credo_access import (
 from .credo_status import describe_credo_status
 from .credo_guards import unresolved_credo_applications
 from .credo_payments import CredoPaymentError, is_allowed_credo_redirect
-from .credo_submission import credo_start_configuration, find_credo_replay, submit_credo_application
+from .credo_submission import configured_credo_client, credo_start_configuration, find_credo_replay, submit_credo_application
+from .credo_reconciliation import due_credo_applications, reconcile_credo_application
 from .delivery_quotes import DeliveryQuoteError
 from .legal import build_terms_acceptance_snapshot
 from .meta_conversions import has_marketing_consent, build_marketing_context
@@ -103,18 +106,51 @@ class CredoAvailabilityAPIView(CredoReadOnlyAPIView):
         })
 
 
+def _owned_application(request, public_token):
+    access = Q(checkout_attempt__owner_fingerprint__in=_owner_fingerprints(request))
+    if _has_access_cookie(request, public_token):
+        access |= Q(public_token=public_token)
+    return get_object_or_404(
+        CredoApplication.objects.select_related("order", "checkout_attempt").filter(access),
+        public_token=public_token,
+    )
+
+
 class CredoApplicationStatusAPIView(CredoReadOnlyAPIView):
     permission_classes = [AllowAny]
     throttle_scope = "checkout"
 
     def get(self, request, public_token):
-        access = Q(checkout_attempt__owner_fingerprint__in=_owner_fingerprints(request))
-        if _has_access_cookie(request, public_token):
-            access |= Q(public_token=public_token)
-        application = get_object_or_404(
-            CredoApplication.objects.select_related("order", "checkout_attempt").filter(access),
-            public_token=public_token,
-        )
+        application = _owned_application(request, public_token)
+        return Response(credo_application_payload(application))
+
+
+class CredoApplicationRefreshAPIView(CredoReadOnlyAPIView):
+    """CSRF-protected owner POST; trusted server GET at most once per 30s.
+
+    Uses the same database cooldown/lease as cron. UUID alone is never access;
+    browser payload/status never becomes bank evidence. The local GET stays pure.
+    """
+    permission_classes = [AllowAny]
+    throttle_scope = "checkout"
+
+    def post(self, request, public_token):
+        application = _owned_application(request, public_token)
+        if (getattr(settings, "CREDO_STATUS_CHECK_ENABLED", False) is not True
+            or application.needs_review or application.bank_status in (5, 6, 7, 12)):
+            return Response(credo_application_payload(application))
+        now = timezone_now()
+        timing = {"created_before": now, "attempted_before": now-timedelta(seconds=30)}
+        if not due_credo_applications(**timing).filter(pk=application.pk).exists():
+            return Response(credo_application_payload(application))
+        try:
+            result = reconcile_credo_application(application.pk, client=configured_credo_client(), **timing)
+        except CredoPaymentError:
+            result = "failed"
+        if result == "failed":
+            return Response({"detail": "სტატუსის განახლება დროებით ვერ მოხერხდა. სცადეთ მოგვიანებით."}, status=503)
+        # Re-read related order after reconciliation may have created it.
+        application = _owned_application(request, public_token)
         return Response(credo_application_payload(application))
 
 

@@ -1,7 +1,7 @@
 from django.urls import path
 
 from .credo_views import (
-    CredoApplicationStatusAPIView, CredoAvailabilityAPIView,
+    CredoApplicationStatusAPIView, CredoApplicationRefreshAPIView, CredoAvailabilityAPIView,
     CredoApplicationStartAPIView, BuyNowCredoApplicationStartAPIView,
 )
 from .wingo_webhooks import WingoWebhookAPIView
@@ -95,6 +95,7 @@ urlpatterns = [
     path("payments/credo/cart/start/", CredoApplicationStartAPIView.as_view(), name="commerce-cart-credo-start"),
     path("payments/credo/buy-now/start/", BuyNowCredoApplicationStartAPIView.as_view(), name="commerce-buy-now-credo-start"),
     path("payments/credo/<uuid:public_token>/", CredoApplicationStatusAPIView.as_view(), name="commerce-credo-application-status"),
+    path("payments/credo/<uuid:public_token>/refresh/", CredoApplicationRefreshAPIView.as_view(), name="commerce-credo-application-refresh"),
     path("orders/lookup/", OrderLookupAPIView.as_view(), name="commerce-order-lookup"),
     path(
         "orders/<uuid:public_token>/receipt/",
