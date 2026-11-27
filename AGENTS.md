@@ -1,5 +1,37 @@
 # Project Instructions
 
+## Page Visitors And Sources Prepared - 2026-11-27
+
+- Owner requested page visitors/source details in the EXISTING Google / Website
+  analytics / Pages and devices tab. Added blogs/articles/catalog categories,
+  20-row remote pagination and title/path search; >500 matches asks to narrow.
+  Search discovers paths then reads full metrics, avoiding title-split users.
+- Selected public path shows period users/sessions/views/active time, daily rows
+  and first50 session sources with total count. Independent Facebook aggregate
+  deduplicates across its subdomains; never sum unique users across sources/days.
+  Source is session acquisition, not proof of the landing page/post or full reading.
+- Existing private pages GET/session/no-store/host guards retained; scoped caches,
+  stale/missing states and abort/late-response protection. No visitor identity.
+- Live read-only GA4 check for Nov23-26 confirms Subaru search result20 users,
+  28 views/22 sessions; Facebook18 users/26 views/20 sessions. No event sent.
+  Scoped backend/frontend tests, ESLint and strict app vue-tsc verified. No browser,
+  dev server/full build, migration/working DB/ENV/provider write/push/deploy.
+- Deploy BOTH repositories; no new credentials or migration. Details are in
+  paired backend docs/BUSINESS_PAGE_ANALYTICS.md. Existing unrelated work preserved.
+
+## Homepage Financing Title Accents Prepared - 2026-11-26
+
+- Owner will edit the homepage Hero title in admin. Frontend HeroSection now
+  highlights plain-text თანხის გაყოფით/თანხის გაყოფა and განვადებით/განვადება
+  automatically with existing theme-aware text-accent-primary; no HTML markup
+  needed. Escaped Vue interpolation preserves CMS text and the single H1.
+- Only0–768px: hero-copy padding-top4px and H1 line-height24px. Existing769+
+  typography/spacing, hero imagery, CTA and CMS content remain unchanged.
+-7 actual Vue SSR rendering cases, generated Tailwind/scoped CSS checks at
+  0/375/767/768/769px, theme-token contrast checks, scoped ESLint, strict app
+  vue-tsc and whitespace pass. No new tracked tests/browser/full build/server,
+  CMS/DB/ENV/provider/commit/push/deploy action. Frontend deployment only.
+
 ## Credo Refresh And Existing Shared Payment Cron Prepared - 2026-11-26
 
 - Owner rejected a separate paid worker/new cron and explicitly requested code.

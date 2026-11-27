@@ -240,10 +240,24 @@ class BusinessSearchConsoleView(BusinessAnalyticsView):
         return build_search_console_report(period)
 
 
+class BusinessPagesInput(BusinessReportInput):
+    q = serializers.CharField(max_length=120, required=False, allow_blank=True, default="")
+    page = serializers.IntegerField(min_value=1, max_value=1000000, default=1)
+    path = serializers.CharField(max_length=1000, required=False, allow_blank=True, default="")
+
+    def validate_path(self, value):
+        from .pages import is_public_path
+        if value and not is_public_path(value):
+            raise serializers.ValidationError("აირჩიეთ საჯარო გვერდი.")
+        return value
+
+
 class BusinessPagesView(BusinessAnalyticsView):
-    def build_report(self, period):
+    input_serializer = BusinessPagesInput
+
+    def get_report(self, period, values):
         from .pages import build_page_report
-        return build_page_report(period)
+        return build_page_report(period, query=values["q"], page=values["page"], path=values["path"])
 
 
 class BusinessDevicesView(BusinessAnalyticsView):
